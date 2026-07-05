@@ -27,7 +27,7 @@
 - [x] CLAUDE.md（プロジェクト規約）
 - [x] 開発計画書（本書）
 - [x] git リポジトリ初期化（.gitignore / 初回コミット、https://github.com/shinobiashi/saai-knowledge）
-- [ ] WordPress.org スラッグ `saai-knowledge` の重複・商標の事前確認
+- [x] WordPress.org スラッグ `saai-knowledge` の重複・商標の事前確認（2026-07-05 調査済み: スラッグ未使用・競合名称被りなし・著名商標衝突なし。既存 `saai-blocks` は同一アカウント shinobiashi 名義。申請前に USPTO / J-PlatPat で「SAAI」第9類・42類の手動確認を推奨）
 
 ### 完了条件
 
@@ -89,7 +89,7 @@
 
 ### タスク
 
-- [ ] `saai-knowledge/faq-list` ブロック（カテゴリー・件数・並び順属性、アコーディオン、FAQPage JSON-LD）
+- [ ] `saai-knowledge/faq-list` ブロック（カテゴリー・件数・並び順属性、コア Accordion ブロック（WP 6.9）を内部利用したアコーディオン、FAQPage JSON-LD）
 - [ ] FAQ アーカイブテンプレート（カテゴリー別アコーディオン）
 - [ ] `saai-knowledge/glossary-index` ブロック（五十音 / A–Z タブ、`saai_reading` ソート）
 - [ ] 用語個別ページテンプレート + DefinedTerm JSON-LD
@@ -142,7 +142,7 @@
 - [ ] 紐づけメタ（`saai_linked_products` / `saai_linked_product_cats`、1値1行保存）+ 解決ロジック（商品 ∪ 所属カテゴリー祖先、重複排除）
 - [ ] コンテンツ側 UI: エディターサイドバーで商品・商品カテゴリー検索選択
 - [ ] 商品側 UI: 商品編集画面の逆引きメタボックス（一覧・追加・解除）
-- [ ] 商品ページ表示: FAQ タブ（`woocommerce_product_tabs` + ブロックテーマ対応）、関連 KB セクション、商品説明への用語ツールチップ注入（`saai_autolink_dictionary`）— 各自動挿入は設定で on/off
+- [ ] 商品ページ表示: FAQ セクション（クラシック: `woocommerce_product_tabs` / blockified: `hooked_block_types` で `woocommerce/accordion-group` に `last_child` フック）、関連 KB セクション、商品説明への用語ツールチップ注入（`saai_autolink_dictionary`）— 各自動挿入は設定で on/off
 - [ ] 手動配置ブロック: `product-faq` / `product-docs` / `product-glossary` + ショートコード
 - [ ] 紐づけ解決ロジックのユニットテスト、商品ページの E2E テスト
 - [ ] QIT（Quality Insights Toolkit）テストのパス

@@ -1,6 +1,8 @@
 # SAAI Knowledge — 基礎設計書
 
-作成日: 2026-07-05 / ステータス: Draft v1
+作成日: 2026-07-05 / ステータス: v1.0（2026-07-05 最新API ファクトチェック反映済み）
+
+詳細設計: [自動リンクエンジン](DESIGN-AUTOLINK.md) / [公開フックAPI契約](DESIGN-HOOKS-API.md) / 開発計画: [DEVELOPMENT-PLAN.md](DEVELOPMENT-PLAN.md)
 
 ## 1. プロダクト概要
 
@@ -121,8 +123,8 @@ CPT 登録変更時のみ `flush_rewrite_rules()`（有効化時 + スラッグ�
 ```
 
 - **左サイドバー**: `saai_category` ツリー + 各タームの記事リンク。現在記事の祖先タームを自動展開。Interactivity API で開閉。
-- **右目次**: サーバーサイドで `parse_blocks()` して `core/heading`（h2/h3）を抽出、無IDの見出しにはアンカーを付与してレンダリング。スクロールスパイで現在位置をハイライト。
-- **ブロックテーマ**: `templates/single-saai_kb.html` 等のブロックテンプレートをプラグインから登録（`register_block_template()` / WP 6.7+ API）。ユーザーはサイトエディターで上書き可能。
+- **右目次**: サーバーサイドで `parse_blocks()` して `core/heading`（h2/h3）を抽出、無IDの見出しにはアンカーを付与してレンダリング。スクロールスパイで現在位置をハイライト。※TOCブロックはWPコアに存在しない（Gutenberg experimentalのまま）ため自前実装で確定。
+- **ブロックテーマ**: `register_block_template( 'saai-knowledge//single-saai_kb', [...] )`（WP 6.7+ API・現行仕様確認済み）でプラグインからブロックテンプレートを登録。ユーザーはサイトエディターで上書き可能（DB保存で保持）。テーマが同名テンプレートを持つ場合はテーマ優先になる点に注意。
 - **クラシックテーマ**: `template_include` でプラグイン同梱の PHP テンプレート（`do_blocks()` でブロックを描画）にフォールバック。テーマに `saai-knowledge/single-saai_kb.php` があればそちらを優先。
 
 ### 4.2 提供ブロック（無料版）
@@ -131,7 +133,7 @@ CPT 登録変更時のみ `flush_rewrite_rules()`（有効化時 + スラッグ�
 | --- | --- |
 | `saai-knowledge/kb-sidebar` | カテゴリー×記事ツリー（dynamic / Interactivity API） |
 | `saai-knowledge/kb-toc` | ページ内目次 + スクロールスパイ |
-| `saai-knowledge/faq-list` | FAQアコーディオン。属性: カテゴリー・件数・並び順。`FAQPage` JSON-LD を自動出力 |
+| `saai-knowledge/faq-list` | FAQアコーディオン。アコーディオンUIは**コア Accordion ブロック（WP 6.9で追加）のマークアップ/スタイルを内部利用**し自作しない。属性: カテゴリー・件数・並び順。`FAQPage` JSON-LD を自動出力 |
 | `saai-knowledge/glossary-index` | 五十音 / A–Z 索引 |
 | `saai-knowledge/search` | 横断ライブ検索ボックス（対象タイプを属性で選択） |
 | `saai-knowledge/breadcrumbs` | KB用パンくず（`BreadcrumbList` JSON-LD） |
@@ -179,11 +181,15 @@ CPT 登録変更時のみ `flush_rewrite_rules()`（有効化時 + スラッグ�
 
 ### 6.2 商品ページ表示（自動挿入 + ブロック提供の両輪）
 
-| 機能 | クラシックテーマ | ブロックテーマ |
+前提（2026-07 ファクトチェック済み）: WooCommerce 10.0 以降、blockified 商品ページの「商品詳細」は**タブではなく Accordion Group / Accordion Item レイアウト**。`woocommerce_product_tabs` で登録したカスタムタブは互換レイヤー（ProductDetails ブロックの `inject_compatible_tabs()`）がアコーディオン item に変換して注入する。
+
+| 機能 | クラシックテーマ | ブロックテーマ（blockified） |
 | --- | --- | --- |
-| FAQタブ | `woocommerce_product_tabs` フィルターで「FAQ」タブ追加 | Product Tabs（Accordion）ブロック対応 or 商品テンプレートへブロック配置 |
+| FAQセクション | `woocommerce_product_tabs` フィルターで「FAQ」タブ追加 | **Hooked Blocks 方式を第一候補**: `hooked_block_types` で `woocommerce/accordion-group` の `last_child` に FAQ item をフック。互換レイヤー経由の `woocommerce_product_tabs` も動作するためフォールバックとして併用 |
 | 関連KBセクション | `woocommerce_after_single_product_summary` に「関連ドキュメント」リンク一覧 | 同左フック（blockified テンプレートでも発火）+ 専用ブロック |
 | 用語ツールチップ | 商品説明・詳細説明にも自動リンク適用（`saai_autolink_dictionary` に商品紐づけ用語を注入 + Woo コンテンツフィルター対応） | 同左 |
+
+※ `@woocommerce/product-editor`（管理画面のブロック製品エディター）は WC 11.0 で削除されるため**一切依存しない**（管理UIは従来のメタボックス/エディターサイドバーで実装）。
 
 自動挿入は**設定でそれぞれ on/off 可能**。加えて手動配置用ブロックを提供:
 `saai-knowledge/product-faq`, `saai-knowledge/product-docs`, `saai-knowledge/product-glossary`（コンテキストの商品IDを自動解決、属性で商品指定も可）+ 同等ショートコード。
