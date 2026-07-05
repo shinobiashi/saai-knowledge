@@ -17,6 +17,8 @@
 
 各フェーズは「完了条件をすべて満たす → 次へ」。フェーズ内のタスク順は原則上から。
 
+M1〜M5 の全タスクは GitHub Issues #1〜#24（マイルストーン M1〜M5 に割当済み）として登録済み。実装は Issue 単位で進め、受け入れ条件は各 Issue に記載（本書と二重管理になった場合は Issue 側を正とする）。
+
 ---
 
 ## M0: プロジェクト基盤
@@ -26,7 +28,7 @@
 - [x] 基礎設計書（docs/DESIGN.md）
 - [x] CLAUDE.md（プロジェクト規約）
 - [x] 開発計画書（本書）
-- [x] git リポジトリ初期化（.gitignore / 初回コミット、https://github.com/shinobiashi/saai-knowledge）
+- [x] git リポジトリ初期化（.gitignore / 初回コミット、<https://github.com/shinobiashi/saai-knowledge>）
 - [x] WordPress.org スラッグ `saai-knowledge` の重複・商標の事前確認（2026-07-05 調査済み: スラッグ未使用・競合名称被りなし・著名商標衝突なし。既存 `saai-blocks` は同一アカウント shinobiashi 名義。申請前に USPTO / J-PlatPat で「SAAI」第9類・42類の手動確認を推奨）
 
 ### 完了条件
