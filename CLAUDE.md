@@ -29,6 +29,14 @@ FAQ / Knowledge Base / 用語集を提供する WordPress プラグインのモ�
 - セキュリティ: sanitize on input / escape on output、nonce + capability 両方のチェック、SQL は `$wpdb->prepare()`。
 - 有料版は無料版の公開フック（`saai_*` filters/actions）のみに依存する。無料版の内部クラスを直接呼ばない。
 
+## Git 運用（重要）
+
+- **`git commit` / `git push` は実行しない。コミットは必ずユーザーが手動で行う。**
+  - コミットメッセージの作成・提案、`git status` / `git diff` / `git log` 等の参照系、変更内容の整理は行ってよい。
+  - コミット準備が整ったら「このメッセージでコミットしてください」とメッセージ案を提示して止まる。
+- **PR の作成（`gh pr create` 等）も明示的な指示がない限り実行しない。** PR タイトル・本文の下書き作成は行ってよい。
+- コミットメッセージは英語（グローバルルールどおり）。
+
 ## コマンド（M1 でセットアップ後に有効）
 
 ```sh
