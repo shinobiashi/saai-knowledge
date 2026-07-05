@@ -26,7 +26,7 @@
 - [x] 基礎設計書（docs/DESIGN.md）
 - [x] CLAUDE.md（プロジェクト規約）
 - [x] 開発計画書（本書）
-- [ ] git リポジトリ初期化（.gitignore / 初回コミット）
+- [x] git リポジトリ初期化（.gitignore / 初回コミット、https://github.com/shinobiashi/saai-knowledge）
 - [ ] WordPress.org スラッグ `saai-knowledge` の重複・商標の事前確認
 
 ### 完了条件
