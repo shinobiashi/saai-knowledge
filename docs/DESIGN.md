@@ -202,9 +202,51 @@ CPT 登録変更時のみ `flush_rewrite_rules()`（有効化時 + スラッグ�
 
 ---
 
-## 7. コード構造
+## 7. AI可読性とデータエクスポート
 
-### 7.1 無料版
+FAQ を生成AIクローラーに発見されやすくし、サイト独自のカスタマーサポートAI（RAG）のデータ源として使いやすくするための設計。2026-07 追加。
+
+### 7.1 基本原則
+
+- **1 Q&A = 1 URL**: FAQ 個別ページは質問を `<h1>`、回答本文を直下に置き、1ページで回答が完結する構造にする。個別ページに `QAPage`、一覧に `FAQPage` の JSON-LD。
+- **SSR 必須**: アコーディオン等の折りたたみ UI でも、中身は常に初期 HTML に完全に含める。JS（Interactivity API）の役割は開閉のみ。多くの AI クローラーは JS を実行しないため、これを M2/M3 の受け入れ条件とする。
+
+### 7.2 llms.txt 戦略（3層 — v1 は第1層+第2層のみ）
+
+ルート `/llms.txt` はサイトに1つの単一リソースであり、主要SEOプラグイン（Yoast / AIOSEO / Rank Math 等）が既に生成機能を持つため、**自前でルートを取り合わない**。
+
+| 層 | 内容 | スコープ |
+| --- | --- | --- |
+| 第1層（主軸） | SEOプラグイン連携アダプター: 各プラグインの拡張フィルターを検知し、FAQ/KB/用語集セクションを既存の llms.txt に注入する。アダプターが無いプラグインでも、CPT が `public: true` なので post type ベースの自動掲載には乗る | v1 |
+| 第2層 | 自名前空間の Markdown インデックス: 衝突しない自プラグイン配下の URL（例: `/{kb-base}/llms.txt`）に FAQ/KB/用語集の全項目一覧を Markdown で常時提供。サイトオーナーや他プラグインの llms.txt からリンクしてもらう受け皿 | v1 |
+| 第3層 | ルート `/llms.txt` の自前生成: デフォルトOFF + 物理ファイル/既知プラグインの競合検知 + Site Health チェック | **バックログ**（v1 では実装しない） |
+
+### 7.3 Markdown 出力
+
+- FAQ / KB / 用語の個別ページを `?format=markdown` でクリーンな Markdown として取得可能にする（テーマのマークアップを含まない、タイトル + 本文 + メタ情報のみ。キャッシュあり）。
+- 第2層インデックスの各項目からこの Markdown 表現へリンクする。
+- 加工用フィルター: `saai_markdown_output`（DESIGN-HOOKS-API.md §3.5）。
+
+### 7.4 RAG エクスポート
+
+- REST: `GET /saai-knowledge/v1/export?types=faq,kb,glossary&format=jsonl|json&modified_after={ISO8601}&page=N`
+  - 1レコード: `{ id, type, title, content_markdown, content_plain, categories, tags, url, updated_at }`（公開コンテンツのみ）
+  - `modified_after` で増分同期に対応（サポートAI側の再取り込みを差分だけにできる）
+  - KB 記事は h2 単位のセクション配列 `sections: [ { heading, anchor, content_markdown } ]` を併せて出力（チャンク化しやすく）
+  - JSONL は1行1レコード（埋め込みパイプラインの標準形式）
+- 管理画面からも同内容を JSONL / CSV でダウンロード可能にする（非エンジニア向け）。
+- レコード加工用フィルター: `saai_export_record` — **有料版がここで商品ID / SKU / 商品カテゴリーを付与**し、「商品を認識するサポートAI」（この商品に紐づくFAQだけを検索対象にする等）の構築を可能にする。
+
+### 7.5 バックログ（v1 スコープ外）
+
+- 第3層: ルート `/llms.txt` 自前生成（競合検知 + Site Health チェック付き）
+- WordPress Abilities API + MCP アダプター対応（FAQ検索・取得を ability 登録し、AIエージェントがサイトへ直接照会できる形）
+
+---
+
+## 8. コード構造
+
+### 8.1 無料版
 
 ```text
 plugins/saai-knowledge/
@@ -228,7 +270,7 @@ plugins/saai-knowledge/
 - 管理専用コードは `is_admin()` 配下でのみロード。
 - 有料版向け公開API: `saai_register_content_location`（表示位置追加）、`saai_autolink_dictionary`、`saai_kb_sidebar_items`、`saai_search_results` 等のフィルターを最初から設計に含める。
 
-### 7.2 品質・CI
+### 8.2 品質・CI
 
 - **PHPCS**: WordPress-Extra + WordPress-Docs（`.phpcs.xml.dist`、prefix/text-domain チェック有効）
 - **PHPStan**: level 6〜 + szepeviktor/phpstan-wordpress（有料版は WooCommerce stubs）
@@ -236,13 +278,13 @@ plugins/saai-knowledge/
 - **Playwright E2E**: wp-env 上で KB レイアウト表示・アコーディオン・ライブ検索・（有料版）商品タブ
 - **GitHub Actions**: lint / test マトリクス（PHP 8.2–8.4 × WP 6.9–latest）、タグ push で ZIP 生成、無料版は WP.org SVN デプロイ
 
-### 7.3 i18n
+### 8.3 i18n
 
 - Text Domain = 各プラグインスラッグ。`wp i18n make-pot` / `make-json`（ブロックJS用）。日本語は自前 `ja` を同梱しつつ、WP.org 公開後は translate.wordpress.org へ移行。
 
 ---
 
-## 8. マイルストーン
+## 9. マイルストーン
 
 | フェーズ | 内容 |
 | --- | --- |
@@ -252,7 +294,7 @@ plugins/saai-knowledge/
 | **M4: 検索 + 仕上げ** | ライブ検索（REST + UI）、設定画面、uninstall、i18n、readme.txt → **WordPress.org 申請** |
 | **M5: 有料版** | 紐づけメタ + 双方向UI、商品ページ表示3種 + ブロック、HPOS/QIT 対応 → **WooCommerce.com 申請** |
 
-## 9. 主なリスクと対策
+## 10. 主なリスクと対策
 
 - **自動リンクのパフォーマンス**: 用語数が多いサイトで `the_content` 処理が重くなる → 辞書キャッシュ + 対象 post type 限定 + プロファイリングを M3 の完了条件に含める。
 - **テーマ互換（2カラム）**: テーマのコンテンツ幅制約と衝突しやすい → テンプレート上書き手段（サイトエディター / テーマ内 PHP）を必ず残し、CSS はコンテナクエリーベースで自己完結させる。

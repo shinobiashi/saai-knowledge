@@ -59,7 +59,15 @@ add_action( 'saai_loaded', function ( $plugin ) {
 | `saai_search_query_args` | `( array $args, string $query, string[] $types ): array` | 検索 WP_Query 引数の調整 |
 | `saai_search_results` | `( array $results, string $query, string[] $types ): array` | 結果の加工。result 形状: `[ 'id', 'type', 'title', 'url', 'excerpt' ]`（すべて出力エスケープ前の生値。エスケープは出力層の責務） |
 
-### 3.4 設定
+### 3.4 エクスポート / AI可読性
+
+| フック | シグネチャ | 用途 |
+| --- | --- | --- |
+| `saai_export_record` | `( array $record, WP_Post $post, string $format ): array` | エクスポート1レコードの加工。record 形状は `DESIGN.md` §7.4。**有料版が商品ID / SKU / 商品カテゴリーを付与** |
+| `saai_markdown_output` | `( string $markdown, WP_Post $post ): string` | `?format=markdown` 出力の加工 |
+| `saai_llms_index_items` | `( array $items ): array` | 自名前空間 Markdown インデックス（llms.txt 第2層）の項目加工。item 形状: `[ 'type', 'title', 'url', 'markdown_url' ]` |
+
+### 3.5 設定
 
 | フック | シグネチャ | 用途 |
 | --- | --- | --- |
@@ -110,5 +118,6 @@ add_action( 'saai_loaded', function ( $plugin ) {
 | 商品タブに FAQ | `$plugin->renderer()->faq_list()`（紐づけ解決は有料版側のクエリ） |
 | 関連 KB セクション | `$plugin->renderer()->kb_links()` |
 | 設定タブ追加（自動挿入 on/off） | `saai_settings_sections`, `saai_default_settings` |
+| RAG エクスポートへの商品メタ付与 | `saai_export_record` |
 
 この表が「有料版を壊さずに無料版をリファクタリングできる範囲」の定義になる。無料版の変更が上記フック・サービスの契約を守る限り、有料版の追従リリースは不要。
