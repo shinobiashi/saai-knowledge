@@ -12,8 +12,8 @@
         "env": "wp-env",
         "env:start": "wp-env start",
         "env:stop": "wp-env stop",
-        "lint:js": "wp-scripts lint-js plugins/*/src",
-        "lint:css": "wp-scripts lint-style plugins/*/src"
+        "lint:js": "npm run lint:js --workspaces --if-present",
+        "lint:css": "npm run lint:css --workspaces --if-present"
     },
     "devDependencies": {
         "@wordpress/env": "^10.0.0",
