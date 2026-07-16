@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit
+    bootstrap="plugins/saai-knowledge/tests/bootstrap.php"
+    colors="true"
+    beStrictAboutTestsThatDoNotTestAnything="true"
+>
+    <testsuites>
+        <testsuite name="saai-knowledge">
+            <directory suffix=".php">plugins/saai-knowledge/tests</directory>
+        </testsuite>
+    </testsuites>
+</phpunit>

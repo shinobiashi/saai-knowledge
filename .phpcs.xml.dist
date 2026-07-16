@@ -1,0 +1,47 @@
+<?xml version="1.0"?>
+<ruleset name="SAAI Knowledge">
+    <description>Coding standards for the SAAI Knowledge monorepo (free + WooCommerce add-on).</description>
+
+    <file>plugins</file>
+
+    <exclude-pattern>*/vendor/*</exclude-pattern>
+    <exclude-pattern>*/node_modules/*</exclude-pattern>
+    <exclude-pattern>*/build/*</exclude-pattern>
+    <exclude-pattern>*/languages/*</exclude-pattern>
+
+    <arg name="extensions" value="php"/>
+    <arg name="basepath" value="."/>
+    <arg name="colors"/>
+    <arg name="parallel" value="8"/>
+    <arg value="sp"/>
+
+    <rule ref="WordPress-Extra"/>
+    <rule ref="WordPress-Docs"/>
+
+    <!-- PHPUnit test classes follow the PHPUnit "test-*.php" naming convention, not the WP "class-*.php" one. -->
+    <rule ref="WordPress.Files.FileName">
+        <exclude-pattern>*/tests/*</exclude-pattern>
+    </rule>
+
+    <rule ref="PHPCompatibilityWP"/>
+    <config name="testVersion" value="8.2-"/>
+
+    <rule ref="WordPress.NamingConventions.PrefixAllGlobals">
+        <properties>
+            <property name="prefixes" type="array">
+                <element value="saai"/>
+                <element value="SAAI\Knowledge"/>
+                <element value="SAAI\KnowledgeWoo"/>
+            </property>
+        </properties>
+    </rule>
+
+    <rule ref="WordPress.WP.I18n">
+        <properties>
+            <property name="text_domain" type="array">
+                <element value="saai-knowledge"/>
+                <element value="saai-knowledge-for-woocommerce"/>
+            </property>
+        </properties>
+    </rule>
+</ruleset>
