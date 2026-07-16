@@ -144,7 +144,7 @@ CPT 登録変更時のみ `flush_rewrite_rules()`（有効化時 + スラッグ�
 
 - `the_content`（priority 遅め）で本文HTMLを走査し、用語（タイトル + `saai_synonyms`）の初出をツールチップ付きリンクに置換。
 - **辞書はキャッシュ**: 公開中の用語一覧をオブジェクトキャッシュ／transient に保持し、用語の保存時に無効化。
-- **除外**: 見出し・`a`・`code`/`pre`・ショートコード出力・自身の用語ページ。`DOMDocument`（`WP_HTML_Tag_Processor` + テキストノード処理）ベースで壊れないHTML操作。
+- **除外**: 見出し・`a`・`code`/`pre`・ショートコード出力・自身の用語ページ。HTML 操作は `preg_split` ベースの軽量トークナイザー（タグ/テキスト分割 + 除外要素の深度スタック）で行い、タグを壊さない。`WP_HTML_Tag_Processor` はテキストノード置換 API を持たないため不採用（詳細: DESIGN-AUTOLINK.md §4）。
 - ツールチップの中身は用語の excerpt（なければ本文冒頭）。ホバー／タップで Interactivity API 表示、リンク先は用語ページ。
 - 設定で対象 post type（既定: post, page, saai_kb, saai_faq）・最大リンク数を制御。投稿単位で `saai_no_autolink` により無効化可。
 - 辞書取得に `saai_autolink_dictionary` フィルターを用意 → **有料版がここに商品コンテキストを注入**する。
