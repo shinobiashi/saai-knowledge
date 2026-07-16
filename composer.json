@@ -3,7 +3,6 @@
     "description": "Development toolchain for the SAAI Knowledge monorepo (free + WooCommerce add-on).",
     "type": "project",
     "license": "GPL-2.0-or-later",
-    "private": true,
     "require": {
         "php": ">=8.2"
     },
