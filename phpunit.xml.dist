@@ -7,6 +7,7 @@
     <testsuites>
         <testsuite name="saai-knowledge">
             <directory suffix=".php">plugins/saai-knowledge/tests</directory>
+            <exclude>plugins/saai-knowledge/tests/bootstrap.php</exclude>
         </testsuite>
     </testsuites>
 </phpunit>
