@@ -28,6 +28,9 @@ FAQ / Knowledge Base / 用語集を提供する WordPress プラグインのモ�
 - ファイルロード時の副作用禁止。フック登録は `plugins_loaded` / `init` 以降。管理専用コードは `is_admin()` 配下でのみロード。
 - セキュリティ: sanitize on input / escape on output、nonce + capability 両方のチェック、SQL は `$wpdb->prepare()`。
 - 有料版は無料版の公開フック（`saai_*` filters/actions）のみに依存する。無料版の内部クラスを直接呼ばない。
+- PHPUnitテストクラス（`WP_UnitTestCase` 継承）は非名前空間の `Test_*` 慣習に従う。WPCSの `PrefixAllGlobals` sniff は既知のユニットテスト基底クラスを継承したクラスを prefix 規約の対象外にするため、`saai_`/`SAAI\Knowledge` prefix は不要。
+- ファイルdocblock直後の文が裸の `require`/`include` だと、PHPCSの `Squiz.Commenting.FileComment.Missing` が誤検知することがある（bootstrap系ファイルで発生実績あり）。docblock直後には代入文などを挟み、requireは後に置く。
+- `composer.json` の `config.platform.php` は必ずプロジェクトの最小PHP要件（8.2.0）に固定する。外すと `composer.lock` が開発機のPHPバージョンに引きずられ、8.2/8.3環境で `composer install` が壊れうる（doctrine/instantiatorで実際に発生）。
 
 ## Git 運用（重要）
 
@@ -37,16 +40,17 @@ FAQ / Knowledge Base / 用語集を提供する WordPress プラグインのモ�
 - **PR の作成（`gh pr create` 等）も明示的な指示がない限り実行しない。** PR タイトル・本文の下書き作成は行ってよい。
 - コミットメッセージは英語（グローバルルールどおり）。
 
-## コマンド（M1 でセットアップ後に有効）
+## コマンド
 
 ```sh
-npm run start / npm run build   # wp-scripts（workspaces で各プラグイン）
-npx wp-env start                # ローカル環境（両プラグイン + WooCommerce）
+npm run start / npm run build   # wp-scripts（workspaces で各プラグイン。M2でブロック追加まではno-op）
+npx wp-env start                # ローカル環境（無料版 + WooCommerce。有料版は M5 でマウント追加）
 composer lint / lint:fix        # PHPCS / PHPCBF
 composer analyze                # PHPStan
-composer test                   # PHPUnit
-npm run test:e2e                # Playwright
+composer test                   # PHPUnit（wp-env の tests-cli コンテナ内で実行）
 ```
+
+Playwright E2E（`npm run test:e2e`）は M2 でセットアップ予定、現時点では未整備。
 
 ## Markdown 規約（docs/）
 
