@@ -45,7 +45,7 @@ M1〜M5 の全タスクは GitHub Issues #1〜#27（マイルストーン M1〜M
 - [x] `.wp-env.json`（WP 6.9 / PHP 8.2、WooCommerce マウント。有料版プラグインは M5 で実体ができてからマウント追加）
 - [x] ツールチェーン: @wordpress/scripts、PHPCS（.phpcs.xml.dist、prefix/text-domain チェック）、PHPStan（szepeviktor/phpstan-wordpress）、PHPUnit ブートストラップ
 - [x] GitHub Actions: lint + test（PHP 8.2–8.4 × WP 6.9–latest マトリクス）+ ZIP ビルド
-- [ ] 無料版ブートストラップ: メインファイル、オートローダ、`Plugin::boot()`、activation/deactivation フック（rewrite flush）、`uninstall.php`
+- [x] 無料版ブートストラップ: メインファイル、オートローダ、`Plugin::boot()`、activation/deactivation フック（rewrite flush）、`uninstall.php`
 - [ ] CPT 登録: `saai_faq` / `saai_kb` / `saai_glossary`（DESIGN.md 3.1 準拠）
 - [ ] タクソノミー登録: `saai_category`（FAQ+KB 共通・階層）/ `saai_tag`
 - [ ] ポストメタ登録: `saai_reading` / `saai_synonyms` / `saai_no_autolink`（`register_post_meta`、REST 公開）
