@@ -54,6 +54,7 @@ install_wp() {
 		unzip -q "$TMPDIR"/wordpress-nightly/wordpress-nightly.zip -d "$TMPDIR"/wordpress-nightly/
 		mv "$TMPDIR"/wordpress-nightly/wordpress/* "$WP_CORE_DIR"
 	else
+		local ARCHIVE_NAME
 		if [ "$WP_VERSION" == 'latest' ]; then
 			ARCHIVE_NAME='latest'
 		else
@@ -62,8 +63,6 @@ install_wp() {
 		download "https://wordpress.org/${ARCHIVE_NAME}.tar.gz" "$TMPDIR"/wordpress.tar.gz
 		tar --strip-components=1 -zxmf "$TMPDIR"/wordpress.tar.gz -C "$WP_CORE_DIR"
 	fi
-
-	download https://raw.github.com/markoheijnen/wp-mysqli/master/db.php "$WP_CORE_DIR"/wp-content/db.php
 }
 
 install_test_suite() {
@@ -95,10 +94,10 @@ install_db() {
 		return 0
 	fi
 
-	PARTS=(${DB_HOST//\:/ })
-	DB_HOSTNAME=${PARTS[0]}
-	DB_SOCK_OR_PORT=${PARTS[1]}
-	EXTRA=""
+	local PARTS=(${DB_HOST//\:/ })
+	local DB_HOSTNAME=${PARTS[0]}
+	local DB_SOCK_OR_PORT=${PARTS[1]}
+	local EXTRA=""
 
 	if ! [ -z "$DB_HOSTNAME" ]; then
 		if [ "$(echo "$DB_SOCK_OR_PORT" | grep -e '^[0-9]\{1,\}$')" ]; then
