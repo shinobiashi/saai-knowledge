@@ -50,10 +50,14 @@ final class Plugin {
 	/**
 	 * Registers the plugin's internal services.
 	 *
-	 * Concrete services (post types, blocks, REST routes, etc.) are added
+	 * Concrete services (blocks, REST routes, etc.) are added
 	 * incrementally in later milestones.
 	 */
 	private function register_services(): void {
+		( new Post_Types() )->register();
+		( new Taxonomies() )->register();
+		( new Post_Meta() )->register();
+		( new Glossary_Editor() )->register();
 	}
 
 	/**

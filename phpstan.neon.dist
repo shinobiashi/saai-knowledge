@@ -1,5 +1,7 @@
 parameters:
     level: 6
+    bootstrapFiles:
+        - phpstan-bootstrap.php
     paths:
         - plugins/saai-knowledge
     excludePaths:

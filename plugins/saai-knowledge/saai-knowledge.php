@@ -30,7 +30,7 @@ spl_autoload_register(
 		$relative   = substr( $fqcn, strlen( $prefix ) );
 		$parts      = explode( '\\', $relative );
 		$class_name = array_pop( $parts );
-		$file_name  = 'class-' . strtolower( preg_replace( '/(?<!^)[A-Z]/', '-$0', $class_name ) ) . '.php';
+		$file_name  = 'class-' . strtolower( str_replace( '_', '-', $class_name ) ) . '.php';
 		$directory  = SAAI_KNOWLEDGE_DIR . 'includes/' . ( $parts ? implode( '/', $parts ) . '/' : '' );
 		$path       = $directory . $file_name;
 
