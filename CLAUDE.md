@@ -47,10 +47,15 @@ npm run start / npm run build   # wp-scripts（workspaces で各プラグイン�
 npx wp-env start                # ローカル環境（無料版 + WooCommerce。有料版は M5 でマウント追加）
 composer lint / lint:fix        # PHPCS / PHPCBF
 composer analyze                # PHPStan
-composer test                   # PHPUnit（wp-env の tests-cli コンテナ内で実行）
+composer test                   # PHPUnit（ローカルは wp-env の tests-cli コンテナ、CI は bin/install-wp-tests.sh + WP_TESTS_DIR でホスト直実行）
 ```
 
 Playwright E2E（`npm run test:e2e`）は M2 でセットアップ予定、現時点では未整備。
+
+## CI（GitHub Actions）
+
+- `ci-php.yml`（PHPCS / PHPStan / PHPUnit、PHP 8.2–8.4 × WP 6.9–latest）、`ci-js.yml`、`release.yml`（`v*` タグ push で無料版 ZIP を GitHub Release に添付）。
+- `bin/install-wp-tests.sh` は wp-cli scaffold の移植。改変時は必ず canonical と突き合わせる（ABSPATH sed の末尾スラッシュ欠落で全マトリクスが落ちた実績）。ubuntu-latest ランナーに svn は無い（ワークフロー側で apt install 済み）。
 
 ## Markdown 規約（docs/）
 
