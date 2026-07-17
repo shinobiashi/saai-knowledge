@@ -34,6 +34,7 @@ FAQ / Knowledge Base / 用語集を提供する WordPress プラグインのモ�
 
 ## Git 運用（重要）
 
+- ブランチ名は `issue-<番号>-<内容>` 形式（例: `issue-3-bootstrap`）。Issue 単位の作業に対応させる。
 - **`git commit` / `git push` は実行しない。コミットは必ずユーザーが手動で行う。**
   - コミットメッセージの作成・提案、`git status` / `git diff` / `git log` 等の参照系、変更内容の整理は行ってよい。
   - コミット準備が整ったら「このメッセージでコミットしてください」とメッセージ案を提示して止まる。
@@ -49,6 +50,14 @@ composer lint / lint:fix        # PHPCS / PHPCBF
 composer analyze                # PHPStan
 composer test                   # PHPUnit（ローカルは wp-env の tests-cli コンテナ、CI は bin/install-wp-tests.sh + WP_TESTS_DIR でホスト直実行）
 ```
+
+ローカルでの `composer test` 実行例（`.wp-env.json` の `mappings.saai-monorepo` によりリポジトリルートはコンテナの `wp-content/` 配下ではなく `saai-monorepo/` 直下にマウントされる）:
+
+```sh
+npx wp-env run tests-cli --env-cwd=saai-monorepo bash -c "composer test"
+```
+
+`wp-env run` はスペース区切りの複数語コマンドを直接渡すと失敗するため `bash -c "..."` で包む。`composer analyze` がメモリ不足で落ちる場合は `composer exec phpstan analyse -- --memory-limit=512M` を使う。
 
 Playwright E2E（`npm run test:e2e`）は M2 でセットアップ予定、現時点では未整備。
 
