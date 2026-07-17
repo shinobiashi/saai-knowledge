@@ -1,0 +1,22 @@
+{
+    "name": "saai-knowledge-monorepo",
+    "private": true,
+    "description": "Development toolchain for the SAAI Knowledge monorepo (free + WooCommerce add-on).",
+    "license": "GPL-2.0-or-later",
+    "workspaces": [
+        "plugins/*"
+    ],
+    "scripts": {
+        "start": "npm run start --workspaces --if-present",
+        "build": "npm run build --workspaces --if-present",
+        "env": "wp-env",
+        "env:start": "wp-env start",
+        "env:stop": "wp-env stop",
+        "lint:js": "npm run lint:js --workspaces --if-present",
+        "lint:css": "npm run lint:css --workspaces --if-present"
+    },
+    "devDependencies": {
+        "@wordpress/env": "^10.0.0",
+        "@wordpress/scripts": "^30.0.0"
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "name": "saai-knowledge",
+    "private": true,
+    "description": "SAAI Knowledge — FAQ / Knowledge Base / Glossary for WordPress.",
+    "license": "GPL-2.0-or-later",
+    "scripts": {
+        "start": "wp-scripts start",
+        "build": "wp-scripts build"
+    },
+    "devDependencies": {
+        "@wordpress/scripts": "^30.0.0"
+    }
+}

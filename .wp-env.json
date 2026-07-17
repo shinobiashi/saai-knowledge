@@ -1,0 +1,29 @@
+{
+    "plugins": [
+        "./plugins/saai-knowledge",
+        "https://downloads.wordpress.org/plugin/woocommerce.zip",
+        "https://downloads.wordpress.org/plugin/wp-mail-logging.zip",
+        "https://downloads.wordpress.org/plugin/plugin-check.zip",
+        "https://downloads.wordpress.org/plugin/debug-bar.zip"
+    ],
+    "config": {
+        "WP_DEBUG": true,
+        "WP_DEBUG_LOG": true,
+        "WP_DEBUG_DISPLAY": true,
+        "SCRIPT_DEBUG": true
+    },
+    "mappings": {
+        "saai-monorepo": "."
+    },
+    "env": {
+        "development": {
+            "phpmyadminPort": 10004
+        },
+        "tests": {
+            "phpmyadminPort": 10005
+        }
+    },
+    "lifecycleScripts": {
+        "afterStart": "bash bin/wp-env-prune-default-themes.sh"
+    }
+}
