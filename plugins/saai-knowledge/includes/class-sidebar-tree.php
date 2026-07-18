@@ -27,20 +27,13 @@ final class Sidebar_Tree {
 			? $this->ancestor_term_ids_for_post( $current_post_id )
 			: array();
 
-		$top_level_terms = get_terms(
-			array(
-				'taxonomy'   => 'saai_category',
-				'parent'     => 0,
-				'hide_empty' => false,
-			)
-		);
+		$terms_by_parent = $this->terms_by_parent();
+		$posts_by_term   = $this->kb_posts_by_term();
 
 		$tree = array();
 
-		if ( ! is_wp_error( $top_level_terms ) ) {
-			foreach ( $this->sort_terms( $top_level_terms ) as $term ) {
-				$tree[] = $this->build_term_node( $term, $ancestor_term_ids );
-			}
+		foreach ( $this->sort_terms( $terms_by_parent[0] ?? array() ) as $term ) {
+			$tree[] = $this->build_term_node( $term, $terms_by_parent, $posts_by_term, $ancestor_term_ids );
 		}
 
 		/**
@@ -67,28 +60,20 @@ final class Sidebar_Tree {
 	/**
 	 * Builds a single term node, including its child terms and articles.
 	 *
-	 * @param \WP_Term $term              The term to render.
-	 * @param int[]    $ancestor_term_ids Term IDs to auto-expand.
+	 * @param \WP_Term               $term              The term to render.
+	 * @param array<int, \WP_Term[]> $terms_by_parent   All saai_category terms, keyed by parent term ID (0 for top level).
+	 * @param array<int, \WP_Post[]> $posts_by_term     All saai_kb articles, keyed by their assigned term ID.
+	 * @param int[]                  $ancestor_term_ids Term IDs to auto-expand.
 	 * @return array<string, mixed>
 	 */
-	private function build_term_node( \WP_Term $term, array $ancestor_term_ids ): array {
+	private function build_term_node( \WP_Term $term, array $terms_by_parent, array $posts_by_term, array $ancestor_term_ids ): array {
 		$children = array();
 
-		$child_terms = get_terms(
-			array(
-				'taxonomy'   => 'saai_category',
-				'parent'     => $term->term_id,
-				'hide_empty' => false,
-			)
-		);
-
-		if ( ! is_wp_error( $child_terms ) ) {
-			foreach ( $this->sort_terms( $child_terms ) as $child_term ) {
-				$children[] = $this->build_term_node( $child_term, $ancestor_term_ids );
-			}
+		foreach ( $this->sort_terms( $terms_by_parent[ $term->term_id ] ?? array() ) as $child_term ) {
+			$children[] = $this->build_term_node( $child_term, $terms_by_parent, $posts_by_term, $ancestor_term_ids );
 		}
 
-		foreach ( $this->term_articles( $term->term_id ) as $post ) {
+		foreach ( $posts_by_term[ $term->term_id ] ?? array() as $post ) {
 			$children[] = array(
 				'type'     => 'post',
 				'id'       => $post->ID,
@@ -113,12 +98,43 @@ final class Sidebar_Tree {
 	}
 
 	/**
-	 * The saai_kb articles directly assigned to a term, in menu_order.
+	 * All saai_category terms in a single query, keyed by parent term ID.
 	 *
-	 * @param int $term_id Term ID.
-	 * @return \WP_Post[]
+	 * @return array<int, \WP_Term[]>
 	 */
-	private function term_articles( int $term_id ): array {
+	private function terms_by_parent(): array {
+		$terms = get_terms(
+			array(
+				'taxonomy'   => 'saai_category',
+				'hide_empty' => false,
+			)
+		);
+
+		if ( is_wp_error( $terms ) ) {
+			return array();
+		}
+
+		$by_parent = array();
+
+		foreach ( $terms as $term ) {
+			$by_parent[ $term->parent ][] = $term;
+		}
+
+		return $by_parent;
+	}
+
+	/**
+	 * All published saai_kb articles, keyed by their assigned saai_category term ID,
+	 * in menu_order.
+	 *
+	 * The query below leaves `update_post_term_cache` at its default (true), which
+	 * primes the term relationship cache for every fetched post in one query; the
+	 * per-post wp_get_post_terms() calls below then read from that cache instead of
+	 * issuing a query each, keeping this at two queries total regardless of tree size.
+	 *
+	 * @return array<int, \WP_Post[]>
+	 */
+	private function kb_posts_by_term(): array {
 		$query = new \WP_Query(
 			array(
 				'post_type'              => 'saai_kb',
@@ -130,19 +146,24 @@ final class Sidebar_Tree {
 				),
 				'no_found_rows'          => true,
 				'update_post_meta_cache' => false,
-				'update_post_term_cache' => false,
-				'tax_query'              => array(
-					array(
-						'taxonomy'         => 'saai_category',
-						'field'            => 'term_id',
-						'terms'            => $term_id,
-						'include_children' => false,
-					),
-				),
 			)
 		);
 
-		return $query->posts;
+		$posts_by_term = array();
+
+		foreach ( $query->posts as $post ) {
+			$term_ids = wp_get_post_terms( $post->ID, 'saai_category', array( 'fields' => 'ids' ) );
+
+			if ( is_wp_error( $term_ids ) ) {
+				continue;
+			}
+
+			foreach ( $term_ids as $term_id ) {
+				$posts_by_term[ $term_id ][] = $post;
+			}
+		}
+
+		return $posts_by_term;
 	}
 
 	/**
