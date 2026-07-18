@@ -19,8 +19,12 @@
     <rule ref="WordPress-Docs"/>
 
     <!-- PHPUnit test classes follow the PHPUnit "test-*.php" naming convention, not the WP "class-*.php" one. -->
+    <!-- Template filenames must exactly match the CPT slug they render (e.g. single-saai_kb.php for the
+         saai_kb post type) so they line up with the block template hierarchy slug and the saai-knowledge/*.php
+         theme override path; those slugs use underscores, so hyphenation can't apply here. -->
     <rule ref="WordPress.Files.FileName">
         <exclude-pattern>*/tests/*</exclude-pattern>
+        <exclude-pattern>*/templates/*</exclude-pattern>
     </rule>
 
     <rule ref="PHPCompatibilityWP"/>
