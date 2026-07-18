@@ -31,6 +31,10 @@ FAQ / Knowledge Base / 用語集を提供する WordPress プラグインのモ�
 - PHPUnitテストクラス（`WP_UnitTestCase` 継承）は非名前空間の `Test_*` 慣習に従う。WPCSの `PrefixAllGlobals` sniff は既知のユニットテスト基底クラスを継承したクラスを prefix 規約の対象外にするため、`saai_`/`SAAI\Knowledge` prefix は不要。
 - ファイルdocblock直後の文が裸の `require`/`include` だと、PHPCSの `Squiz.Commenting.FileComment.Missing` が誤検知することがある（bootstrap系ファイルで発生実績あり）。docblock直後には代入文などを挟み、requireは後に置く。
 - `composer.json` の `config.platform.php` は必ずプロジェクトの最小PHP要件（8.2.0）に固定する。外すと `composer.lock` が開発機のPHPバージョンに引きずられ、8.2/8.3環境で `composer install` が壊れうる（doctrine/instantiatorで実際に発生）。
+- PHPクラス名は WordPress 標準の `Post_Types` 形式（アンダースコア区切りPascalCase）を使う。カスタムオートローダー（`saai-knowledge.php`）はアンダースコア→ハイフン変換のみでファイルパスを解決し、WPCSの `WordPress.Files.FileName` sniffも同じ変換を期待するため、`PostTypes` のような純CamelCaseクラス名は両方と不整合になる（lint失敗・オートロード不可）。
+- `register_post_meta()` の `auth_callback` は WordPress が `auth_{$object_type}_meta_{$meta_key}` フィルタ経由で6引数（`$allowed, $meta_key, $object_id, $user_id, $cap, $caps`）を渡して呼び出す。シグネチャをこれに合わせる（PHPは超過引数を無視するため実害はないが契約を明確にする）。
+- `register_activation_hook()` のコールバックは、プラグイン本体ファイルが `activate_plugin()` 内で（WordPress自身の `init` より後に）はじめて `include` される関係で、同一リクエスト内では通常の `init`/`plugins_loaded` フックがまだ発火しない。`activate()` で `flush_rewrite_rules()` する場合、CPT/タクソノミー登録を `init` に任せず、`activate()` 内で直接呼んでから flush する。
+- WP core test framework は各テスト後に `tear_down()` で登録済みメタキーを全て消去する（`unregister_all_meta_keys()`）。`register_post_meta()` に依存するテストは、ブートストラップ時の `init` 一度きりの登録に頼らず、テストクラスの `set_up()` で明示的に再登録する。
 
 ## Git 運用（重要）
 
@@ -49,6 +53,7 @@ npx wp-env start                # ローカル環境（無料版 + WooCommerce�
 composer lint / lint:fix        # PHPCS / PHPCBF
 composer analyze                # PHPStan
 composer test                   # PHPUnit（ローカルは wp-env の tests-cli コンテナ、CI は bin/install-wp-tests.sh + WP_TESTS_DIR でホスト直実行）
+composer verify                 # lint + analyze + test を一括実行（bin/verify.sh。wp-env が未起動なら起動し、このコマンドが起動した場合のみ終了時に停止）
 ```
 
 ローカルでの `composer test` 実行例（`.wp-env.json` の `mappings.saai-monorepo` によりリポジトリルートはコンテナの `wp-content/` 配下ではなく `saai-monorepo/` 直下にマウントされる）:
