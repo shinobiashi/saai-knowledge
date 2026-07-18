@@ -65,8 +65,17 @@ final class Plugin {
 
 	/**
 	 * Runs on plugin activation.
+	 *
+	 * The post types and taxonomies are normally registered on `init`, but
+	 * that hook has already fired earlier in the same request by the time
+	 * the activation callback runs (the plugin file is only `include`d
+	 * inside `activate_plugin()`, after WordPress's own `init`). Register
+	 * them directly here so the first flush includes their rewrite rules.
 	 */
 	public static function activate(): void {
+		( new Post_Types() )->register_post_types();
+		( new Taxonomies() )->register_taxonomies();
+
 		flush_rewrite_rules();
 	}
 
