@@ -57,7 +57,10 @@ final class Plugin {
 		( new Post_Types() )->register();
 		( new Taxonomies() )->register();
 		( new Post_Meta() )->register();
-		( new Glossary_Editor() )->register();
+
+		if ( is_admin() ) {
+			( new Glossary_Editor() )->register();
+		}
 	}
 
 	/**
