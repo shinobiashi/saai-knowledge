@@ -50,16 +50,32 @@ final class Plugin {
 	/**
 	 * Registers the plugin's internal services.
 	 *
-	 * Concrete services (post types, blocks, REST routes, etc.) are added
+	 * Concrete services (blocks, REST routes, etc.) are added
 	 * incrementally in later milestones.
 	 */
 	private function register_services(): void {
+		( new Post_Types() )->register();
+		( new Taxonomies() )->register();
+		( new Post_Meta() )->register();
+
+		if ( is_admin() ) {
+			( new Glossary_Editor() )->register();
+		}
 	}
 
 	/**
 	 * Runs on plugin activation.
+	 *
+	 * The post types and taxonomies are normally registered on `init`, but
+	 * that hook has already fired earlier in the same request by the time
+	 * the activation callback runs (the plugin file is only `include`d
+	 * inside `activate_plugin()`, after WordPress's own `init`). Register
+	 * them directly here so the first flush includes their rewrite rules.
 	 */
 	public static function activate(): void {
+		( new Post_Types() )->register_post_types();
+		( new Taxonomies() )->register_taxonomies();
+
 		flush_rewrite_rules();
 	}
 
