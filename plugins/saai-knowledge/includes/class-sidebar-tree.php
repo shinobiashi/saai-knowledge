@@ -51,7 +51,7 @@ final class Sidebar_Tree {
 		 * @param array<int, array<string, mixed>> $tree    The sidebar tree.
 		 * @param array<string, mixed>              $context Context, see docs/DESIGN-HOOKS-API.md section 3.2.
 		 */
-		return apply_filters(
+		$filtered_tree = apply_filters(
 			'saai_kb_sidebar_items',
 			$tree,
 			array(
@@ -59,6 +59,9 @@ final class Sidebar_Tree {
 				'taxonomy'        => 'saai_category',
 			)
 		);
+
+		// @phpstan-ignore ternary.elseUnreachable (PHPStan trusts the docblock @param type above, but a third-party saai_kb_sidebar_items callback can violate it at runtime.)
+		return is_array( $filtered_tree ) ? $filtered_tree : $tree;
 	}
 
 	/**

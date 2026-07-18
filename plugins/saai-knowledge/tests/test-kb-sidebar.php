@@ -131,31 +131,50 @@ class Test_Kb_Sidebar extends WP_UnitTestCase {
 	public function test_saai_kb_sidebar_items_filter_can_replace_tree() {
 		$captured_context = null;
 
-		add_filter(
-			'saai_kb_sidebar_items',
-			static function ( $tree, $context ) use ( &$captured_context ) {
-				$captured_context = $context;
+		$filter = static function ( $tree, $context ) use ( &$captured_context ) {
+			$captured_context = $context;
 
-				return array(
-					array(
-						'type'     => 'post',
-						'id'       => 999,
-						'title'    => 'Injected',
-						'url'      => '#',
-						'order'    => 0,
-						'children' => array(),
-					),
-				);
-			},
-			10,
-			2
-		);
+			return array(
+				array(
+					'type'     => 'post',
+					'id'       => 999,
+					'title'    => 'Injected',
+					'url'      => '#',
+					'order'    => 0,
+					'children' => array(),
+				),
+			);
+		};
+
+		add_filter( 'saai_kb_sidebar_items', $filter, 10, 2 );
 
 		$tree = ( new \SAAI\Knowledge\Sidebar_Tree() )->build( 42 );
+
+		remove_filter( 'saai_kb_sidebar_items', $filter, 10 );
 
 		$this->assertSame( 999, $tree[0]['id'] );
 		$this->assertSame( 42, $captured_context['current_post_id'] );
 		$this->assertSame( 'saai_category', $captured_context['taxonomy'] );
+	}
+
+	/**
+	 * A misbehaving saai_kb_sidebar_items callback returning a non-array must not
+	 * fatal on the build(): array return type; the unfiltered tree should be used instead.
+	 */
+	public function test_saai_kb_sidebar_items_filter_falls_back_when_not_an_array() {
+		$parent_term = self::factory()->term->create_and_get( array( 'taxonomy' => 'saai_category' ) );
+
+		$filter = static function () {
+			return 'not an array';
+		};
+
+		add_filter( 'saai_kb_sidebar_items', $filter );
+
+		$tree = ( new \SAAI\Knowledge\Sidebar_Tree() )->build();
+
+		remove_filter( 'saai_kb_sidebar_items', $filter );
+
+		$this->assertNotNull( $this->find_node( $tree, $parent_term->term_id ) );
 	}
 
 	/**
