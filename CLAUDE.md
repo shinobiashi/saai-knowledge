@@ -35,6 +35,10 @@ FAQ / Knowledge Base / 用語集を提供する WordPress プラグインのモ�
 - `register_post_meta()` の `auth_callback` は WordPress が `auth_{$object_type}_meta_{$meta_key}` フィルタ経由で6引数（`$allowed, $meta_key, $object_id, $user_id, $cap, $caps`）を渡して呼び出す。シグネチャをこれに合わせる（PHPは超過引数を無視するため実害はないが契約を明確にする）。
 - `register_activation_hook()` のコールバックは、プラグイン本体ファイルが `activate_plugin()` 内で（WordPress自身の `init` より後に）はじめて `include` される関係で、同一リクエスト内では通常の `init`/`plugins_loaded` フックがまだ発火しない。`activate()` で `flush_rewrite_rules()` する場合、CPT/タクソノミー登録を `init` に任せず、`activate()` 内で直接呼んでから flush する。
 - WP core test framework は各テスト後に `tear_down()` で登録済みメタキーを全て消去する（`unregister_all_meta_keys()`）。`register_post_meta()` に依存するテストは、ブートストラップ時の `init` 一度きりの登録に頼らず、テストクラスの `set_up()` で明示的に再登録する。
+- `register_block_template()` はブロックテーマでのみ意味を持つ。無条件に `init` へフックすると、クラシックテーマでも毎リクエスト無駄なファイル読み込み・レジストリ登録が発生する。`wp_is_block_theme()` は `plugins_loaded` の時点でも信頼できる（テーマは `plugins_loaded` より前に読み込まれるため）ので、フック登録時点でガードできる。
+- `WP_Block_Templates_Registry` は `register_post_meta` と異なりテスト間でリセットされない。同じテンプレート名で複数回 `register_block_template()` を呼ぶと「already registered」の incorrect usage 通知が出てテストが失敗する。テストでは登録処理を直接1回だけ呼び出す設計にする。
+- サードパーティが実装しうる公開フィルター（`saai_*`）は契約と異なる型（非string等）を返す可能性がある前提で、`file_exists()` など型に敏感な組み込み関数へ渡す前に `is_string()` 等のガードを入れる（PHP 8+ はTypeErrorで即死するため）。
+- テンプレートファイル名（`single-{$post_type}.php` 等）はCPTスラッグ（アンダースコア含む）と一致させる必要があり、PHPCSの `WordPress.Files.FileName`（ハイフン強制）と衝突する。`templates/` ディレクトリは当該sniffの除外対象に追加済み。
 
 ## Git 運用（重要）
 
