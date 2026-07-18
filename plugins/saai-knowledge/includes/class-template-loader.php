@@ -25,12 +25,19 @@ final class Template_Loader {
 	 * Hooks template resolution into WordPress.
 	 */
 	public function register(): void {
-		add_action( 'init', array( $this, 'register_block_templates' ) );
+		if ( wp_is_block_theme() ) {
+			add_action( 'init', array( $this, 'register_block_templates' ) );
+		}
+
 		add_filter( 'template_include', array( $this, 'filter_template_include' ) );
 	}
 
 	/**
 	 * Registers a placeholder block template for each content post type.
+	 *
+	 * Only hooked on block themes (see register()); a classic theme never
+	 * resolves these, so registering them there would just be wasted work
+	 * on every request.
 	 *
 	 * Site owners on a block theme can override these from the Site Editor;
 	 * a theme-provided template of the same name always takes priority.

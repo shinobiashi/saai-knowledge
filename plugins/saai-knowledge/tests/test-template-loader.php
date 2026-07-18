@@ -21,12 +21,13 @@ class Test_Template_Loader extends WP_UnitTestCase {
 	/**
 	 * A placeholder block template should be registered for each content post type.
 	 *
-	 * Registration already happened once via the `init` hook during bootstrap
-	 * (Template_Loader::register()); calling register_block_templates() again
-	 * here would trigger a "template already registered" incorrect-usage
-	 * notice, since the block template registry isn't reset between tests.
+	 * Template_Loader::register() only hooks registration on block themes, and
+	 * the WP core test suite's default theme is classic, so bootstrap never
+	 * triggers it here. Call register_block_templates() directly instead.
 	 */
 	public function test_block_templates_are_registered_for_each_post_type() {
+		( new \SAAI\Knowledge\Template_Loader() )->register_block_templates();
+
 		$registry = \WP_Block_Templates_Registry::get_instance();
 
 		foreach ( array( 'saai_kb', 'saai_faq', 'saai_glossary' ) as $post_type ) {
