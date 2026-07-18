@@ -58,6 +58,7 @@ final class Plugin {
 		( new Taxonomies() )->register();
 		( new Post_Meta() )->register();
 		( new Template_Loader() )->register();
+		( new Blocks() )->register();
 
 		if ( is_admin() ) {
 			( new Glossary_Editor() )->register();

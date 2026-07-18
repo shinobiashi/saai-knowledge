@@ -1,0 +1,43 @@
+.saai-kb-sidebar {
+	font-size: 0.9rem;
+
+	ul.saai-kb-sidebar__list {
+		list-style: none;
+		margin: 0;
+		padding-inline-start: 1rem;
+	}
+
+	> ul.saai-kb-sidebar__list {
+		padding-inline-start: 0;
+	}
+
+	.saai-kb-sidebar__item {
+		margin: 0.25rem 0;
+	}
+
+	.saai-kb-sidebar__toggle {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		background: none;
+		border: 0;
+		padding: 0;
+		font: inherit;
+		text-align: start;
+		cursor: pointer;
+
+		&::before {
+			content: "▸";
+			display: inline-block;
+			transition: transform 0.15s ease;
+		}
+
+		&[aria-expanded="true"]::before {
+			transform: rotate(90deg);
+		}
+	}
+
+	.saai-kb-sidebar__children[hidden] {
+		display: none;
+	}
+}
