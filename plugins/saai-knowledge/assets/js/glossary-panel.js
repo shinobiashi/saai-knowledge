@@ -17,7 +17,7 @@
 
 	function GlossaryFieldsPanel() {
 		var meta = useEntityProp( 'postType', 'saai_glossary', 'meta' );
-		var metaValue = meta[ 0 ];
+		var metaValue = meta[ 0 ] || {};
 		var setMeta = meta[ 1 ];
 
 		function updateField( key ) {
