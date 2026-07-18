@@ -123,7 +123,7 @@ final class Post_Types {
 		return array(
 			'name'               => $plural,
 			'singular_name'      => $singular,
-			/* translators: %s: plural label. */
+			/* translators: %s: singular label. */
 			'add_new_item'       => sprintf( __( 'Add New %s', 'saai-knowledge' ), $singular ),
 			/* translators: %s: singular label. */
 			'edit_item'          => sprintf( __( 'Edit %s', 'saai-knowledge' ), $singular ),
