@@ -29,6 +29,7 @@
         "lint": "phpcs",
         "lint:fix": "phpcbf",
         "analyze": "phpstan analyse",
-        "test": "phpunit"
+        "test": "phpunit",
+        "verify": "bash bin/verify.sh"
     }
 }
