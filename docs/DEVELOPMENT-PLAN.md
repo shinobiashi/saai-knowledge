@@ -50,7 +50,7 @@ M1〜M5 の全タスクは GitHub Issues #1〜#27（マイルストーン M1〜M
 - [x] タクソノミー登録: `saai_category`（FAQ+KB 共通・階層）/ `saai_tag`
 - [x] ポストメタ登録: `saai_reading` / `saai_synonyms` / `saai_no_autolink`（`register_post_meta`、REST 公開）
 - [x] 用語エディター拡張: 読みがな・別表記の DocumentSettingPanel
-- [ ] テンプレートローダー骨格: ブロックテーマ（`register_block_template()`）/ クラシック（`template_include`）の分岐
+- [x] テンプレートローダー骨格: ブロックテーマ（`register_block_template()`）/ クラシック（`template_include`）の分岐
 
 ### 完了条件
 
