@@ -106,7 +106,8 @@ class Test_Data_Model extends WP_UnitTestCase {
 	}
 
 	/**
-	 * The auth callback should gate meta access on edit_post capability.
+	 * The auth callback should gate meta access on edit_post capability,
+	 * regardless of the incoming $allowed value (it is intentionally ignored).
 	 */
 	public function test_meta_auth_callback_requires_edit_capability() {
 		$editor_id  = self::factory()->user->create( array( 'role' => 'editor' ) );
@@ -115,10 +116,13 @@ class Test_Data_Model extends WP_UnitTestCase {
 
 		$post_meta = new \SAAI\Knowledge\Post_Meta();
 
+		// $allowed=true mirrors the real invocation via auth_{$object_type}_meta_{$meta_key}
+		// (is_protected_meta() defaults unprotected keys to true); the method must still
+		// enforce current_user_can() rather than trusting the incoming $allowed.
 		wp_set_current_user( $editor_id );
-		$this->assertTrue( $post_meta->can_edit_post_meta( false, 'saai_reading', $post_id ) );
+		$this->assertTrue( $post_meta->can_edit_post_meta( true, 'saai_reading', $post_id, $editor_id, 'edit_post_meta', array() ) );
 
 		wp_set_current_user( $subscriber );
-		$this->assertFalse( $post_meta->can_edit_post_meta( false, 'saai_reading', $post_id ) );
+		$this->assertFalse( $post_meta->can_edit_post_meta( true, 'saai_reading', $post_id, $subscriber, 'edit_post_meta', array() ) );
 	}
 }

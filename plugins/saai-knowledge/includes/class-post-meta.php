@@ -98,12 +98,21 @@ final class Post_Meta {
 	/**
 	 * Restricts meta read/write access to users who can edit the post.
 	 *
-	 * @param bool   $allowed  Whether the meta key is allowed to be accessed.
-	 * @param string $meta_key The meta key.
-	 * @param int    $post_id  Post ID.
+	 * Signature matches the `auth_{$object_type}_meta_{$meta_key}` filter
+	 * WordPress invokes this callback through (see `map_meta_cap()` in
+	 * wp-includes/capabilities.php). The incoming `$allowed` is intentionally
+	 * ignored: it only reflects `is_protected_meta()`, not a real permission
+	 * decision, so `current_user_can()` is the actual authorization check.
+	 *
+	 * @param bool     $allowed   Whether the meta key is allowed to be accessed. Unused.
+	 * @param string   $meta_key  The meta key. Unused.
+	 * @param int      $post_id   Post ID.
+	 * @param int      $user_id   User ID. Unused.
+	 * @param string   $cap       Capability name. Unused.
+	 * @param string[] $caps      Array of the user's capabilities. Unused.
 	 * @return bool
 	 */
-	public function can_edit_post_meta( bool $allowed, string $meta_key, int $post_id ): bool {
+	public function can_edit_post_meta( bool $allowed, string $meta_key, int $post_id, int $user_id = 0, string $cap = '', array $caps = array() ): bool { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed -- kept to match the auth_{$object_type}_meta_{$meta_key} filter signature.
 		return current_user_can( 'edit_post', $post_id );
 	}
 }
