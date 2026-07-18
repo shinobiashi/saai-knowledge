@@ -88,7 +88,7 @@ final class Template_Loader {
 		 */
 		$resolved = apply_filters( 'saai_template', $resolved, $slug );
 
-		return $resolved && file_exists( $resolved ) ? $resolved : $template;
+		return is_string( $resolved ) && '' !== $resolved && file_exists( $resolved ) ? $resolved : $template;
 	}
 
 	/**

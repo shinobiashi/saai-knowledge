@@ -111,4 +111,24 @@ class Test_Template_Loader extends WP_UnitTestCase {
 
 		$this->assertSame( '/theme/fallback.php', $resolved );
 	}
+
+	/**
+	 * A misbehaving saai_template callback returning a non-string must not fatal
+	 * file_exists() with a TypeError; resolution should fall back safely instead.
+	 */
+	public function test_saai_template_filter_falls_back_when_override_is_not_a_string() {
+		$post_id = self::factory()->post->create( array( 'post_type' => 'saai_kb' ) );
+		$this->go_to( get_permalink( $post_id ) );
+
+		$filter = static function () {
+			return array( 'not', 'a', 'string' );
+		};
+		add_filter( 'saai_template', $filter );
+
+		$resolved = ( new \SAAI\Knowledge\Template_Loader() )->filter_template_include( '/theme/fallback.php' );
+
+		remove_filter( 'saai_template', $filter );
+
+		$this->assertSame( '/theme/fallback.php', $resolved );
+	}
 }
