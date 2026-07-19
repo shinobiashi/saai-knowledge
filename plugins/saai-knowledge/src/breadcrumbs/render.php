@@ -41,9 +41,20 @@ if ( ! function_exists( 'saai_render_breadcrumbs_items' ) ) {
 			$is_current = ! empty( $node['current'] );
 			$label      = esc_html( (string) $label );
 
-			if ( $is_current || ! is_scalar( $url ) || '' === (string) $url ) {
+			if ( $is_current ) {
 				$items .= sprintf(
 					'<li class="saai-breadcrumbs__item saai-breadcrumbs__item--current" aria-current="page">%s</li>',
+					$label
+				);
+				continue;
+			}
+
+			// A non-current crumb with no URL (hub link resolution failed, or a
+			// filter injected a linkless node) renders as plain text; only the
+			// explicitly current crumb may carry aria-current.
+			if ( ! is_scalar( $url ) || '' === (string) $url ) {
+				$items .= sprintf(
+					'<li class="saai-breadcrumbs__item">%s</li>',
 					$label
 				);
 				continue;

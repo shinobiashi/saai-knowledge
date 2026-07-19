@@ -228,8 +228,9 @@ class Test_Breadcrumbs extends WP_UnitTestCase {
 
 	/**
 	 * Malformed trail entries from a third-party saai_breadcrumbs_items
-	 * callback (non-array nodes, nodes with no label) are skipped in the
-	 * JSON-LD without breaking the position sequence.
+	 * callback (non-array nodes, nodes with a missing or non-scalar label)
+	 * are skipped in the JSON-LD without breaking the position sequence,
+	 * and a non-scalar url is dropped rather than cast to "Array".
 	 */
 	public function test_json_ld_skips_malformed_nodes_and_keeps_positions_sequential() {
 		$trail = array(
@@ -244,6 +245,16 @@ class Test_Breadcrumbs extends WP_UnitTestCase {
 				'current' => false,
 			),
 			array(
+				'label'   => array( 'not a scalar' ),
+				'url'     => 'https://example.com/array-label/',
+				'current' => false,
+			),
+			array(
+				'label'   => 'Array URL',
+				'url'     => array( 'not a scalar' ),
+				'current' => false,
+			),
+			array(
 				'label'   => 'Current Article',
 				'url'     => '',
 				'current' => true,
@@ -252,11 +263,14 @@ class Test_Breadcrumbs extends WP_UnitTestCase {
 
 		$schema = ( new \SAAI\Knowledge\Breadcrumbs() )->json_ld( $trail );
 
-		$this->assertCount( 2, $schema['itemListElement'] );
+		$this->assertCount( 3, $schema['itemListElement'] );
 		$this->assertSame( 1, $schema['itemListElement'][0]['position'] );
 		$this->assertSame( 'Knowledge Base', $schema['itemListElement'][0]['name'] );
 		$this->assertSame( 2, $schema['itemListElement'][1]['position'] );
-		$this->assertSame( 'Current Article', $schema['itemListElement'][1]['name'] );
+		$this->assertSame( 'Array URL', $schema['itemListElement'][1]['name'] );
+		$this->assertArrayNotHasKey( 'item', $schema['itemListElement'][1] );
+		$this->assertSame( 3, $schema['itemListElement'][2]['position'] );
+		$this->assertSame( 'Current Article', $schema['itemListElement'][2]['name'] );
 	}
 
 	/**

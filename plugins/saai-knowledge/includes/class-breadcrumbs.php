@@ -99,23 +99,24 @@ final class Breadcrumbs {
 				continue;
 			}
 
-			$label = isset( $node['label'] ) ? (string) $node['label'] : '';
+			$label = $node['label'] ?? '';
 
-			if ( '' === $label ) {
-				// A third-party saai_breadcrumbs_items callback returned an entry with no label; skip it.
+			// Not empty(): a crumb legitimately titled "0" must not be dropped.
+			if ( ! is_scalar( $label ) || '' === (string) $label ) {
+				// A third-party saai_breadcrumbs_items callback returned an entry with no usable label; skip it.
 				continue;
 			}
 
 			$item = array(
 				'@type'    => 'ListItem',
 				'position' => $position,
-				'name'     => $label,
+				'name'     => (string) $label,
 			);
 
-			$url = isset( $node['url'] ) ? (string) $node['url'] : '';
+			$url = $node['url'] ?? '';
 
-			if ( '' !== $url ) {
-				$item['item'] = $url;
+			if ( is_scalar( $url ) && '' !== (string) $url ) {
+				$item['item'] = (string) $url;
 			}
 
 			$items[] = $item;
