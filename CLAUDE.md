@@ -39,6 +39,11 @@ FAQ / Knowledge Base / 用語集を提供する WordPress プラグインのモ�
 - `WP_Block_Templates_Registry` は `register_post_meta` と異なりテスト間でリセットされない。同じテンプレート名で複数回 `register_block_template()` を呼ぶと「already registered」の incorrect usage 通知が出てテストが失敗する。テストでは登録処理を直接1回だけ呼び出す設計にする。
 - サードパーティが実装しうる公開フィルター（`saai_*`）は契約と異なる型（非string等）を返す可能性がある前提で、`file_exists()` など型に敏感な組み込み関数へ渡す前に `is_string()` 等のガードを入れる（PHP 8+ はTypeErrorで即死するため）。
 - テンプレートファイル名（`single-{$post_type}.php` 等）はCPTスラッグ（アンダースコア含む）と一致させる必要があり、PHPCSの `WordPress.Files.FileName`（ハイフン強制）と衝突する。`templates/` ディレクトリは当該sniffの除外対象に追加済み。
+- `@wordpress/scripts`（現行 v30系）で `viewScriptModule`（Interactivity API）を含むブロックをビルドするには `WP_EXPERIMENTAL_MODULES=true` 環境変数が必要。省略してもエラーにならず、該当エントリのビルドが無言でスキップされるだけなので気づきにくい。`start`/`build` スクリプトに `cross-env` 経由で設定する（Windows含むクロスプラットフォーム対応のため）。
+- ブロックのフロントエンド用 `style.scss` は block.json の `style` フィールド指定だけでは自動検出されない。`view.js`（viewScriptModule）側で `import './style.scss'` する必要があり、生成されるCSSファイル名はインポート元エントリ名に連動する（例: `view.js` からのimportなら `style-view.css`、`style-index.css` ではない）。エディタ用 `editor.scss` も同様に `index.js` 側でimportする。
+- Interactivity APIの `data-wp-bind--X` ディレクティブは、ハイドレーション後の状態変化にのみ反応し、初回描画（SSR出力）には適用されない。折りたたみ要素などの初期表示状態は、SSR側で対応する生のHTML属性（例: `hidden`）を出力して一致させる必要がある（さもないと初回クリックで見た目が変わらず2回目で追いつくような壊れた挙動になる）。
+- `szepeviktor/phpstan-wordpress` は `apply_filters()` 呼び出し直前のdocblockコメントの最初の `@param` 型を、その呼び出しの戻り値型として採用する。サードパーティ由来の戻り値を実行時に `is_array()` 等でガードしていても、PHPStanはdocblockの型を信頼して「常に真」（`ternary.elseUnreachable`等）と誤検知することがある。ガードの必要性自体は変わらないため、該当行に理由を添えた `// @phpstan-ignore <identifier>` を付ける。
+- macOSでの `npm ci` 成功はLinux CI（`ci-js.yml`）での成功を保証しない。`fsevents`（macOS専用のオプション依存。`@wordpress/scripts` 経由でplaywright/jest-haste-map/webpack-dev-serverなどが要求）のOS別解決エントリは、ローカルの `npm install` 実行のたびに `package-lock.json` から意図せずdropされ、Linux上の `npm ci` の厳密な整合性チェックだけが失敗する状態になりうる（実際に3回連続で再発）。`package.json`/`package-lock.json` を触った後は、`docker run --rm -v "$(pwd)":/work -w /work node:24 bash -c "npm ci"` で `ci-js.yml` と同じNode版のLinuxコンテナで実際に検証してからpushする。
 
 ## Git 運用（重要）
 
