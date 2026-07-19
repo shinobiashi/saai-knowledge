@@ -192,8 +192,11 @@ final class Breadcrumbs {
 	 * The saai_category term an article's breadcrumb trail is built from.
 	 *
 	 * Articles can carry more than one saai_category term (it's a
-	 * non-exclusive taxonomy); the lowest term_id is chosen for a
-	 * deterministic single-path trail, same tie-break as Sidebar_Tree.
+	 * non-exclusive taxonomy); the first term in the sidebar's display
+	 * order (saai_order term meta, then name — same ordering as
+	 * Sidebar_Tree::sort_terms()) is chosen, so the breadcrumb path matches
+	 * where the article first appears in the kb-sidebar tree. term_id is a
+	 * final tie-break for determinism.
 	 *
 	 * @param \WP_Post $post Article to resolve the term for.
 	 * @return \WP_Term|null
@@ -208,6 +211,19 @@ final class Breadcrumbs {
 		usort(
 			$terms,
 			static function ( \WP_Term $a, \WP_Term $b ): int {
+				$order_a = (int) get_term_meta( $a->term_id, 'saai_order', true );
+				$order_b = (int) get_term_meta( $b->term_id, 'saai_order', true );
+
+				if ( $order_a !== $order_b ) {
+					return $order_a <=> $order_b;
+				}
+
+				$by_name = strcasecmp( $a->name, $b->name );
+
+				if ( 0 !== $by_name ) {
+					return $by_name;
+				}
+
 				return $a->term_id <=> $b->term_id;
 			}
 		);

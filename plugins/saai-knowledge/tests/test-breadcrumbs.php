@@ -93,28 +93,60 @@ class Test_Breadcrumbs extends WP_UnitTestCase {
 	}
 
 	/**
-	 * An article assigned to more than one saai_category term uses the
-	 * lowest term_id for a deterministic single-path trail.
+	 * An article assigned to more than one saai_category term uses the term
+	 * that sorts first by saai_order term meta, matching the sidebar's
+	 * display order regardless of creation order or name.
 	 */
-	public function test_build_for_post_with_multiple_terms_picks_lowest_term_id() {
-		$term_a = self::factory()->term->create_and_get( array( 'taxonomy' => 'saai_category' ) );
-		$term_b = self::factory()->term->create_and_get( array( 'taxonomy' => 'saai_category' ) );
-
-		$ordered_terms = array( $term_a, $term_b );
-		usort(
-			$ordered_terms,
-			static function ( $a, $b ) {
-				return $a->term_id <=> $b->term_id;
-			}
+	public function test_build_for_post_with_multiple_terms_uses_saai_order() {
+		$term_a = self::factory()->term->create_and_get(
+			array(
+				'taxonomy' => 'saai_category',
+				'name'     => 'Alpha',
+			)
 		);
-		$expected_term = $ordered_terms[0];
+		$term_b = self::factory()->term->create_and_get(
+			array(
+				'taxonomy' => 'saai_category',
+				'name'     => 'Beta',
+			)
+		);
+
+		// Beta sorts last by name and term_id, so only its lower saai_order can win.
+		update_term_meta( $term_a->term_id, 'saai_order', 2 );
+		update_term_meta( $term_b->term_id, 'saai_order', 1 );
 
 		$post_id = self::factory()->post->create( array( 'post_type' => 'saai_kb' ) );
 		wp_set_object_terms( $post_id, array( $term_a->term_id, $term_b->term_id ), 'saai_category' );
 
 		$trail = ( new \SAAI\Knowledge\Breadcrumbs() )->build( get_post( $post_id ) );
 
-		$this->assertSame( $expected_term->name, $trail[1]['label'] );
+		$this->assertSame( 'Beta', $trail[1]['label'] );
+	}
+
+	/**
+	 * With equal saai_order, terms fall back to name order, matching
+	 * Sidebar_Tree::sort_terms().
+	 */
+	public function test_build_for_post_with_multiple_terms_falls_back_to_name_order() {
+		$term_b = self::factory()->term->create_and_get(
+			array(
+				'taxonomy' => 'saai_category',
+				'name'     => 'Beta',
+			)
+		);
+		$term_a = self::factory()->term->create_and_get(
+			array(
+				'taxonomy' => 'saai_category',
+				'name'     => 'Alpha',
+			)
+		);
+
+		$post_id = self::factory()->post->create( array( 'post_type' => 'saai_kb' ) );
+		wp_set_object_terms( $post_id, array( $term_a->term_id, $term_b->term_id ), 'saai_category' );
+
+		$trail = ( new \SAAI\Knowledge\Breadcrumbs() )->build( get_post( $post_id ) );
+
+		$this->assertSame( 'Alpha', $trail[1]['label'] );
 	}
 
 	/**
@@ -192,6 +224,39 @@ class Test_Breadcrumbs extends WP_UnitTestCase {
 		$this->assertSame( 'https://example.com/kb/', $schema['itemListElement'][0]['item'] );
 		$this->assertSame( 2, $schema['itemListElement'][1]['position'] );
 		$this->assertArrayNotHasKey( 'item', $schema['itemListElement'][1] );
+	}
+
+	/**
+	 * Malformed trail entries from a third-party saai_breadcrumbs_items
+	 * callback (non-array nodes, nodes with no label) are skipped in the
+	 * JSON-LD without breaking the position sequence.
+	 */
+	public function test_json_ld_skips_malformed_nodes_and_keeps_positions_sequential() {
+		$trail = array(
+			array(
+				'label'   => 'Knowledge Base',
+				'url'     => 'https://example.com/kb/',
+				'current' => false,
+			),
+			'not an array',
+			array(
+				'url'     => 'https://example.com/no-label/',
+				'current' => false,
+			),
+			array(
+				'label'   => 'Current Article',
+				'url'     => '',
+				'current' => true,
+			),
+		);
+
+		$schema = ( new \SAAI\Knowledge\Breadcrumbs() )->json_ld( $trail );
+
+		$this->assertCount( 2, $schema['itemListElement'] );
+		$this->assertSame( 1, $schema['itemListElement'][0]['position'] );
+		$this->assertSame( 'Knowledge Base', $schema['itemListElement'][0]['name'] );
+		$this->assertSame( 2, $schema['itemListElement'][1]['position'] );
+		$this->assertSame( 'Current Article', $schema['itemListElement'][1]['name'] );
 	}
 
 	/**

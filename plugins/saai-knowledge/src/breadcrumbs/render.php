@@ -84,6 +84,9 @@ if ( ! function_exists( 'saai_render_breadcrumbs_json_ld' ) ) {
 // See docs/DESIGN-HOOKS-API.md section 3.2: the block-renderer REST endpoint
 // (editor ServerSideRender preview) supplies postId context from its post_id
 // parameter; the front end's render_block() derives it from the main query.
+// Because postId wins over the is_tax() check below, a Query Loop supplies
+// each looped article's postId — on a term archive template this block must
+// sit outside the loop to render the term trail, not a per-article trail.
 $saai_post_id = isset( $block->context['postId'] ) ? (int) $block->context['postId'] : 0;
 
 if ( ! $saai_post_id && is_singular( 'saai_kb' ) ) {
