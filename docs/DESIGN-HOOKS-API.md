@@ -47,6 +47,7 @@ add_action( 'saai_loaded', function ( $plugin ) {
 | フック | シグネチャ | 用途 |
 | --- | --- | --- |
 | `saai_kb_sidebar_items` | `( array $tree, array $context ): array` | サイドバーツリーの加工。node 形状: `[ 'type' => 'term'\|'post', 'id', 'title', 'url', 'order', 'children' => node[] ]`。`$context = [ 'current_post_id' => int\|null, 'taxonomy' => string ]` |
+| `saai_kb_toc_items` | `( array $headings, array $context ): array` | ページ内目次の見出しリストの加工。heading 形状: `[ 'id' => string, 'text' => string, 'level' => 2\|3 ]`。`$context = [ 'post_id' => int\|null ]` |
 | `saai_faq_query_args` | `( array $args, array $block_attrs ): array` | FAQ 一覧ブロックの WP_Query 引数調整。有料版が商品コンテキストの meta_query を注入 |
 | `saai_structured_data` | `( array $schema, string $schema_type, ?WP_Post $post ): array` | JSON-LD 出力の加工。`$schema_type` は `faq-page` / `defined-term` / `breadcrumbs` |
 | `saai_template` | `( string $template_path, string $slug ): string` | クラシックテーマ向けテンプレート解決の最終上書き。`$slug` 例: `single-saai_kb` |
@@ -82,6 +83,7 @@ add_action( 'saai_loaded', function ( $plugin ) {
 | --- | --- | --- |
 | `saai_kb_before_article` / `saai_kb_after_article` | KB 記事本文の前後 | `WP_Post $post` |
 | `saai_kb_sidebar_top` / `saai_kb_sidebar_bottom` | サイドバー内 | `array $context`（3.2 と同形状） |
+| `saai_kb_toc_before` / `saai_kb_toc_after` | ページ内目次リストの前後 | `array $context`（3.2 と同形状） |
 | `saai_faq_before_list` / `saai_faq_after_list` | FAQ 一覧の前後 | `array $block_attrs` |
 | `saai_glossary_after_definition` | 用語定義の後 | `WP_Post $post` |
 
