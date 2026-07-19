@@ -65,6 +65,7 @@ class Test_Kb_Sidebar extends WP_UnitTestCase {
 
 		$child_term_node = $this->find_node( $parent_node['children'], $child_term->term_id );
 		$this->assertNotNull( $child_term_node );
+		$this->assertSame( 'term', $child_term_node['type'] );
 	}
 
 	/**
