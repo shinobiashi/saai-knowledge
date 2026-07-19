@@ -14,9 +14,9 @@ description: >
 
 # saai-knowledge ブロック雛形生成
 
-新規 `saai-knowledge/*` dynamic block を、kb-sidebar（Issue #6, PR #33）で確立した規約通りに
-スキャフォールドする。PR #33 は9ラウンドの Copilot レビューを経ており、そこで見つかった
-落とし穴を**あらかじめ踏まないための**チェックリストも兼ねる。
+新規 `saai-knowledge/*` dynamic block を、kb-sidebar（Issue #6, PR #33）と kb-toc
+（Issue #7, PR #34）で確立した規約通りにスキャフォールドする。両PRのレビューで
+見つかった落とし穴を**あらかじめ踏まないための**チェックリストも兼ねる。
 
 ## 前提として押さえること
 
@@ -35,6 +35,10 @@ AskUserQuestion または会話文脈から以下を確定する（Issue に書�
 - **タイトル・説明**（block.json の `title`/`description`、日本語の意図を英語で書く）。
 - **フロントエンドでインタラクションが要るか**（開閉・タブ切替・ライブ検索など）→ 要るなら
   Interactivity API（`viewScriptModule` + `view.js`）を使う。静的な出力のみなら不要。
+- **「現在の記事」に依存するか**（kb-toc / breadcrumbs 型）→ 依存するなら block.json に
+  `"usesContext": [ "postId" ]` を宣言し、render.php で `$block->context['postId']` を優先、
+  `is_singular( '<cpt>' )` をフォールバックにする（§6-10 参照）。対象外の post type なら
+  早期 `return`（render.php は render callback の `require` 内で実行されるため `return` 可）。
 - **属性が要るか**（カテゴリー絞り込み・件数・並び順など。DESIGN.md §4.2 の説明を参照）。
   v1 は無属性でも構わない（kb-sidebar もそうだった）。
 - **ツリー構築・クエリなど複雑なロジックがあるか** → あるなら `Sidebar_Tree` に倣い
@@ -68,6 +72,9 @@ AskUserQuestion または会話文脈から以下を確定する（Issue に書�
   （1つの共有ガードで複数関数を囲むと、外部で片方だけ同名定義された場合に両方の宣言が
   スキップされる。§6 参照）。トップレベルの変数名は `$saai_` プレフィックスを付ける
   （PHPCS の `PrefixAllGlobals` が render.php のトップレベルスコープを "global" とみなすため）。
+  **公開フィルター（`saai_{block}_items`）の適用はサービスクラス側に置く**（kb-toc の
+  `Heading_Anchors::for_display()` 方式）。render.php に置くとフィルター契約（差し替え・
+  非配列フォールバック）がユニットテスト不能になる（§6-11 参照）。
 - **includes/class-{Name}.php**（ロジック分離する場合） — namespace `SAAI\Knowledge`。
   クラス名は `Post_Types` 形式のアンダースコア区切り PascalCase。ファイル名は
   `class-` + ハイフン区切り小文字（オートローダーの変換規則、CLAUDE.md 参照）。
@@ -98,10 +105,10 @@ ID探索ヘルパーを書く場合、**タームIDと投稿IDなど別テーブ
   `view.js`/`style-view.css` が出力されているか確認 — 出ていなければ `viewScriptModule` の
   指定漏れ）。
 - `npm run lint:js` / `npm run lint:css`。
-- `npx wp-env start` → 実データを作って wp-cli + curl で実際のレンダリング結果を確認する
-  （`wp term create` / `wp post create --post_content='<!-- wp:saai-knowledge/{name} /-->'`
-  → 対象ページを `curl` で取得し `<nav>`/該当マークアップを目視）。確認後は作成したテスト
-  データを削除し `npx wp-env stop` する。
+- 実機確認は `verify-block` スキルの手順で行う（wp-env 起動 → テストデータ作成 →
+  フロント curl + REST block-renderer（エディタープレビュー経路）の両方を確認 → データ削除）。
+  「現在の記事」依存ブロックはフロント curl だけでは不十分で、block-renderer 経路
+  （`is_singular()` が偽）の確認が必須（§6-10 の検出方法）。
 - `package-lock.json` や `package.json` を触った場合は、macOSでの `npm ci` 成功を鵜呑みに
   せず `docker run --rm -v "$(pwd)":/work -w /work node:24 bash -c "npm ci"` で
   Linux CI 相当の検証を行う（§6参照、実際に3回再発した問題）。
@@ -136,6 +143,25 @@ ID探索ヘルパーを書く場合、**タームIDと投稿IDなど別テーブ
    `is_array()` ガードが「常に真」（`ternary.elseUnreachable`）と誤検知されることがあるが、
    ガード自体は必要なので、理由を添えた `// @phpstan-ignore <identifier>` で抑制する。
 9. **`function_exists()` ガードは関数ごとに独立させる**（§2参照）。
+
+以下は kb-toc（PR #34）のレビューで追加された項目:
+
+10. **エディタープレビューを空にしない**。render.php が `is_singular()` / queried object にのみ
+    依存すると、ServerSideRender のプレビュー（REST block-renderer 経由、`is_singular()` は偽）が
+    常に空になる。`usesContext: [ "postId" ]` + `$block->context['postId']` 優先で解決する
+    （block-renderer は post_id パラメータ→グローバル `$post`→`render_block()` の既定コンテキスト
+    として postId を供給する）。
+11. **フィルター適用はサービスクラスに置く**（§2参照。render.php 内のフィルターはテスト不能）。
+12. **`empty()` で表示値を判定しない**。`"0"` というタイトル・IDが falsy として脱落する。
+    `is_scalar()` + `'' === (string) $value` で判定する（フィルター経由で配列が混入した場合の
+    "Array to string" warning も防げる）。
+13. **現在位置表示の a11y**: ページ内ナビの現在項目は `aria-current="location"`（`"true"` ではなく）。
+    スクロール系アクションは `prefers-reduced-motion: reduce` で `behavior: 'auto'` に
+    フォールバックし、移動先要素へ `tabindex="-1"` + `focus( { preventScroll: true } )` で
+    フォーカスを同期する。
+14. **view.js のブラウザグローバル**（`document`、`IntersectionObserver` 等）は
+    `plugins/saai-knowledge/.eslintrc.js` の `src/**/view.js` override で許可済み。
+    lint-js が no-undef を出したらコード側ではなくこの override の対象パターンを確認する。
 
 ## 出力スタイル
 
