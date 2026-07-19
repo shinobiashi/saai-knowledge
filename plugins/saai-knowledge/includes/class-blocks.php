@@ -22,6 +22,7 @@ final class Blocks {
 	private const BLOCKS = array(
 		'kb-sidebar',
 		'kb-toc',
+		'breadcrumbs',
 	);
 
 	/**
