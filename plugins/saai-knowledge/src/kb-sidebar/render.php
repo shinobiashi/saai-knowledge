@@ -38,7 +38,9 @@ if ( ! function_exists( 'saai_render_kb_sidebar_nodes' ) ) {
 
 		return '<ul class="saai-kb-sidebar__list">' . $items . '</ul>';
 	}
+}
 
+if ( ! function_exists( 'saai_render_kb_sidebar_node' ) ) {
 	/**
 	 * Renders a single sidebar tree node.
 	 *
@@ -101,7 +103,7 @@ if ( ! function_exists( 'saai_render_kb_sidebar_nodes' ) ) {
 	}
 }
 
-$saai_current_post_id = is_singular() ? get_queried_object_id() : null;
+$saai_current_post_id = is_singular( 'saai_kb' ) ? get_queried_object_id() : null;
 $saai_tree            = ( new Sidebar_Tree() )->build( $saai_current_post_id );
 
 $saai_context = array(
