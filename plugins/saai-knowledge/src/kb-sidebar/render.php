@@ -76,7 +76,8 @@ if ( ! function_exists( 'saai_render_kb_sidebar_node' ) ) {
 			);
 		}
 
-		$open = ! empty( $node['expanded'] );
+		$open        = ! empty( $node['expanded'] );
+		$children_id = wp_unique_id( 'saai-kb-sidebar-children-' );
 
 		/* translators: %s: category name. */
 		$toggle_label = sprintf( __( 'Toggle %s', 'saai-knowledge' ), $title );
@@ -87,13 +88,14 @@ if ( ! function_exists( 'saai_render_kb_sidebar_node' ) ) {
 		return sprintf(
 			'<li class="saai-kb-sidebar__item saai-kb-sidebar__item--term" data-wp-context=\'%1$s\'>' .
 				'<span class="saai-kb-sidebar__term">' .
-					'<button type="button" class="saai-kb-sidebar__toggle" data-wp-on--click="actions.toggle" data-wp-bind--aria-expanded="context.open" aria-expanded="%2$s" aria-label="%3$s"></button>' .
-					'<a href="%4$s">%5$s</a>' .
+					'<button type="button" class="saai-kb-sidebar__toggle" data-wp-on--click="actions.toggle" data-wp-bind--aria-expanded="context.open" aria-expanded="%2$s" aria-controls="%3$s" aria-label="%4$s"></button>' .
+					'<a href="%5$s">%6$s</a>' .
 				'</span>' .
-				'<div class="saai-kb-sidebar__children"%6$s data-wp-bind--hidden="!context.open">%7$s</div>' .
+				'<div id="%3$s" class="saai-kb-sidebar__children"%7$s data-wp-bind--hidden="!context.open">%8$s</div>' .
 			'</li>',
 			esc_attr( wp_json_encode( array( 'open' => $open ) ) ),
 			$open ? 'true' : 'false',
+			esc_attr( $children_id ),
 			esc_attr( $toggle_label ),
 			esc_url( $url ),
 			esc_html( $title ),
