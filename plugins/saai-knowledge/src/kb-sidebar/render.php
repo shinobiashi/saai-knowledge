@@ -28,6 +28,11 @@ if ( ! function_exists( 'saai_render_kb_sidebar_nodes' ) ) {
 		$items = '';
 
 		foreach ( $nodes as $node ) {
+			if ( ! is_array( $node ) ) {
+				// A third-party saai_kb_sidebar_items callback returned a non-array entry; skip it.
+				continue;
+			}
+
 			$items .= saai_render_kb_sidebar_node( $node );
 		}
 
@@ -41,28 +46,38 @@ if ( ! function_exists( 'saai_render_kb_sidebar_nodes' ) ) {
 	 * @return string
 	 */
 	function saai_render_kb_sidebar_node( array $node ): string {
-		if ( 'post' === $node['type'] ) {
+		$type = $node['type'] ?? null;
+
+		if ( ! in_array( $type, array( 'post', 'term' ), true ) ) {
+			// A third-party saai_kb_sidebar_items callback returned a node this renderer doesn't understand; skip it.
+			return '';
+		}
+
+		$title = isset( $node['title'] ) ? (string) $node['title'] : '';
+		$url   = isset( $node['url'] ) ? (string) $node['url'] : '';
+
+		if ( 'post' === $type ) {
 			return sprintf(
 				'<li class="saai-kb-sidebar__item saai-kb-sidebar__item--post"><a href="%1$s">%2$s</a></li>',
-				esc_url( $node['url'] ),
-				esc_html( $node['title'] )
+				esc_url( $url ),
+				esc_html( $title )
 			);
 		}
 
-		$children = $node['children'] ?? array();
+		$children = is_array( $node['children'] ?? null ) ? $node['children'] : array();
 
 		if ( ! $children ) {
 			return sprintf(
 				'<li class="saai-kb-sidebar__item saai-kb-sidebar__item--term"><a href="%1$s">%2$s</a></li>',
-				esc_url( $node['url'] ),
-				esc_html( $node['title'] )
+				esc_url( $url ),
+				esc_html( $title )
 			);
 		}
 
 		$open = ! empty( $node['expanded'] );
 
 		/* translators: %s: category name. */
-		$toggle_label = sprintf( __( 'Toggle %s', 'saai-knowledge' ), $node['title'] );
+		$toggle_label = sprintf( __( 'Toggle %s', 'saai-knowledge' ), $title );
 
 		return sprintf(
 			'<li class="saai-kb-sidebar__item saai-kb-sidebar__item--term" data-wp-context=\'%1$s\'>' .
@@ -75,8 +90,8 @@ if ( ! function_exists( 'saai_render_kb_sidebar_nodes' ) ) {
 			esc_attr( wp_json_encode( array( 'open' => $open ) ) ),
 			$open ? 'true' : 'false',
 			esc_attr( $toggle_label ),
-			esc_url( $node['url'] ),
-			esc_html( $node['title'] ),
+			esc_url( $url ),
+			esc_html( $title ),
 			saai_render_kb_sidebar_nodes( $children )
 		);
 	}
