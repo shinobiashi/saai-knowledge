@@ -88,7 +88,10 @@ class Test_Kb_Sidebar extends WP_UnitTestCase {
 		$tree = ( new \SAAI\Knowledge\Sidebar_Tree() )->build();
 
 		$parent_node = $this->find_node( $tree, $parent_term->term_id );
-		$child_node  = $this->find_node( $parent_node['children'], $child_term->term_id );
+		$this->assertNotNull( $parent_node );
+
+		$child_node = $this->find_node( $parent_node['children'], $child_term->term_id );
+		$this->assertNotNull( $child_node );
 
 		$this->assertSame( array( 'post' ), wp_list_pluck( $child_node['children'], 'type' ) );
 		$this->assertSame( array( $child_node ), array_values( array_filter( $parent_node['children'], static fn ( $node ) => 'term' === $node['type'] ) ) );
@@ -118,10 +121,13 @@ class Test_Kb_Sidebar extends WP_UnitTestCase {
 		$parent_node = $this->find_node( $tree, $parent_term->term_id );
 		$other_node  = $this->find_node( $tree, $other_term->term_id );
 
+		$this->assertNotNull( $parent_node );
+		$this->assertNotNull( $other_node );
 		$this->assertTrue( $parent_node['expanded'] );
 		$this->assertFalse( $other_node['expanded'] );
 
 		$child_node = $this->find_node( $parent_node['children'], $child_term->term_id );
+		$this->assertNotNull( $child_node );
 		$this->assertTrue( $child_node['expanded'] );
 	}
 
