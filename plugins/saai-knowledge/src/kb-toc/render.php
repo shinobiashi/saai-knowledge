@@ -24,12 +24,21 @@ if ( ! function_exists( 'saai_render_kb_toc_items' ) ) {
 		$items = '';
 
 		foreach ( $headings as $heading ) {
-			if ( ! is_array( $heading ) || empty( $heading['id'] ) || empty( $heading['text'] ) ) {
+			if ( ! is_array( $heading ) ) {
+				// A third-party saai_kb_toc_items callback returned a non-array entry; skip it.
+				continue;
+			}
+
+			$id   = $heading['id'] ?? '';
+			$text = $heading['text'] ?? '';
+
+			// Not empty(): a heading legitimately titled "0" must not be dropped.
+			if ( ! is_scalar( $id ) || '' === (string) $id || ! is_scalar( $text ) || '' === (string) $text ) {
 				// A third-party saai_kb_toc_items callback returned a malformed entry; skip it.
 				continue;
 			}
 
-			$id          = (string) $heading['id'];
+			$id          = (string) $id;
 			$level_class = 3 === (int) ( $heading['level'] ?? 2 ) ? ' saai-kb-toc__item--h3' : '';
 
 			$items .= sprintf(
@@ -39,7 +48,7 @@ if ( ! function_exists( 'saai_render_kb_toc_items' ) ) {
 				esc_attr( $level_class ),
 				esc_attr( wp_json_encode( array( 'id' => $id ) ) ),
 				esc_attr( $id ),
-				esc_html( (string) $heading['text'] )
+				esc_html( (string) $text )
 			);
 		}
 
@@ -47,34 +56,26 @@ if ( ! function_exists( 'saai_render_kb_toc_items' ) ) {
 	}
 }
 
-$saai_current_post_id = is_singular( 'saai_kb' ) ? get_queried_object_id() : null;
-$saai_post            = $saai_current_post_id ? get_post( $saai_current_post_id ) : null;
+// The editor's ServerSideRender preview provides the edited post via block
+// context (the block-renderer REST endpoint sets up the global post from its
+// post_id parameter, and render_block() derives postId context from it); on
+// the front end render_block() does the same from the main query's post, with
+// is_singular() as a fallback for renders outside a post context.
+$saai_post_id = isset( $block->context['postId'] ) ? (int) $block->context['postId'] : 0;
 
-$saai_headings = $saai_post instanceof WP_Post
-	? array_values(
-		array_filter(
-			( new Heading_Anchors() )->extract( $saai_post ),
-			static function ( $heading ) {
-				return '' !== ( $heading['text'] ?? '' );
-			}
-		)
-	)
-	: array();
+if ( ! $saai_post_id && is_singular( 'saai_kb' ) ) {
+	$saai_post_id = get_queried_object_id();
+}
 
-$saai_context = array( 'post_id' => $saai_current_post_id );
+$saai_post = $saai_post_id ? get_post( $saai_post_id ) : null;
 
-/**
- * Filters the table-of-contents heading list.
- *
- * @since 0.1.0
- *
- * @param array<int, array<string, mixed>> $saai_headings Heading list, see Heading_Anchors::extract().
- * @param array<string, mixed>             $saai_context  Context: [ 'post_id' => int|null ].
- */
-$saai_filtered_headings = apply_filters( 'saai_kb_toc_items', $saai_headings, $saai_context );
+if ( ! $saai_post instanceof WP_Post || 'saai_kb' !== $saai_post->post_type ) {
+	return;
+}
 
-// @phpstan-ignore ternary.elseUnreachable (PHPStan trusts the docblock @param type above, but a third-party saai_kb_toc_items callback can violate it at runtime.)
-$saai_headings = is_array( $saai_filtered_headings ) ? $saai_filtered_headings : $saai_headings;
+$saai_headings = ( new Heading_Anchors() )->for_display( $saai_post );
+
+$saai_context = array( 'post_id' => $saai_post->ID );
 
 if ( $saai_headings ) {
 	$saai_heading_ids = wp_list_pluck( $saai_headings, 'id' );

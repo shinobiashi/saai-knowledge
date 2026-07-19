@@ -151,6 +151,111 @@ class Test_Heading_Anchors extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Memoized extract() results must not go stale when the post object's
+	 * content changes within the same request (the memo is keyed by post ID
+	 * with a content hash guard).
+	 */
+	public function test_extract_memo_tracks_content_changes() {
+		$post = self::factory()->post->create_and_get(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_content' => "<!-- wp:heading -->\n<h2>Before</h2>\n<!-- /wp:heading -->",
+			)
+		);
+
+		$anchors = new \SAAI\Knowledge\Heading_Anchors();
+
+		$this->assertSame( array( 'Before' ), wp_list_pluck( $anchors->extract( $post ), 'text' ) );
+
+		$post->post_content = "<!-- wp:heading -->\n<h2>After</h2>\n<!-- /wp:heading -->";
+
+		$this->assertSame( array( 'After' ), wp_list_pluck( $anchors->extract( $post ), 'text' ) );
+	}
+
+	/**
+	 * The for_display() method should drop headings with no visible text but keep a
+	 * heading legitimately titled "0" (a falsy string, so empty()-style
+	 * checks would wrongly discard it).
+	 */
+	public function test_for_display_excludes_empty_text_but_keeps_zero() {
+		$content = "<!-- wp:heading -->\n<h2></h2>\n<!-- /wp:heading -->\n\n" .
+			"<!-- wp:heading -->\n<h2>0</h2>\n<!-- /wp:heading -->";
+
+		$post = self::factory()->post->create_and_get(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_content' => $content,
+			)
+		);
+
+		$headings = ( new \SAAI\Knowledge\Heading_Anchors() )->for_display( $post );
+
+		$this->assertSame( array( '0' ), wp_list_pluck( $headings, 'text' ) );
+	}
+
+	/**
+	 * The saai_kb_toc_items filter should receive the heading list and
+	 * context, and be able to replace the list.
+	 */
+	public function test_saai_kb_toc_items_filter_can_replace_headings() {
+		$captured_context = null;
+
+		$filter = static function ( $headings, $context ) use ( &$captured_context ) {
+			$captured_context = $context;
+
+			return array(
+				array(
+					'id'    => 'injected',
+					'text'  => 'Injected',
+					'level' => 2,
+				),
+			);
+		};
+
+		add_filter( 'saai_kb_toc_items', $filter, 10, 2 );
+
+		$post = self::factory()->post->create_and_get(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_content' => "<!-- wp:heading -->\n<h2>Real</h2>\n<!-- /wp:heading -->",
+			)
+		);
+
+		$headings = ( new \SAAI\Knowledge\Heading_Anchors() )->for_display( $post );
+
+		remove_filter( 'saai_kb_toc_items', $filter, 10 );
+
+		$this->assertSame( 'injected', $headings[0]['id'] );
+		$this->assertSame( $post->ID, $captured_context['post_id'] );
+	}
+
+	/**
+	 * A misbehaving saai_kb_toc_items callback returning a non-array must not
+	 * fatal on the for_display(): array return type; the unfiltered list
+	 * should be used instead.
+	 */
+	public function test_saai_kb_toc_items_filter_falls_back_when_not_an_array() {
+		$filter = static function () {
+			return 'not an array';
+		};
+
+		add_filter( 'saai_kb_toc_items', $filter );
+
+		$post = self::factory()->post->create_and_get(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_content' => "<!-- wp:heading -->\n<h2>Real</h2>\n<!-- /wp:heading -->",
+			)
+		);
+
+		$headings = ( new \SAAI\Knowledge\Heading_Anchors() )->for_display( $post );
+
+		remove_filter( 'saai_kb_toc_items', $filter );
+
+		$this->assertSame( array( 'Real' ), wp_list_pluck( $headings, 'text' ) );
+	}
+
+	/**
 	 * Outside of a saai_kb main-query loop (e.g. called directly, or during
 	 * some other post type's rendering) the content must be returned untouched.
 	 */

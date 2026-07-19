@@ -14,8 +14,26 @@ defined( 'ABSPATH' ) || exit;
  * Resolves heading anchors for a post's content and injects matching id
  * attributes into the rendered h2/h3 tags that don't already have one
  * (e.g. via the core Heading block's "HTML anchor" advanced setting).
+ *
+ * Known limitation: add_anchors() matches rendered tags to headings
+ * positionally, counting core/heading blocks only. h2/h3 tags produced by
+ * other sources (custom HTML blocks, synced patterns, third-party blocks)
+ * shift that alignment and can receive another heading's id. KB articles
+ * are expected to structure their sections with core Heading blocks.
  */
 final class Heading_Anchors {
+
+	/**
+	 * Per-request memo of extract() results, keyed by post ID.
+	 *
+	 * The extract() method runs both when the kb-toc block renders and again
+	 * on the the_content filter for the same post, so the parsed result is cached.
+	 * The content hash guards against the post being modified between the
+	 * two calls within one request (e.g. by a save handler).
+	 *
+	 * @var array<int, array{hash: string, headings: array<int, array<string, mixed>>}>
+	 */
+	private static $memo = array();
 
 	/**
 	 * Hooks the content anchor filter into WordPress.
@@ -36,12 +54,56 @@ final class Heading_Anchors {
 	 * @return array<int, array<string, mixed>> List of [ 'id' => string, 'text' => string, 'level' => int ].
 	 */
 	public function extract( \WP_Post $post ): array {
+		$hash = md5( $post->post_content );
+
+		if ( isset( self::$memo[ $post->ID ] ) && self::$memo[ $post->ID ]['hash'] === $hash ) {
+			return self::$memo[ $post->ID ]['headings'];
+		}
+
 		$headings = array();
 		$used_ids = array();
 
 		$this->collect_headings( parse_blocks( $post->post_content ), $headings, $used_ids );
 
+		self::$memo[ $post->ID ] = array(
+			'hash'     => $hash,
+			'headings' => $headings,
+		);
+
 		return $headings;
+	}
+
+	/**
+	 * The headings to show in the table of contents, with the public filter applied.
+	 *
+	 * Headings with no visible text (kept by extract() for positional
+	 * alignment) are dropped before the filter runs.
+	 *
+	 * @param \WP_Post $post Post to build the list for.
+	 * @return array<int, array<string, mixed>> Heading list, see extract().
+	 */
+	public function for_display( \WP_Post $post ): array {
+		$headings = array_values(
+			array_filter(
+				$this->extract( $post ),
+				static function ( array $heading ): bool {
+					return '' !== $heading['text'];
+				}
+			)
+		);
+
+		/**
+		 * Filters the table-of-contents heading list.
+		 *
+		 * @since 0.1.0
+		 *
+		 * @param array<int, array<string, mixed>> $headings Heading list, see docs/DESIGN-HOOKS-API.md section 3.2.
+		 * @param array<string, mixed>             $context  Context: [ 'post_id' => int ].
+		 */
+		$filtered = apply_filters( 'saai_kb_toc_items', $headings, array( 'post_id' => $post->ID ) );
+
+		// @phpstan-ignore ternary.elseUnreachable (PHPStan trusts the docblock @param type above, but a third-party saai_kb_toc_items callback can violate it at runtime.)
+		return is_array( $filtered ) ? $filtered : $headings;
 	}
 
 	/**

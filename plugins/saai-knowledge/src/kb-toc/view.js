@@ -9,7 +9,7 @@ const { state } = store( 'saai-knowledge/kb-toc', {
 			return !! id && id === activeId;
 		},
 		get ariaCurrent() {
-			return state.isActive ? 'true' : null;
+			return state.isActive ? 'location' : null;
 		},
 	},
 	actions: {
@@ -31,6 +31,10 @@ const { state } = store( 'saai-knowledge/kb-toc', {
 				behavior: prefersReducedMotion ? 'auto' : 'smooth',
 				block: 'start',
 			} );
+
+			// Keep keyboard / screen-reader position in sync with the visual scroll.
+			heading.setAttribute( 'tabindex', '-1' );
+			heading.focus( { preventScroll: true } );
 
 			window.history.pushState( null, '', `#${ id }` );
 		},
