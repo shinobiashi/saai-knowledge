@@ -75,9 +75,8 @@ if ( ! $saai_post instanceof WP_Post || 'saai_kb' !== $saai_post->post_type ) {
 
 $saai_headings = ( new Heading_Anchors() )->for_display( $saai_post );
 
-$saai_context = array( 'post_id' => $saai_post->ID );
-
 if ( $saai_headings ) {
+	$saai_context     = array( 'post_id' => $saai_post->ID );
 	$saai_heading_ids = wp_list_pluck( $saai_headings, 'id' );
 
 	$saai_wrapper_attributes = get_block_wrapper_attributes(
