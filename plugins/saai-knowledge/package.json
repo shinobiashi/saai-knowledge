@@ -4,10 +4,13 @@
     "description": "SAAI Knowledge — FAQ / Knowledge Base / Glossary for WordPress.",
     "license": "GPL-2.0-or-later",
     "scripts": {
-        "start": "wp-scripts start",
-        "build": "wp-scripts build"
+        "start": "cross-env WP_EXPERIMENTAL_MODULES=true wp-scripts start",
+        "build": "cross-env WP_EXPERIMENTAL_MODULES=true wp-scripts build",
+        "lint:js": "wp-scripts lint-js src",
+        "lint:css": "wp-scripts lint-style \"src/**/*.scss\""
     },
     "devDependencies": {
-        "@wordpress/scripts": "^30.0.0"
+        "@wordpress/scripts": "^30.0.0",
+        "cross-env": "^10.1.0"
     }
 }
