@@ -274,6 +274,34 @@ class Test_Breadcrumbs extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A URL carrying a disallowed protocol is dropped rather than emitted
+	 * into the structured data as-is, since esc_url_raw() reduces it to an
+	 * empty string.
+	 */
+	public function test_json_ld_drops_urls_that_sanitize_to_empty() {
+		$trail = array(
+			array(
+				'label'   => 'Script URL',
+				'url'     => 'javascript:alert(1)',
+				'current' => false,
+			),
+			array(
+				'label'   => 'Data URL',
+				'url'     => 'data:text/html,x',
+				'current' => false,
+			),
+		);
+
+		$schema = ( new \SAAI\Knowledge\Breadcrumbs() )->json_ld( $trail );
+
+		$this->assertCount( 2, $schema['itemListElement'] );
+		$this->assertSame( 'Script URL', $schema['itemListElement'][0]['name'] );
+		$this->assertArrayNotHasKey( 'item', $schema['itemListElement'][0] );
+		$this->assertSame( 'Data URL', $schema['itemListElement'][1]['name'] );
+		$this->assertArrayNotHasKey( 'item', $schema['itemListElement'][1] );
+	}
+
+	/**
 	 * The saai_structured_data filter should receive the schema-type identifier and post.
 	 */
 	public function test_saai_structured_data_filter_receives_schema_type_and_post() {

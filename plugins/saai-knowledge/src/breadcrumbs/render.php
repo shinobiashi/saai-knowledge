@@ -49,10 +49,15 @@ if ( ! function_exists( 'saai_render_breadcrumbs_items' ) ) {
 				continue;
 			}
 
-			// A non-current crumb with no URL (hub link resolution failed, or a
-			// filter injected a linkless node) renders as plain text; only the
-			// explicitly current crumb may carry aria-current.
-			if ( ! is_scalar( $url ) || '' === (string) $url ) {
+			// Sanitize before testing for a usable URL: esc_url() reduces a value
+			// carrying a disallowed protocol (javascript:, data:, ...) to an
+			// empty string, which would otherwise render as href="".
+			$url = is_scalar( $url ) ? esc_url( (string) $url ) : '';
+
+			// A non-current crumb with no usable URL (hub link resolution failed,
+			// or a filter injected a linkless node) renders as plain text; only
+			// the explicitly current crumb may carry aria-current.
+			if ( '' === $url ) {
 				$items .= sprintf(
 					'<li class="saai-breadcrumbs__item">%s</li>',
 					$label
@@ -62,7 +67,7 @@ if ( ! function_exists( 'saai_render_breadcrumbs_items' ) ) {
 
 			$items .= sprintf(
 				'<li class="saai-breadcrumbs__item"><a href="%1$s">%2$s</a></li>',
-				esc_url( (string) $url ),
+				$url,
 				$label
 			);
 		}

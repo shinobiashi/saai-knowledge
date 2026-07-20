@@ -115,8 +115,13 @@ final class Breadcrumbs {
 
 			$url = $node['url'] ?? '';
 
-			if ( is_scalar( $url ) && '' !== (string) $url ) {
-				$item['item'] = (string) $url;
+			// Sanitize before testing: esc_url_raw() reduces a value carrying a
+			// disallowed protocol (javascript:, data:, ...) to an empty string,
+			// which must not reach the structured data.
+			$url = is_scalar( $url ) ? esc_url_raw( (string) $url ) : '';
+
+			if ( '' !== $url ) {
+				$item['item'] = $url;
 			}
 
 			$items[] = $item;
