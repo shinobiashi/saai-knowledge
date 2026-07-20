@@ -1,0 +1,18 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "saai-knowledge/breadcrumbs",
+	"title": "KB Breadcrumbs",
+	"category": "widgets",
+	"description": "Hub / category / article breadcrumb trail for Knowledge Base pages, with BreadcrumbList JSON-LD.",
+	"textdomain": "saai-knowledge",
+	"usesContext": [ "postId" ],
+	"editorScript": "file:./index.js",
+	"editorStyle": "file:./index.css",
+	"style": "file:./style-index.css",
+	"render": "file:./render.php",
+	"supports": {
+		"html": false,
+		"align": [ "wide", "full" ]
+	}
+}
