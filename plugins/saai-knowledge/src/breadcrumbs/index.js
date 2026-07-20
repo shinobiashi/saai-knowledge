@@ -4,6 +4,9 @@ import ServerSideRender from '@wordpress/server-side-render';
 
 import metadata from './block.json';
 import './editor.scss';
+// The block has no view.js (nothing interactive), so the front-end stylesheet
+// is emitted from this entry as style-index.css — see block.json's "style".
+import './style.scss';
 
 function Edit() {
 	const blockProps = useBlockProps();

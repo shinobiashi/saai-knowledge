@@ -1,0 +1,28 @@
+.saai-breadcrumbs {
+
+	&__list {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.25em 0.5em;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+
+	&__item {
+		display: flex;
+		align-items: center;
+		gap: 0.5em;
+		margin: 0;
+
+		&:not(:first-child)::before {
+			content: "/";
+			opacity: 0.6;
+		}
+	}
+
+	&__item--current {
+		font-weight: 600;
+	}
+}
