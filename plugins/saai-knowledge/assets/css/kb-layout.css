@@ -1,0 +1,66 @@
+/*
+ * KB two-column layout (DESIGN.md section 4.1).
+ *
+ * Container-query based and self-contained: no theme dependency. The
+ * sidebar and table of contents are native <details> disclosure widgets,
+ * server-rendered open so their content is always in the initial HTML
+ * (required regardless of viewport — many crawlers don't run JS). Below
+ * the breakpoint they behave as an ordinary foldable accordion (click
+ * <summary> to collapse/expand, no JS required). At/above the breakpoint
+ * the <summary> toggle is hidden and the grid lays the panels out as
+ * columns instead.
+ *
+ * `.saai-kb-layout` only establishes the query container; the grid lives
+ * on the `__grid` child instead of on `.saai-kb-layout` itself, because a
+ * size container cannot be the querying element for its own layout.
+ */
+
+.saai-kb-layout {
+	container-type: inline-size;
+}
+
+.saai-kb-layout__grid {
+	display: grid;
+	grid-template-columns: 1fr;
+	gap: 1.5rem;
+	align-items: start;
+}
+
+.saai-kb-layout__sidebar,
+.saai-kb-layout__toc {
+	margin: 0;
+	border: 1px solid currentColor;
+	border-radius: 4px;
+	padding: 0.75rem 1rem;
+}
+
+.saai-kb-layout__sidebar > summary,
+.saai-kb-layout__toc > summary {
+	cursor: pointer;
+	font-weight: 600;
+}
+
+.saai-kb-layout__content {
+	min-width: 0;
+}
+
+@container (min-width: 600px) {
+	.saai-kb-layout--article .saai-kb-layout__grid {
+		grid-template-columns: 220px minmax(0, 1fr) 220px;
+	}
+
+	.saai-kb-layout--archive .saai-kb-layout__grid {
+		grid-template-columns: 220px minmax(0, 1fr);
+	}
+
+	.saai-kb-layout__sidebar,
+	.saai-kb-layout__toc {
+		border: 0;
+		padding: 0;
+	}
+
+	.saai-kb-layout__sidebar > summary,
+	.saai-kb-layout__toc > summary {
+		display: none;
+	}
+}

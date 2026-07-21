@@ -1,6 +1,6 @@
 <?php
 /**
- * Resolves single-view templates for the content post types.
+ * Resolves single, archive, and taxonomy templates for the content post types.
  *
  * @package SAAI\Knowledge
  */
@@ -15,11 +15,42 @@ defined( 'ABSPATH' ) || exit;
 final class Template_Loader {
 
 	/**
-	 * Post types that get a single-view template.
+	 * Template slugs mapped to how they're matched against the current request.
+	 *
+	 * `match` is one of 'singular', 'post_type_archive', or 'taxonomy'; `target`
+	 * is the post type or taxonomy that `match` is checked against.
+	 *
+	 * @var array<string, array{match: string, target: string}>
+	 */
+	private const TEMPLATES = array(
+		'single-saai_kb'         => array(
+			'match'  => 'singular',
+			'target' => 'saai_kb',
+		),
+		'single-saai_faq'        => array(
+			'match'  => 'singular',
+			'target' => 'saai_faq',
+		),
+		'single-saai_glossary'   => array(
+			'match'  => 'singular',
+			'target' => 'saai_glossary',
+		),
+		'archive-saai_kb'        => array(
+			'match'  => 'post_type_archive',
+			'target' => 'saai_kb',
+		),
+		'taxonomy-saai_category' => array(
+			'match'  => 'taxonomy',
+			'target' => 'saai_category',
+		),
+	);
+
+	/**
+	 * Post types the KB two-column layout stylesheet applies to.
 	 *
 	 * @var string[]
 	 */
-	private const POST_TYPES = array( 'saai_kb', 'saai_faq', 'saai_glossary' );
+	private const LAYOUT_STYLE_POST_TYPES = array( 'saai_kb' );
 
 	/**
 	 * Hooks template resolution into WordPress.
@@ -30,10 +61,11 @@ final class Template_Loader {
 		}
 
 		add_filter( 'template_include', array( $this, 'filter_template_include' ) );
+		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_layout_style' ) );
 	}
 
 	/**
-	 * Registers a placeholder block template for each content post type.
+	 * Registers a block template for each entry in self::TEMPLATES.
 	 *
 	 * Only hooked on block themes (see register()); a classic theme never
 	 * resolves these, so registering them there would just be wasted work
@@ -43,14 +75,12 @@ final class Template_Loader {
 	 * a theme-provided template of the same name always takes priority.
 	 */
 	public function register_block_templates(): void {
-		foreach ( self::POST_TYPES as $post_type ) {
-			$slug = "single-{$post_type}";
-
+		foreach ( self::TEMPLATES as $slug => $spec ) {
 			register_block_template(
 				"saai-knowledge//{$slug}",
 				array(
-					'title'       => $this->template_title( $post_type ),
-					'description' => __( 'Placeholder template provided by SAAI Knowledge. Customize it from the Site Editor.', 'saai-knowledge' ),
+					'title'       => $this->template_title( $slug ),
+					'description' => __( 'Template provided by SAAI Knowledge. Customize it from the Site Editor.', 'saai-knowledge' ),
 					'content'     => $this->read_bundled_asset( "block-templates/{$slug}.html" ),
 				)
 			);
@@ -58,9 +88,9 @@ final class Template_Loader {
 	}
 
 	/**
-	 * Resolves the classic-theme template for the content post types.
+	 * Resolves the classic-theme template for the content post types, KB archive, and category taxonomy.
 	 *
-	 * Block themes render single views via the templates registered in
+	 * Block themes render these views via the templates registered in
 	 * register_block_templates() instead, so this filter is a no-op there.
 	 *
 	 * @param string $template Template path resolved by WordPress so far.
@@ -71,13 +101,11 @@ final class Template_Loader {
 			return $template;
 		}
 
-		$post_type = $this->queried_post_type();
+		$slug = $this->queried_template_slug();
 
-		if ( null === $post_type ) {
+		if ( null === $slug ) {
 			return $template;
 		}
-
-		$slug = "single-{$post_type}";
 
 		$resolved = locate_template( array( "saai-knowledge/{$slug}.php" ) );
 
@@ -99,14 +127,54 @@ final class Template_Loader {
 	}
 
 	/**
-	 * The content post type of the current main query, if it is a singular view of one.
+	 * Enqueues the KB two-column layout stylesheet on the views it applies to.
+	 *
+	 * Hand-authored (no build step), so its own mtime drives cache-busting
+	 * instead of the plugin version constant.
+	 */
+	public function enqueue_layout_style(): void {
+		if ( ! $this->is_kb_layout_view() ) {
+			return;
+		}
+
+		$path = SAAI_KNOWLEDGE_DIR . 'assets/css/kb-layout.css';
+
+		if ( ! file_exists( $path ) ) {
+			return;
+		}
+
+		wp_enqueue_style(
+			'saai-knowledge-kb-layout',
+			SAAI_KNOWLEDGE_URL . 'assets/css/kb-layout.css',
+			array(),
+			(string) filemtime( $path )
+		);
+	}
+
+	/**
+	 * Whether the current request renders the KB two-column layout.
+	 *
+	 * @return bool
+	 */
+	private function is_kb_layout_view(): bool {
+		foreach ( self::LAYOUT_STYLE_POST_TYPES as $post_type ) {
+			if ( is_singular( $post_type ) || is_post_type_archive( $post_type ) ) {
+				return true;
+			}
+		}
+
+		return is_tax( 'saai_category' );
+	}
+
+	/**
+	 * The template slug matching the current main query, if any.
 	 *
 	 * @return string|null
 	 */
-	private function queried_post_type(): ?string {
-		foreach ( self::POST_TYPES as $post_type ) {
-			if ( is_singular( $post_type ) ) {
-				return $post_type;
+	private function queried_template_slug(): ?string {
+		foreach ( self::TEMPLATES as $slug => $spec ) {
+			if ( $this->matches_current_request( $spec ) ) {
+				return $slug;
 			}
 		}
 
@@ -114,19 +182,40 @@ final class Template_Loader {
 	}
 
 	/**
-	 * The Site Editor title for a post type's placeholder block template.
+	 * Whether a template spec matches the current main query.
 	 *
-	 * @param string $post_type Post type slug.
+	 * @param array{match: string, target: string} $spec Template spec, see self::TEMPLATES.
+	 * @return bool
+	 */
+	private function matches_current_request( array $spec ): bool {
+		switch ( $spec['match'] ) {
+			case 'singular':
+				return is_singular( $spec['target'] );
+			case 'post_type_archive':
+				return is_post_type_archive( $spec['target'] );
+			case 'taxonomy':
+				return is_tax( $spec['target'] );
+			default:
+				return false;
+		}
+	}
+
+	/**
+	 * The Site Editor title for a template slug.
+	 *
+	 * @param string $slug Template slug, e.g. `single-saai_kb`.
 	 * @return string
 	 */
-	private function template_title( string $post_type ): string {
+	private function template_title( string $slug ): string {
 		$titles = array(
-			'saai_kb'       => __( 'Single: Knowledge Base Article', 'saai-knowledge' ),
-			'saai_faq'      => __( 'Single: FAQ', 'saai-knowledge' ),
-			'saai_glossary' => __( 'Single: Glossary Term', 'saai-knowledge' ),
+			'single-saai_kb'         => __( 'Single: Knowledge Base Article', 'saai-knowledge' ),
+			'single-saai_faq'        => __( 'Single: FAQ', 'saai-knowledge' ),
+			'single-saai_glossary'   => __( 'Single: Glossary Term', 'saai-knowledge' ),
+			'archive-saai_kb'        => __( 'Knowledge Base Hub', 'saai-knowledge' ),
+			'taxonomy-saai_category' => __( 'Knowledge Base Category Archive', 'saai-knowledge' ),
 		);
 
-		return $titles[ $post_type ] ?? $post_type;
+		return $titles[ $slug ] ?? $slug;
 	}
 
 	/**

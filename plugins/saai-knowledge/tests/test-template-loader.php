@@ -19,13 +19,19 @@ class Test_Template_Loader extends WP_UnitTestCase {
 	}
 
 	/**
-	 * A placeholder block template should be registered for each content post type.
+	 * A block template should be registered for each content post type, the KB
+	 * archive, and the category taxonomy.
 	 *
 	 * Template_Loader::register() only hooks registration on block themes, and
 	 * the WP core test suite's default theme is classic, so bootstrap never
 	 * triggers it here. Call register_block_templates() directly instead.
+	 *
+	 * WP_Block_Templates_Registry isn't reset between tests (unlike registered
+	 * meta keys), so calling register_block_templates() more than once across
+	 * this test class would trip its "already registered" incorrect-usage
+	 * notice; all assertions on its output are consolidated into this one test.
 	 */
-	public function test_block_templates_are_registered_for_each_post_type() {
+	public function test_block_templates_are_registered() {
 		( new \SAAI\Knowledge\Template_Loader() )->register_block_templates();
 
 		$registry = \WP_Block_Templates_Registry::get_instance();
@@ -37,6 +43,14 @@ class Test_Template_Loader extends WP_UnitTestCase {
 			$this->assertStringContainsString( 'wp:post-title', $template->content );
 			$this->assertStringContainsString( 'wp:post-content', $template->content );
 		}
+
+		$archive = $registry->get_registered( 'saai-knowledge//archive-saai_kb' );
+		$this->assertNotNull( $archive, 'archive-saai_kb block template should be registered' );
+		$this->assertStringContainsString( 'saai-knowledge/kb-sidebar', $archive->content );
+
+		$taxonomy = $registry->get_registered( 'saai-knowledge//taxonomy-saai_category' );
+		$this->assertNotNull( $taxonomy, 'taxonomy-saai_category block template should be registered' );
+		$this->assertStringContainsString( 'saai-knowledge/kb-sidebar', $taxonomy->content );
 	}
 
 	/**
@@ -69,6 +83,36 @@ class Test_Template_Loader extends WP_UnitTestCase {
 				"single-{$post_type} should resolve to the bundled classic template"
 			);
 		}
+	}
+
+	/**
+	 * The KB post type archive should resolve to its bundled classic-theme template.
+	 */
+	public function test_template_include_resolves_bundled_template_for_kb_archive() {
+		self::factory()->post->create( array( 'post_type' => 'saai_kb' ) );
+		$this->go_to( get_post_type_archive_link( 'saai_kb' ) );
+
+		$resolved = ( new \SAAI\Knowledge\Template_Loader() )->filter_template_include( '/theme/fallback.php' );
+
+		$this->assertSame(
+			SAAI_KNOWLEDGE_DIR . 'templates/classic/archive-saai_kb.php',
+			$resolved
+		);
+	}
+
+	/**
+	 * The saai_category taxonomy archive should resolve to its bundled classic-theme template.
+	 */
+	public function test_template_include_resolves_bundled_template_for_category_taxonomy() {
+		$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+		$this->go_to( get_term_link( $term_id, 'saai_category' ) );
+
+		$resolved = ( new \SAAI\Knowledge\Template_Loader() )->filter_template_include( '/theme/fallback.php' );
+
+		$this->assertSame(
+			SAAI_KNOWLEDGE_DIR . 'templates/classic/taxonomy-saai_category.php',
+			$resolved
+		);
 	}
 
 	/**

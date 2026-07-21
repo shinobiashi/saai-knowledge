@@ -1,7 +1,33 @@
-<!-- wp:group {"tagName":"main","className":"saai-knowledge-placeholder"} -->
-<main class="wp-block-group saai-knowledge-placeholder">
-<!-- wp:post-title /-->
+<!-- wp:group {"align":"wide","tagName":"main","className":"saai-kb-layout saai-kb-layout--article"} -->
+<main class="wp-block-group alignwide saai-kb-layout saai-kb-layout--article">
+
+<!-- wp:group {"className":"saai-kb-layout__grid"} -->
+<div class="wp-block-group saai-kb-layout__grid">
+
+<!-- wp:details {"showContent":true,"className":"saai-kb-layout__sidebar"} -->
+<details class="wp-block-details saai-kb-layout__sidebar" open><summary>Categories</summary>
+<!-- wp:saai-knowledge/kb-sidebar /-->
+</details>
+<!-- /wp:details -->
+
+<!-- wp:group {"tagName":"article","className":"saai-kb-layout__content"} -->
+<article class="wp-block-group saai-kb-layout__content">
+<!-- wp:saai-knowledge/breadcrumbs /-->
+
+<!-- wp:post-title {"level":1} /-->
 
 <!-- wp:post-content /-->
+</article>
+<!-- /wp:group -->
+
+<!-- wp:details {"showContent":true,"className":"saai-kb-layout__toc"} -->
+<details class="wp-block-details saai-kb-layout__toc" open><summary>Table of contents</summary>
+<!-- wp:saai-knowledge/kb-toc /-->
+</details>
+<!-- /wp:details -->
+
+</div>
+<!-- /wp:group -->
+
 </main>
 <!-- /wp:group -->

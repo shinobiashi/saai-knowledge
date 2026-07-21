@@ -13,9 +13,12 @@
         "env:start": "wp-env start",
         "env:stop": "wp-env stop",
         "lint:js": "npm run lint:js --workspaces --if-present",
-        "lint:css": "npm run lint:css --workspaces --if-present"
+        "lint:css": "npm run lint:css --workspaces --if-present",
+        "test:e2e": "playwright test"
     },
     "devDependencies": {
+        "@playwright/test": "^1.61.1",
+        "@wordpress/e2e-test-utils-playwright": "^1.51.0",
         "@wordpress/env": "^10.0.0",
         "@wordpress/scripts": "^30.0.0"
     },
