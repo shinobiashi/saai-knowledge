@@ -118,6 +118,9 @@ final class Term_Order {
 		);
 		$clauses['orderby'] = "ORDER BY COALESCE( CAST( saai_order_meta.meta_value AS SIGNED ), 0 ) {$order}, t.name";
 		$clauses['order']   = $order;
+		// A term with duplicate saai_order rows (add_term_meta bypassing the
+		// single registration) would otherwise appear once per meta row.
+		$clauses['distinct'] = 'DISTINCT';
 
 		return $clauses;
 	}

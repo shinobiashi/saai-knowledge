@@ -80,6 +80,71 @@ class Test_Term_Order extends WP_UnitTestCase {
 	}
 
 	/**
+	 * An explicit orderby => saai_order should apply the meta ordering
+	 * even where the caller would otherwise sort differently.
+	 */
+	public function test_explicit_saai_order_orderby_applies_meta_ordering() {
+		$alpha = self::factory()->term->create(
+			array(
+				'taxonomy' => 'saai_category',
+				'name'     => 'Alpha',
+			)
+		);
+		$beta  = self::factory()->term->create(
+			array(
+				'taxonomy' => 'saai_category',
+				'name'     => 'Beta',
+			)
+		);
+
+		update_term_meta( $alpha, 'saai_order', 2 );
+		update_term_meta( $beta, 'saai_order', 1 );
+
+		$terms = get_terms(
+			array(
+				'taxonomy'   => 'saai_category',
+				'hide_empty' => false,
+				'orderby'    => 'saai_order',
+				'fields'     => 'ids',
+			)
+		);
+
+		$this->assertSame( array( $beta, $alpha ), $terms );
+	}
+
+	/**
+	 * Passing order => DESC should reverse the meta ordering.
+	 */
+	public function test_descending_order_is_respected() {
+		$alpha = self::factory()->term->create(
+			array(
+				'taxonomy' => 'saai_category',
+				'name'     => 'Alpha',
+			)
+		);
+		$beta  = self::factory()->term->create(
+			array(
+				'taxonomy' => 'saai_category',
+				'name'     => 'Beta',
+			)
+		);
+
+		update_term_meta( $alpha, 'saai_order', 1 );
+		update_term_meta( $beta, 'saai_order', 2 );
+
+		$terms = get_terms(
+			array(
+				'taxonomy'   => 'saai_category',
+				'hide_empty' => false,
+				'order'      => 'DESC',
+				'fields'     => 'ids',
+			)
+		);
+
+		$this->assertSame( array( $beta, $alpha ), $terms );
+	}
+
+	/**
 	 * An explicit non-name orderby should be left untouched.
 	 */
 	public function test_explicit_other_orderby_is_untouched() {
