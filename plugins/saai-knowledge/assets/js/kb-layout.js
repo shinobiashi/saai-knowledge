@@ -10,9 +10,18 @@
  * the container grows past the breakpoint (e.g. rotating a device or
  * resizing the window), because the toggle used to reopen it is hidden
  * at that width.
+ *
+ * Plain script rather than an Interactivity API store: this fixes template
+ * layout chrome (registered by Template_Loader, alongside the equally plain
+ * kb-layout.css), not a block's own view.js, so it sits outside the blocks'
+ * src/ build and doesn't need a store/context to track — it only ever
+ * pushes `open` from false to true.
  */
 ( function () {
-	// Keep in sync with the `@container (min-width: ...)` breakpoint in kb-layout.css.
+	// Keep in sync with the `@container (min-width: ...)` breakpoint in
+	// kb-layout.css. Not read from a CSS custom property at runtime — with a
+	// single breakpoint used in exactly these two places, that indirection
+	// would outweigh the value of removing the duplicated literal.
 	var BREAKPOINT = 600;
 
 	if ( typeof ResizeObserver === 'undefined' ) {

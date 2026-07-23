@@ -83,4 +83,9 @@ test.describe( 'KB two-column layout — classic theme (Twenty Twenty-One)', () 
 
 		expect( consoleErrors ).toEqual( [] );
 	} );
+
+	// No "reopens a manually-collapsed sidebar past the breakpoint" test here:
+	// that behavior comes entirely from kb-layout.css/kb-layout.js, shared
+	// unchanged across both themes, so the block-theme spec's coverage of it
+	// isn't duplicated in this file.
 } );
