@@ -145,14 +145,19 @@ final class Term_Order {
 	 * @param \WP_Term $term The term being edited.
 	 */
 	public function render_edit_form_field( \WP_Term $term ): void {
-		$value = (int) get_term_meta( $term->term_id, self::META_KEY, true );
+		// An unset meta must render as an empty field: the registered default
+		// (0) would otherwise round-trip into a stored saai_order row on any
+		// unrelated save, making "unset" and "0" indistinguishable.
+		$value = metadata_exists( 'term', $term->term_id, self::META_KEY )
+			? (string) (int) get_term_meta( $term->term_id, self::META_KEY, true )
+			: '';
 
 		wp_nonce_field( self::NONCE_ACTION, self::NONCE_NAME );
 		?>
 		<tr class="form-field">
 			<th scope="row"><label for="saai-order"><?php esc_html_e( 'Order', 'saai-knowledge' ); ?></label></th>
 			<td>
-				<input name="<?php echo esc_attr( self::META_KEY ); ?>" id="saai-order" type="number" min="0" step="1" value="<?php echo esc_attr( (string) $value ); ?>" />
+				<input name="<?php echo esc_attr( self::META_KEY ); ?>" id="saai-order" type="number" min="0" step="1" value="<?php echo esc_attr( $value ); ?>" />
 				<p class="description"><?php esc_html_e( 'Position among sibling categories. Lower numbers appear first; ties are ordered by name.', 'saai-knowledge' ); ?></p>
 			</td>
 		</tr>

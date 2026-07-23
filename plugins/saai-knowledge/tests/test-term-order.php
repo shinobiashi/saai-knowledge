@@ -253,6 +253,36 @@ class Test_Term_Order extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The edit form must render an empty field for a term without a stored
+	 * saai_order row, so resaving the term for unrelated changes does not
+	 * materialize the registered default (0) as a meta row.
+	 */
+	public function test_edit_form_renders_empty_value_when_meta_is_unset() {
+		$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+
+		ob_start();
+		$this->term_order->render_edit_form_field( get_term( $term_id ) );
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'value=""', $output );
+	}
+
+	/**
+	 * The edit form must render the stored order, including an explicit 0.
+	 */
+	public function test_edit_form_renders_stored_value() {
+		$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+
+		update_term_meta( $term_id, 'saai_order', 0 );
+
+		ob_start();
+		$this->term_order->render_edit_form_field( get_term( $term_id ) );
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'value="0"', $output );
+	}
+
+	/**
 	 * Without a valid nonce the save handler must not write anything.
 	 */
 	public function test_save_term_order_requires_nonce() {
