@@ -223,6 +223,12 @@ final class Term_Order {
 			return $content;
 		}
 
+		// Unset meta renders as blank, matching the edit form: the registered
+		// default (0) would otherwise make the column imply an order was set.
+		if ( ! metadata_exists( 'term', $term_id, self::META_KEY ) ) {
+			return $content;
+		}
+
 		return esc_html( (string) (int) get_term_meta( $term_id, self::META_KEY, true ) );
 	}
 

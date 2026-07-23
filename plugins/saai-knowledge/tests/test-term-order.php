@@ -283,6 +283,32 @@ class Test_Term_Order extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The list table Order column must stay blank for a term without a
+	 * stored saai_order row, matching the edit form's unset-vs-0 distinction.
+	 */
+	public function test_order_column_is_blank_when_meta_is_unset() {
+		$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+
+		$this->assertSame( '', $this->term_order->render_order_column( '', 'saai_order', $term_id ) );
+	}
+
+	/**
+	 * The list table Order column must render the stored order, including an
+	 * explicit 0.
+	 */
+	public function test_order_column_renders_stored_value() {
+		$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+
+		update_term_meta( $term_id, 'saai_order', 0 );
+
+		$this->assertSame( '0', $this->term_order->render_order_column( '', 'saai_order', $term_id ) );
+
+		update_term_meta( $term_id, 'saai_order', 7 );
+
+		$this->assertSame( '7', $this->term_order->render_order_column( '', 'saai_order', $term_id ) );
+	}
+
+	/**
 	 * Without a valid nonce the save handler must not write anything.
 	 */
 	public function test_save_term_order_requires_nonce() {
