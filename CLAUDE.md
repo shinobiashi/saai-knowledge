@@ -47,6 +47,8 @@ FAQ / Knowledge Base / 用語集を提供する WordPress プラグインのモ�
 - `esc_url()` / `esc_url_raw()` は許可外プロトコル（`javascript:`、`data:` 等）を空文字に落とすため、URLの有無は**サニタイズ後の値で判定する**。生値で判定して出力時にエスケープすると `href=""` の壊れたリンクや、構造化データへの不正値混入になる。なお `esc_url_raw( '0' )` は `'http://0'` を返す（空にはならない）ので、"0" を空扱いする実装は不要。
 - JSON-LD は `wp_json_encode()` の出力をそのまま `<script type="application/ld+json">` に入れる（`esc_html()` を通すとJSONが壊れる）。`wp_json_encode()` は既定でスラッシュをエスケープするため、値に `</script>` が含まれてもタグを閉じられない。日本語を読める形で出すなら `JSON_UNESCAPED_UNICODE` を付ける。
 - `szepeviktor/phpstan-wordpress` は `apply_filters()` 呼び出し直前のdocblockコメントの最初の `@param` 型を、その呼び出しの戻り値型として採用する。サードパーティ由来の戻り値を実行時に `is_array()` 等でガードしていても、PHPStanはdocblockの型を信頼して「常に真」（`ternary.elseUnreachable`等）と誤検知することがある。ガードの必要性自体は変わらないため、該当行に理由を添えた `// @phpstan-ignore <identifier>` を付ける。
+- `register_term_meta()` / `register_post_meta()` で `default` を設定すると、`get_term_meta()` 等は meta 行が無くても default を返すため「未設定」と「明示的な default 値」を区別できない。UI で未設定を空欄表示する場合や行の有無で分岐する場合は `metadata_exists()` で判定する。未設定に default を表示すると、フォーム保存の往復で不要な meta 行が実体化する（saai_order の編集フォームと一覧列で2回指摘された実績あり）。
+- `WP_Term_Query` の `orderby` は文字列のみ対応（配列 orderby は `WP_Query` のみ）。core の `parse_orderby()` が値を直接 `strtolower()` に渡すため、配列を渡すと PHP 8+ では `terms_clauses` フィルター到達前に TypeError になる。
 - macOSでの `npm ci` 成功はLinux CI（`ci-js.yml`）での成功を保証しない。`fsevents`（macOS専用のオプション依存。`@wordpress/scripts` 経由でplaywright/jest-haste-map/webpack-dev-serverなどが要求）のOS別解決エントリは、ローカルの `npm install` 実行のたびに `package-lock.json` から意図せずdropされ、Linux上の `npm ci` の厳密な整合性チェックだけが失敗する状態になりうる（実際に3回連続で再発）。`package.json`/`package-lock.json` を触った後は、`docker run --rm -v "$(pwd)":/work -w /work node:24 bash -c "npm ci"` で `ci-js.yml` と同じNode版のLinuxコンテナで実際に検証してからpushする。また、macOSローカルでは `npm run lint:js` が `unrs-resolver` のネイティブバインディング欠落（コード起因ではない環境問題）で失敗することがある。その場合も同じDockerコンテナで `npm ci && npm run lint:js` を実行して判定する。
 
 ## Git 運用（重要）
@@ -76,6 +78,8 @@ npx wp-env run tests-cli --env-cwd=saai-monorepo bash -c "composer test"
 ```
 
 `wp-env run` はスペース区切りの複数語コマンドを直接渡すと失敗するため `bash -c "..."` で包む。`composer analyze` がメモリ不足で落ちる場合は `composer exec phpstan analyse -- --memory-limit=512M` を使う。
+
+他プロジェクトの wp-env がポート 8888/8889 を使用中で起動が「port is already allocated」で失敗する場合は、`WP_ENV_PORT=8890 WP_ENV_TESTS_PORT=8892 composer verify` のように環境変数でポートをずらして並行起動する（wp-env インスタンスはディレクトリ単位で独立しており、衝突するのはポートのみ。他プロジェクト側を止める必要はない）。
 
 Playwright E2E（`npm run test:e2e`）は M2 でセットアップ予定、現時点では未整備。
 
