@@ -81,4 +81,25 @@ test.describe( 'KB two-column layout — block theme (Twenty Twenty-Five)', () =
 
 		expect( consoleErrors ).toEqual( [] );
 	} );
+
+	// The layout's <summary> toggle is CSS-hidden once the container is wide
+	// enough to lay the panels out as grid columns, and a native <details>'s
+	// visibility can't be forced open by CSS — only kb-layout.js reopening it
+	// on resize prevents a panel manually collapsed at a narrow width from
+	// staying stuck hidden after the window grows past the breakpoint.
+	test( 'reopens a manually-collapsed sidebar once the layout grows past the breakpoint', async ( {
+		page,
+	} ) => {
+		await page.setViewportSize( { width: 375, height: 800 } );
+		await page.goto( fixtures.post.link );
+
+		const sidebar = page.locator( '.saai-kb-layout__sidebar' );
+		await sidebar.locator( 'summary' ).click();
+		await expect( sidebar ).not.toHaveJSProperty( 'open', true );
+
+		await page.setViewportSize( { width: 1400, height: 1000 } );
+		await expect( sidebar ).toHaveJSProperty( 'open', true );
+
+		expect( consoleErrors ).toEqual( [] );
+	} );
 } );

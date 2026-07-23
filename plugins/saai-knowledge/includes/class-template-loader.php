@@ -81,7 +81,7 @@ final class Template_Loader {
 				array(
 					'title'       => $this->template_title( $slug ),
 					'description' => __( 'Template provided by SAAI Knowledge. Customize it from the Site Editor.', 'saai-knowledge' ),
-					'content'     => $this->read_bundled_asset( "block-templates/{$slug}.html" ),
+					'content'     => $this->localize_template_content( $this->read_bundled_asset( "block-templates/{$slug}.html" ) ),
 				)
 			);
 		}
@@ -127,28 +127,41 @@ final class Template_Loader {
 	}
 
 	/**
-	 * Enqueues the KB two-column layout stylesheet on the views it applies to.
+	 * Enqueues the KB two-column layout stylesheet and script on the views they apply to.
 	 *
-	 * Hand-authored (no build step), so its own mtime drives cache-busting
-	 * instead of the plugin version constant.
+	 * Both are hand-authored (no build step), so their own mtime drives
+	 * cache-busting instead of the plugin version constant.
 	 */
 	public function enqueue_layout_style(): void {
 		if ( ! $this->is_kb_layout_view() ) {
 			return;
 		}
 
-		$path = SAAI_KNOWLEDGE_DIR . 'assets/css/kb-layout.css';
+		$style_path = SAAI_KNOWLEDGE_DIR . 'assets/css/kb-layout.css';
 
-		if ( ! file_exists( $path ) ) {
-			return;
+		if ( file_exists( $style_path ) ) {
+			wp_enqueue_style(
+				'saai-knowledge-kb-layout',
+				SAAI_KNOWLEDGE_URL . 'assets/css/kb-layout.css',
+				array(),
+				(string) filemtime( $style_path )
+			);
 		}
 
-		wp_enqueue_style(
-			'saai-knowledge-kb-layout',
-			SAAI_KNOWLEDGE_URL . 'assets/css/kb-layout.css',
-			array(),
-			(string) filemtime( $path )
-		);
+		$script_path = SAAI_KNOWLEDGE_DIR . 'assets/js/kb-layout.js';
+
+		if ( file_exists( $script_path ) ) {
+			wp_enqueue_script(
+				'saai-knowledge-kb-layout',
+				SAAI_KNOWLEDGE_URL . 'assets/js/kb-layout.js',
+				array(),
+				(string) filemtime( $script_path ),
+				array(
+					'in_footer' => true,
+					'strategy'  => 'defer',
+				)
+			);
+		}
 	}
 
 	/**
@@ -233,5 +246,27 @@ final class Template_Loader {
 
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- bundled plugin asset, not a remote/user-supplied path.
 		return (string) file_get_contents( $path );
+	}
+
+	/**
+	 * Replaces translatable placeholder tokens in bundled block-template HTML.
+	 *
+	 * Block-template files are static HTML, so they can't call translation
+	 * functions directly; they carry a `{{saai_..._label}}` token instead, and
+	 * this substitutes the translated string in at registration time (the
+	 * classic-theme PHP templates translate the same labels via esc_html_e()
+	 * directly).
+	 *
+	 * @param string $content Bundled block-template HTML.
+	 * @return string
+	 */
+	private function localize_template_content( string $content ): string {
+		return strtr(
+			$content,
+			array(
+				'{{saai_categories_label}}' => esc_html__( 'Categories', 'saai-knowledge' ),
+				'{{saai_toc_label}}'        => esc_html__( 'Table of contents', 'saai-knowledge' ),
+			)
+		);
 	}
 }

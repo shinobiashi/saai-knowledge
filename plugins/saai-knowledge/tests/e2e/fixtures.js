@@ -5,6 +5,21 @@ const KB_CONTENT =
 	'<!-- wp:paragraph --><p>More content here.</p><!-- /wp:paragraph -->';
 
 /**
+ * Decodes the numeric HTML entities WordPress's wptexturize() may introduce
+ * into a `title.rendered` REST field (e.g. it turns a title fragment like
+ * "030x66" into "030&#215;66"), so specs can compare it against the plain
+ * text a browser actually renders/exposes as an accessible name.
+ *
+ * @param {string} html
+ * @return {string}
+ */
+function decodeNumericEntities( html ) {
+	return html.replace( /&#(\d+);/g, ( _match, code ) =>
+		String.fromCharCode( Number( code ) )
+	);
+}
+
+/**
  * Creates a saai_category term and a published saai_kb article (with two
  * headings, for the TOC) assigned to it, via the REST API.
  *
@@ -30,6 +45,8 @@ async function createKbFixtures( requestUtils ) {
 			saai_category: [ term.id ],
 		},
 	} );
+
+	post.title.rendered = decodeNumericEntities( post.title.rendered );
 
 	return { term, post };
 }

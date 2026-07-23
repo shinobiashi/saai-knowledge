@@ -51,6 +51,12 @@ class Test_Template_Loader extends WP_UnitTestCase {
 		$taxonomy = $registry->get_registered( 'saai-knowledge//taxonomy-saai_category' );
 		$this->assertNotNull( $taxonomy, 'taxonomy-saai_category block template should be registered' );
 		$this->assertStringContainsString( 'saai-knowledge/kb-sidebar', $taxonomy->content );
+
+		$single_kb = $registry->get_registered( 'saai-knowledge//single-saai_kb' );
+		$this->assertStringContainsString( '>Categories</summary>', $single_kb->content );
+		$this->assertStringContainsString( '>Table of contents</summary>', $single_kb->content );
+		$this->assertStringNotContainsString( '{{saai_categories_label}}', $single_kb->content );
+		$this->assertStringNotContainsString( '{{saai_toc_label}}', $single_kb->content );
 	}
 
 	/**
@@ -175,5 +181,54 @@ class Test_Template_Loader extends WP_UnitTestCase {
 		remove_filter( 'saai_template', $filter );
 
 		$this->assertSame( '/theme/fallback.php', $resolved );
+	}
+
+	/**
+	 * Views outside the KB two-column layout (e.g. a plain page) must not enqueue its style/script.
+	 */
+	public function test_enqueue_layout_style_skips_unrelated_views() {
+		$page_id = self::factory()->post->create( array( 'post_type' => 'page' ) );
+		$this->go_to( get_permalink( $page_id ) );
+
+		( new \SAAI\Knowledge\Template_Loader() )->enqueue_layout_style();
+
+		$this->assertFalse( wp_style_is( 'saai-knowledge-kb-layout', 'enqueued' ) );
+		$this->assertFalse( wp_script_is( 'saai-knowledge-kb-layout', 'enqueued' ) );
+	}
+
+	/**
+	 * The KB singular view, KB archive, and category taxonomy should each enqueue
+	 * both the layout style and its companion script (see kb-layout.js: it keeps
+	 * the sidebar/TOC <details> open once their container crosses the breakpoint
+	 * where kb-layout.css hides the <summary> toggle used to reopen them).
+	 */
+	public function test_enqueue_layout_style_enqueues_on_kb_layout_views() {
+		$loader = new \SAAI\Knowledge\Template_Loader();
+
+		$views = array(
+			'singular' => function () {
+				$post_id = self::factory()->post->create( array( 'post_type' => 'saai_kb' ) );
+				return get_permalink( $post_id );
+			},
+			'archive'  => function () {
+				self::factory()->post->create( array( 'post_type' => 'saai_kb' ) );
+				return get_post_type_archive_link( 'saai_kb' );
+			},
+			'taxonomy' => function () {
+				$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+				return get_term_link( $term_id, 'saai_category' );
+			},
+		);
+
+		foreach ( $views as $view => $get_url ) {
+			$this->go_to( $get_url() );
+			$loader->enqueue_layout_style();
+
+			$this->assertTrue( wp_style_is( 'saai-knowledge-kb-layout', 'enqueued' ), "style should be enqueued for the {$view} view" );
+			$this->assertTrue( wp_script_is( 'saai-knowledge-kb-layout', 'enqueued' ), "script should be enqueued for the {$view} view" );
+
+			wp_dequeue_style( 'saai-knowledge-kb-layout' );
+			wp_dequeue_script( 'saai-knowledge-kb-layout' );
+		}
 	}
 }

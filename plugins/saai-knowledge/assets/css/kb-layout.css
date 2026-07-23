@@ -13,6 +13,12 @@
  * `.saai-kb-layout` only establishes the query container; the grid lives
  * on the `__grid` child instead of on `.saai-kb-layout` itself, because a
  * size container cannot be the querying element for its own layout.
+ *
+ * Hiding <summary> here only stops a visitor from toggling the panel at
+ * this width — it doesn't reopen one they already collapsed at a narrower
+ * width (CSS can't override a closed <details>'s `open` attribute). See
+ * kb-layout.js, enqueued alongside this stylesheet, which forces `open`
+ * back on once a panel's container crosses this same breakpoint.
  */
 
 .saai-kb-layout {
