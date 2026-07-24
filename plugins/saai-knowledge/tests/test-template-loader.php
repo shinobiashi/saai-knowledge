@@ -271,4 +271,41 @@ class Test_Template_Loader extends WP_UnitTestCase {
 
 		$this->assertSame( $original_post_type, $wp_query->get( 'post_type' ) );
 	}
+
+	/**
+	 * A site's own classic-theme taxonomy-saai_category.php override — already
+	 * given priority by filter_template_include() — may deliberately want a
+	 * broader post-type scope for this shared taxonomy, so the restriction
+	 * must not be forced on it.
+	 */
+	public function test_restrict_category_archive_to_kb_defers_to_classic_theme_override() {
+		$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+		$this->go_to( get_term_link( $term_id, 'saai_category' ) );
+
+		// get_stylesheet_directory() doesn't resolve to a real, writable path
+		// in the WP core test suite's bundled theme fixture, so point it at a
+		// temp directory of our own via its filter instead of touching that path.
+		$theme_dir      = rtrim( sys_get_temp_dir(), '/' ) . '/saai-template-loader-test-' . wp_generate_password( 8, false, false );
+		$override_dir   = $theme_dir . '/saai-knowledge';
+		$override_path  = $override_dir . '/taxonomy-saai_category.php';
+		$stylesheet_dir = static function () use ( $theme_dir ) {
+			return $theme_dir;
+		};
+
+		wp_mkdir_p( $override_dir );
+		file_put_contents( $override_path, '<?php // Test theme override.' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- test-only fixture file, not a runtime code path.
+		add_filter( 'stylesheet_directory', $stylesheet_dir );
+
+		global $wp_query;
+		$original_post_type = $wp_query->get( 'post_type' );
+
+		( new \SAAI\Knowledge\Template_Loader() )->restrict_category_archive_to_kb( $wp_query );
+
+		remove_filter( 'stylesheet_directory', $stylesheet_dir );
+		wp_delete_file( $override_path );
+		rmdir( $override_dir ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir -- test-only cleanup of the fixture directory created above.
+		rmdir( $theme_dir ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir -- test-only cleanup of the fixture directory created above.
+
+		$this->assertSame( $original_post_type, $wp_query->get( 'post_type' ) );
+	}
 }

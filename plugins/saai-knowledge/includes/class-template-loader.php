@@ -169,18 +169,29 @@ final class Template_Loader {
 	 * Restricts the saai_category taxonomy archive's main query to saai_kb posts.
 	 *
 	 * `saai_category` is registered on both saai_kb and saai_faq (DESIGN.md
-	 * section 3.5 / CLAUDE.md), but the taxonomy-saai_category template
-	 * (block and classic) is entirely KB-branded — sidebar, breadcrumbs, and
-	 * empty-state copy all read as a Knowledge Base page. Left unrestricted,
-	 * a term shared with FAQ content would list saai_faq posts inside this
-	 * KB-only page. Both the block theme's inherited Query block and the
-	 * classic template's main loop read directly from the main query, so
-	 * this single filter covers both.
+	 * section 3.5 / CLAUDE.md), but the bundled taxonomy-saai_category
+	 * template (block and classic) is entirely KB-branded — sidebar,
+	 * breadcrumbs, and empty-state copy all read as a Knowledge Base page.
+	 * Left unrestricted, a term shared with FAQ content would list saai_faq
+	 * posts inside this KB-only page. Both the block theme's inherited Query
+	 * block and the classic template's main loop read directly from the main
+	 * query, so this single filter covers both.
 	 *
 	 * @param \WP_Query $query The query WordPress is about to run.
 	 */
 	public function restrict_category_archive_to_kb( \WP_Query $query ): void {
 		if ( is_admin() || ! $query->is_main_query() || ! $query->is_tax( 'saai_category' ) ) {
+			return;
+		}
+
+		// On a classic theme, a site's own taxonomy-saai_category.php override
+		// (which filter_template_include() already gives priority over the
+		// bundled template) may deliberately want a broader post-type scope
+		// for this shared taxonomy; don't force our restriction on it. Block
+		// themes resolve template overrides later, during template_include —
+		// after pre_get_posts has already run here — so there's no equivalent
+		// early check available for them.
+		if ( ! wp_is_block_theme() && '' !== locate_template( array( 'saai-knowledge/taxonomy-saai_category.php' ) ) ) {
 			return;
 		}
 
