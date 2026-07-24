@@ -106,10 +106,12 @@ if ( ! function_exists( 'saai_render_kb_sidebar_node' ) ) {
 }
 
 $saai_current_post_id = is_singular( 'saai_kb' ) ? get_queried_object_id() : null;
-$saai_tree            = ( new Sidebar_Tree() )->build( $saai_current_post_id );
+$saai_current_term_id = is_tax( 'saai_category' ) ? get_queried_object_id() : null;
+$saai_tree            = ( new Sidebar_Tree() )->build( $saai_current_post_id, $saai_current_term_id );
 
 $saai_context = array(
 	'current_post_id' => $saai_current_post_id,
+	'current_term_id' => $saai_current_term_id,
 	'taxonomy'        => 'saai_category',
 );
 

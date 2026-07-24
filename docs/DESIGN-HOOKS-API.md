@@ -46,7 +46,7 @@ add_action( 'saai_loaded', function ( $plugin ) {
 
 | フック | シグネチャ | 用途 |
 | --- | --- | --- |
-| `saai_kb_sidebar_items` | `( array $tree, array $context ): array` | サイドバーツリーの加工。node 形状: `[ 'type' => 'term'\|'post', 'id', 'title', 'url', 'order', 'children' => node[] ]`。`$context = [ 'current_post_id' => int\|null, 'taxonomy' => string ]` |
+| `saai_kb_sidebar_items` | `( array $tree, array $context ): array` | サイドバーツリーの加工。node 形状: `[ 'type' => 'term'\|'post', 'id', 'title', 'url', 'order', 'children' => node[] ]`。`$context = [ 'current_post_id' => int\|null, 'current_term_id' => int\|null, 'taxonomy' => string ]`（`current_term_id` は saai_category タクソノミーアーカイブ表示時のみ設定。単体記事表示では `current_post_id` が優先され `current_term_id` は常に null） |
 | `saai_kb_toc_items` | `( array $headings, array $context ): array` | ページ内目次の見出しリストの加工。heading 形状: `[ 'id' => string, 'text' => string, 'level' => 2\|3 ]`。`$context = [ 'post_id' => int ]` |
 | `saai_breadcrumbs_items` | `( array $trail, array $context ): array` | パンくずリストの加工。node 形状: `[ 'label' => string, 'url' => string, 'current' => bool ]`。`$context = [ 'post_id' => int\|null, 'term_id' => int\|null, 'taxonomy' => string ]` |
 | `saai_faq_query_args` | `( array $args, array $block_attrs ): array` | FAQ 一覧ブロックの WP_Query 引数調整。有料版が商品コンテキストの meta_query を注入 |

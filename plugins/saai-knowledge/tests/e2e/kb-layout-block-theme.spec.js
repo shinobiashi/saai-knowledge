@@ -96,6 +96,14 @@ test.describe( 'KB two-column layout — block theme (Twenty Twenty-Five)', () =
 				.getByRole( 'link', { name: fixtures.post.title.rendered, exact: true } )
 		).toBeVisible();
 
+		// The viewed term's own subtree should already be expanded, not
+		// collapsed behind a toggle the visitor has to click first.
+		await expect(
+			page
+				.locator( '.saai-kb-sidebar' )
+				.getByRole( 'link', { name: fixtures.post.title.rendered, exact: true } )
+		).toBeVisible();
+
 		expect( consoleErrors ).toEqual( [] );
 	} );
 

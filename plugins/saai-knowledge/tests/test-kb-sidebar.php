@@ -133,6 +133,57 @@ class Test_Kb_Sidebar extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The saai_category ancestors of the current viewed term (e.g. a taxonomy
+	 * archive, where there is no current post) should be marked expanded.
+	 */
+	public function test_ancestor_terms_of_current_term_are_expanded() {
+		$parent_term = self::factory()->term->create_and_get( array( 'taxonomy' => 'saai_category' ) );
+		$child_term  = self::factory()->term->create_and_get(
+			array(
+				'taxonomy' => 'saai_category',
+				'parent'   => $parent_term->term_id,
+			)
+		);
+		$other_term  = self::factory()->term->create_and_get( array( 'taxonomy' => 'saai_category' ) );
+
+		$tree = ( new \SAAI\Knowledge\Sidebar_Tree() )->build( null, $child_term->term_id );
+
+		$parent_node = $this->find_node( $tree, $parent_term->term_id );
+		$other_node  = $this->find_node( $tree, $other_term->term_id );
+
+		$this->assertNotNull( $parent_node );
+		$this->assertNotNull( $other_node );
+		$this->assertTrue( $parent_node['expanded'] );
+		$this->assertFalse( $other_node['expanded'] );
+
+		$child_node = $this->find_node( $parent_node['children'], $child_term->term_id );
+		$this->assertNotNull( $child_node );
+		$this->assertTrue( $child_node['expanded'] );
+	}
+
+	/**
+	 * If both are somehow given, the current post's ancestor terms should win
+	 * over the current term parameter (render.php never passes both, since a
+	 * request is either a singular post view or a taxonomy archive, but
+	 * build()'s own priority should still be well-defined and tested directly).
+	 */
+	public function test_current_post_id_takes_priority_over_current_term_id() {
+		$post_term  = self::factory()->term->create_and_get( array( 'taxonomy' => 'saai_category' ) );
+		$other_term = self::factory()->term->create_and_get( array( 'taxonomy' => 'saai_category' ) );
+
+		$post_id = self::factory()->post->create( array( 'post_type' => 'saai_kb' ) );
+		wp_set_object_terms( $post_id, array( $post_term->term_id ), 'saai_category' );
+
+		$tree = ( new \SAAI\Knowledge\Sidebar_Tree() )->build( $post_id, $other_term->term_id );
+
+		$post_term_node  = $this->find_node( $tree, $post_term->term_id );
+		$other_term_node = $this->find_node( $tree, $other_term->term_id );
+
+		$this->assertTrue( $post_term_node['expanded'] );
+		$this->assertFalse( $other_term_node['expanded'] );
+	}
+
+	/**
 	 * The saai_kb_sidebar_items filter should receive and be able to replace the tree.
 	 */
 	public function test_saai_kb_sidebar_items_filter_can_replace_tree() {
@@ -161,6 +212,7 @@ class Test_Kb_Sidebar extends WP_UnitTestCase {
 
 		$this->assertSame( 999, $tree[0]['id'] );
 		$this->assertSame( 42, $captured_context['current_post_id'] );
+		$this->assertNull( $captured_context['current_term_id'] );
 		$this->assertSame( 'saai_category', $captured_context['taxonomy'] );
 	}
 

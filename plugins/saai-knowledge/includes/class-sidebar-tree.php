@@ -20,12 +20,20 @@ final class Sidebar_Tree {
 	 *
 	 * @param int|null $current_post_id The currently viewed post, if any.
 	 *                                  Its ancestor terms are marked expanded.
+	 * @param int|null $current_term_id The currently viewed saai_category term, if
+	 *                                  any (e.g. a taxonomy archive). Ignored when
+	 *                                  $current_post_id is given. Its own ancestor
+	 *                                  terms are marked expanded.
 	 * @return array<int, array<string, mixed>> Node list, see class docblock for shape.
 	 */
-	public function build( ?int $current_post_id = null ): array {
-		$ancestor_term_ids = null !== $current_post_id
-			? $this->ancestor_term_ids_for_post( $current_post_id )
-			: array();
+	public function build( ?int $current_post_id = null, ?int $current_term_id = null ): array {
+		if ( null !== $current_post_id ) {
+			$ancestor_term_ids = $this->ancestor_term_ids_for_post( $current_post_id );
+		} elseif ( null !== $current_term_id ) {
+			$ancestor_term_ids = $this->ancestor_term_ids_for_terms( array( $current_term_id ) );
+		} else {
+			$ancestor_term_ids = array();
+		}
 
 		$terms_by_parent = $this->terms_by_parent();
 		$posts_by_term   = $this->kb_posts_by_term();
@@ -49,6 +57,7 @@ final class Sidebar_Tree {
 			$tree,
 			array(
 				'current_post_id' => $current_post_id,
+				'current_term_id' => $current_term_id,
 				'taxonomy'        => 'saai_category',
 			)
 		);
@@ -203,12 +212,22 @@ final class Sidebar_Tree {
 			return array();
 		}
 
+		return $this->ancestor_term_ids_for_terms( wp_list_pluck( $terms, 'term_id' ) );
+	}
+
+	/**
+	 * The saai_category ancestor term IDs for a set of terms, including the terms themselves.
+	 *
+	 * @param int[] $term_ids Term IDs.
+	 * @return int[]
+	 */
+	private function ancestor_term_ids_for_terms( array $term_ids ): array {
 		$ids = array();
 
-		foreach ( $terms as $term ) {
-			$ids[] = $term->term_id;
+		foreach ( $term_ids as $term_id ) {
+			$ids[] = $term_id;
 
-			foreach ( get_ancestors( $term->term_id, 'saai_category', 'taxonomy' ) as $ancestor_id ) {
+			foreach ( get_ancestors( $term_id, 'saai_category', 'taxonomy' ) as $ancestor_id ) {
 				$ids[] = $ancestor_id;
 			}
 		}
