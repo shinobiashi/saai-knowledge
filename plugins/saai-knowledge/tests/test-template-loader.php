@@ -53,6 +53,7 @@ class Test_Template_Loader extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'saai-knowledge/kb-sidebar', $taxonomy->content );
 
 		$single_kb = $registry->get_registered( 'saai-knowledge//single-saai_kb' );
+		$this->assertNotNull( $single_kb, 'single-saai_kb block template should be registered' );
 		$this->assertStringContainsString( '>Categories</summary>', $single_kb->content );
 		$this->assertStringContainsString( '>Table of contents</summary>', $single_kb->content );
 		$this->assertStringNotContainsString( '{{saai_categories_label}}', $single_kb->content );
