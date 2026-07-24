@@ -18,14 +18,29 @@
  * pushes `open` from false to true.
  */
 ( function () {
-	// Keep in sync with the `@container (min-width: ...)` breakpoint in
-	// kb-layout.css. Not read from a CSS custom property at runtime — with a
-	// single breakpoint used in exactly these two places, that indirection
-	// would outweigh the value of removing the duplicated literal.
-	var BREAKPOINT = 600;
+	// Keep in sync with the `@container (min-width: ...)` breakpoints in
+	// kb-layout.css: the article layout reserves two 220px side columns
+	// (sidebar + TOC) instead of archive's one, so it switches to columns at
+	// a higher container width. Not read from CSS custom properties at
+	// runtime — with two breakpoints used in exactly these two places, that
+	// indirection would outweigh the value of removing the duplicated literals.
+	var BREAKPOINTS = {
+		'saai-kb-layout--article': 900,
+		'saai-kb-layout--archive': 600,
+	};
 
 	if ( typeof ResizeObserver === 'undefined' ) {
 		return;
+	}
+
+	function breakpointFor( layout ) {
+		for ( var modifierClass in BREAKPOINTS ) {
+			if ( layout.classList.contains( modifierClass ) ) {
+				return BREAKPOINTS[ modifierClass ];
+			}
+		}
+
+		return 600;
 	}
 
 	var observer = new ResizeObserver( function ( entries ) {
@@ -35,7 +50,7 @@
 				? boxSize.inlineSize
 				: entry.contentRect.width;
 
-			if ( width < BREAKPOINT ) {
+			if ( width < breakpointFor( entry.target ) ) {
 				return;
 			}
 

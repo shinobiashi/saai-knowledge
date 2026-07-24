@@ -102,4 +102,40 @@ test.describe( 'KB two-column layout — block theme (Twenty Twenty-Five)', () =
 
 		expect( consoleErrors ).toEqual( [] );
 	} );
+
+	// kb-toc renders no markup for an article with fewer than two headings,
+	// so its static wrapper (and 220px grid column) must be hidden rather
+	// than left as an empty "Table of contents" panel.
+	test( 'hides the TOC panel for an article with no headings', async ( {
+		page,
+		requestUtils,
+	} ) => {
+		const noHeadingsPost = await requestUtils.rest( {
+			method: 'POST',
+			path: '/wp/v2/saai_kb',
+			data: {
+				title: `E2E KB No Headings ${ Math.random()
+					.toString( 36 )
+					.slice( 2, 8 ) }`,
+				status: 'publish',
+				content:
+					'<!-- wp:paragraph --><p>No headings here.</p><!-- /wp:paragraph -->',
+			},
+		} );
+
+		try {
+			await page.goto( noHeadingsPost.link );
+
+			await expect( page.locator( '.saai-kb-layout--article' ) ).toBeVisible();
+			await expect( page.locator( '.saai-kb-layout__toc' ) ).toBeHidden();
+
+			expect( consoleErrors ).toEqual( [] );
+		} finally {
+			await requestUtils.rest( {
+				method: 'DELETE',
+				path: `/wp/v2/saai_kb/${ noHeadingsPost.id }`,
+				params: { force: true },
+			} );
+		}
+	} );
 } );

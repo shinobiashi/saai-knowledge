@@ -84,8 +84,9 @@ test.describe( 'KB two-column layout — classic theme (Twenty Twenty-One)', () 
 		expect( consoleErrors ).toEqual( [] );
 	} );
 
-	// No "reopens a manually-collapsed sidebar past the breakpoint" test here:
-	// that behavior comes entirely from kb-layout.css/kb-layout.js, shared
-	// unchanged across both themes, so the block-theme spec's coverage of it
-	// isn't duplicated in this file.
+	// No "reopens a manually-collapsed sidebar past the breakpoint" or
+	// "hides the TOC panel for an article with no headings" tests here: both
+	// behaviors come entirely from kb-layout.css/kb-layout.js, shared
+	// unchanged across both themes, so the block-theme spec's coverage of
+	// them isn't duplicated in this file.
 } );
