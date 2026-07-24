@@ -1,6 +1,14 @@
+// Repeated to push "Second Section" below the fold at the configured
+// viewport height, so the TOC navigation test's in-viewport assertion
+// actually depends on the click having scrolled the page (see
+// kb-layout-*-theme.spec.js's "the table of contents navigates to the
+// clicked heading" tests).
+const FILLER_PARAGRAPH =
+	'<!-- wp:paragraph --><p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p><!-- /wp:paragraph -->';
+
 const KB_CONTENT =
 	'<!-- wp:heading --><h2>First Section</h2><!-- /wp:heading -->' +
-	'<!-- wp:paragraph --><p>Lorem ipsum dolor sit amet.</p><!-- /wp:paragraph -->' +
+	FILLER_PARAGRAPH.repeat( 20 ) +
 	'<!-- wp:heading --><h2>Second Section</h2><!-- /wp:heading -->' +
 	'<!-- wp:paragraph --><p>More content here.</p><!-- /wp:paragraph -->';
 

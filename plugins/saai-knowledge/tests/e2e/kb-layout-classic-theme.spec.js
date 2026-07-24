@@ -48,11 +48,20 @@ test.describe( 'KB two-column layout — classic theme (Twenty Twenty-One)', () 
 	} ) => {
 		await page.goto( fixtures.post.link );
 
+		const secondSectionHeading = page.locator( 'h2', {
+			hasText: 'Second Section',
+		} );
+
+		// The fixture pads content above "Second Section" so it starts below
+		// the fold; otherwise this test would pass even if the click didn't
+		// scroll anywhere.
+		await expect( secondSectionHeading ).not.toBeInViewport();
+
 		await page
 			.locator( '.saai-kb-toc a', { hasText: 'Second Section' } )
 			.click();
 
-		await expect( page.locator( 'h2', { hasText: 'Second Section' } ) ).toBeInViewport();
+		await expect( secondSectionHeading ).toBeInViewport();
 		expect( consoleErrors ).toEqual( [] );
 	} );
 
@@ -63,8 +72,13 @@ test.describe( 'KB two-column layout — classic theme (Twenty Twenty-One)', () 
 
 		await expect( page.locator( '.saai-kb-layout--archive' ) ).toBeVisible();
 		await expect( page.locator( '.saai-kb-sidebar' ) ).toBeVisible();
+		// Scoped to the content column, not the whole page: the sidebar also
+		// links to every KB article, so an unscoped assertion would still
+		// pass even if the archive's own post listing were broken.
 		await expect(
-			page.getByRole( 'link', { name: fixtures.post.title.rendered } )
+			page
+				.locator( '.saai-kb-layout__content' )
+				.getByRole( 'link', { name: fixtures.post.title.rendered, exact: true } )
 		).toBeVisible();
 
 		expect( consoleErrors ).toEqual( [] );
@@ -77,8 +91,11 @@ test.describe( 'KB two-column layout — classic theme (Twenty Twenty-One)', () 
 
 		await expect( page.locator( '.saai-kb-layout--archive' ) ).toBeVisible();
 		await expect( page.locator( '.saai-kb-sidebar' ) ).toBeVisible();
+		// Scoped to the content column — see the KB hub test above for why.
 		await expect(
-			page.getByRole( 'link', { name: fixtures.post.title.rendered } )
+			page
+				.locator( '.saai-kb-layout__content' )
+				.getByRole( 'link', { name: fixtures.post.title.rendered, exact: true } )
 		).toBeVisible();
 
 		expect( consoleErrors ).toEqual( [] );
