@@ -14,6 +14,7 @@
         "env:stop": "wp-env stop",
         "lint:js": "npm run lint:js --workspaces --if-present",
         "lint:css": "npm run lint:css --workspaces --if-present",
+        "pretest:e2e": "playwright install chromium",
         "test:e2e": "playwright test"
     },
     "devDependencies": {
