@@ -184,6 +184,31 @@ class Test_Kb_Sidebar extends WP_UnitTestCase {
 	}
 
 	/**
+	 * When both are given, the saai_kb_sidebar_items filter context must report
+	 * current_term_id as null, not the raw (ignored) parameter value — otherwise
+	 * a consumer would see both current_post_id and current_term_id set at once
+	 * with no way to tell which one actually drove the expanded terms.
+	 */
+	public function test_current_term_id_is_normalized_to_null_in_filter_context_when_current_post_id_wins() {
+		$captured_context = null;
+
+		$filter = static function ( $tree, $context ) use ( &$captured_context ) {
+			$captured_context = $context;
+
+			return $tree;
+		};
+
+		add_filter( 'saai_kb_sidebar_items', $filter, 10, 2 );
+
+		( new \SAAI\Knowledge\Sidebar_Tree() )->build( 42, 99 );
+
+		remove_filter( 'saai_kb_sidebar_items', $filter, 10 );
+
+		$this->assertSame( 42, $captured_context['current_post_id'] );
+		$this->assertNull( $captured_context['current_term_id'] );
+	}
+
+	/**
 	 * The saai_kb_sidebar_items filter should receive and be able to replace the tree.
 	 */
 	public function test_saai_kb_sidebar_items_filter_can_replace_tree() {

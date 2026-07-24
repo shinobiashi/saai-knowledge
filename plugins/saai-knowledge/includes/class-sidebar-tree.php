@@ -57,7 +57,11 @@ final class Sidebar_Tree {
 			$tree,
 			array(
 				'current_post_id' => $current_post_id,
-				'current_term_id' => $current_term_id,
+				// Normalized to null whenever $current_post_id wins, matching the
+				// expansion priority above — otherwise a saai_kb_sidebar_items
+				// consumer would see both set at once and have no way to tell
+				// which one actually drove the expanded terms.
+				'current_term_id' => null !== $current_post_id ? null : $current_term_id,
 				'taxonomy'        => 'saai_category',
 			)
 		);
