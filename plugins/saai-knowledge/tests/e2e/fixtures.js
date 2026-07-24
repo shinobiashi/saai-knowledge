@@ -22,8 +22,11 @@ const KB_CONTENT =
  * @return {string}
  */
 function decodeNumericEntities( html ) {
+	// String.fromCodePoint(), not fromCharCode(): a numeric character
+	// reference specifies a Unicode code point, and fromCharCode() produces
+	// incorrect output for code points above 0xFFFF (e.g. emoji).
 	return html.replace( /&#(\d+);/g, ( _match, code ) =>
-		String.fromCharCode( Number( code ) )
+		String.fromCodePoint( Number( code ) )
 	);
 }
 
