@@ -51,20 +51,20 @@ class Test_Template_Loader extends WP_UnitTestCase {
 		$this->assertNotNull( $archive, 'archive-saai_kb block template should be registered' );
 		$this->assertStringContainsString( 'saai-knowledge/kb-sidebar', $archive->content );
 		$this->assertStringContainsString( 'wp:query-no-results', $archive->content );
-		$this->assertStringContainsString( 'No knowledge base articles found.', $archive->content );
+		$this->assertStringContainsString( esc_html__( 'No knowledge base articles found.', 'saai-knowledge' ), $archive->content );
 		$this->assertStringNotContainsString( '{{saai_kb_hub_empty_label}}', $archive->content );
 
 		$taxonomy = $registry->get_registered( 'saai-knowledge//taxonomy-saai_category' );
 		$this->assertNotNull( $taxonomy, 'taxonomy-saai_category block template should be registered' );
 		$this->assertStringContainsString( 'saai-knowledge/kb-sidebar', $taxonomy->content );
 		$this->assertStringContainsString( 'wp:query-no-results', $taxonomy->content );
-		$this->assertStringContainsString( 'No knowledge base articles found in this category.', $taxonomy->content );
+		$this->assertStringContainsString( esc_html__( 'No knowledge base articles found in this category.', 'saai-knowledge' ), $taxonomy->content );
 		$this->assertStringNotContainsString( '{{saai_kb_category_empty_label}}', $taxonomy->content );
 
 		$single_kb = $registry->get_registered( 'saai-knowledge//single-saai_kb' );
 		$this->assertNotNull( $single_kb, 'single-saai_kb block template should be registered' );
-		$this->assertStringContainsString( '>Categories</summary>', $single_kb->content );
-		$this->assertStringContainsString( '>Table of contents</summary>', $single_kb->content );
+		$this->assertStringContainsString( '>' . esc_html__( 'Categories', 'saai-knowledge' ) . '</summary>', $single_kb->content );
+		$this->assertStringContainsString( '>' . esc_html__( 'Table of contents', 'saai-knowledge' ) . '</summary>', $single_kb->content );
 		$this->assertStringNotContainsString( '{{saai_categories_label}}', $single_kb->content );
 		$this->assertStringNotContainsString( '{{saai_toc_label}}', $single_kb->content );
 	}
