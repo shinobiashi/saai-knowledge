@@ -62,6 +62,7 @@ final class Template_Loader {
 
 		add_filter( 'template_include', array( $this, 'filter_template_include' ) );
 		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_layout_style' ) );
+		add_action( 'pre_get_posts', array( $this, 'restrict_category_archive_to_kb' ) );
 	}
 
 	/**
@@ -162,6 +163,28 @@ final class Template_Loader {
 				)
 			);
 		}
+	}
+
+	/**
+	 * Restricts the saai_category taxonomy archive's main query to saai_kb posts.
+	 *
+	 * `saai_category` is registered on both saai_kb and saai_faq (DESIGN.md
+	 * section 3.5 / CLAUDE.md), but the taxonomy-saai_category template
+	 * (block and classic) is entirely KB-branded — sidebar, breadcrumbs, and
+	 * empty-state copy all read as a Knowledge Base page. Left unrestricted,
+	 * a term shared with FAQ content would list saai_faq posts inside this
+	 * KB-only page. Both the block theme's inherited Query block and the
+	 * classic template's main loop read directly from the main query, so
+	 * this single filter covers both.
+	 *
+	 * @param \WP_Query $query The query WordPress is about to run.
+	 */
+	public function restrict_category_archive_to_kb( \WP_Query $query ): void {
+		if ( is_admin() || ! $query->is_main_query() || ! $query->is_tax( 'saai_category' ) ) {
+			return;
+		}
+
+		$query->set( 'post_type', 'saai_kb' );
 	}
 
 	/**

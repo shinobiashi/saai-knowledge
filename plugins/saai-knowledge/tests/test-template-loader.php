@@ -232,4 +232,37 @@ class Test_Template_Loader extends WP_UnitTestCase {
 			wp_dequeue_script( 'saai-knowledge-kb-layout' );
 		}
 	}
+
+	/**
+	 * The saai_category taxonomy is shared with saai_faq, but the category
+	 * archive template is entirely KB-branded; its main query must be
+	 * restricted to saai_kb so FAQ posts assigned to the same term don't
+	 * appear on it.
+	 */
+	public function test_restrict_category_archive_to_kb_sets_post_type_for_main_taxonomy_query() {
+		$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+		$this->go_to( get_term_link( $term_id, 'saai_category' ) );
+
+		global $wp_query;
+
+		( new \SAAI\Knowledge\Template_Loader() )->restrict_category_archive_to_kb( $wp_query );
+
+		$this->assertSame( 'saai_kb', $wp_query->get( 'post_type' ) );
+	}
+
+	/**
+	 * Views outside the saai_category taxonomy archive must not have their
+	 * post_type query var touched.
+	 */
+	public function test_restrict_category_archive_to_kb_ignores_unrelated_queries() {
+		$page_id = self::factory()->post->create( array( 'post_type' => 'page' ) );
+		$this->go_to( get_permalink( $page_id ) );
+
+		global $wp_query;
+		$original_post_type = $wp_query->get( 'post_type' );
+
+		( new \SAAI\Knowledge\Template_Loader() )->restrict_category_archive_to_kb( $wp_query );
+
+		$this->assertSame( $original_post_type, $wp_query->get( 'post_type' ) );
+	}
 }
