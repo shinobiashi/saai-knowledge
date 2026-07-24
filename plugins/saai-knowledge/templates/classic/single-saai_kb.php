@@ -27,7 +27,7 @@ get_header();
 		?>
 		<article <?php post_class( 'saai-kb-layout__content' ); ?>>
 			<?php echo do_blocks( '<!-- wp:saai-knowledge/breadcrumbs /-->' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- do_blocks() output of a trusted, hardcoded block. ?>
-			<h1><?php the_title(); ?></h1>
+			<h1><?php echo esc_html( get_the_title() ); ?></h1>
 			<?php the_content(); ?>
 		</article>
 		<?php

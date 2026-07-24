@@ -31,7 +31,7 @@ get_header();
 				the_post();
 				?>
 				<article <?php post_class(); ?>>
-					<h2><a href="<?php the_permalink(); ?>"><?php the_title(); ?></a></h2>
+					<h2><a href="<?php echo esc_url( get_permalink() ); ?>"><?php echo esc_html( get_the_title() ); ?></a></h2>
 					<?php the_excerpt(); ?>
 				</article>
 				<?php
