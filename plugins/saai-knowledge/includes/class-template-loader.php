@@ -63,6 +63,7 @@ final class Template_Loader {
 		add_filter( 'template_include', array( $this, 'filter_template_include' ) );
 		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_layout_style' ) );
 		add_action( 'pre_get_posts', array( $this, 'restrict_category_archive_to_kb' ) );
+		add_filter( 'render_block_core/post-content', array( $this, 'wrap_kb_article_content' ), 10, 3 );
 	}
 
 	/**
@@ -196,6 +197,67 @@ final class Template_Loader {
 		}
 
 		$query->set( 'post_type', 'saai_kb' );
+	}
+
+	/**
+	 * Fires the documented saai_kb_before_article/saai_kb_after_article
+	 * insertion points (docs/DESIGN-HOOKS-API.md section 4) around the block
+	 * theme's rendered KB article body.
+	 *
+	 * The single-saai_kb.html block template has no PHP execution point of its
+	 * own to call do_action() from directly, so this wraps the one block that
+	 * renders the article body instead — scoped to core/post-content
+	 * specifically so it doesn't fire for unrelated uses of that block
+	 * elsewhere on the site. The classic-theme template calls the same
+	 * actions directly around the_content().
+	 *
+	 * @param string               $block_content The rendered post-content block.
+	 * @param array<string, mixed> $parsed_block Parsed block data (unused).
+	 * @param \WP_Block            $block The block instance, used to confirm this is the
+	 *                                    currently-viewed post's own content, not some
+	 *                                    other post's rendered via a nested query loop.
+	 * @return string
+	 */
+	public function wrap_kb_article_content( string $block_content, array $parsed_block, \WP_Block $block ): string {
+		if ( ! is_singular( 'saai_kb' ) ) {
+			return $block_content;
+		}
+
+		$post_id = isset( $block->context['postId'] ) ? (int) $block->context['postId'] : get_queried_object_id();
+
+		if ( get_queried_object_id() !== $post_id ) {
+			return $block_content;
+		}
+
+		$post = get_post( $post_id );
+
+		if ( ! $post instanceof \WP_Post ) {
+			return $block_content;
+		}
+
+		/**
+		 * Fires before the KB article body.
+		 *
+		 * @since 0.1.0
+		 *
+		 * @param \WP_Post $post The KB article being viewed.
+		 */
+		ob_start();
+		do_action( 'saai_kb_before_article', $post );
+		$before = ob_get_clean();
+
+		/**
+		 * Fires after the KB article body.
+		 *
+		 * @since 0.1.0
+		 *
+		 * @param \WP_Post $post The KB article being viewed.
+		 */
+		ob_start();
+		do_action( 'saai_kb_after_article', $post );
+		$after = ob_get_clean();
+
+		return $before . $block_content . $after;
 	}
 
 	/**

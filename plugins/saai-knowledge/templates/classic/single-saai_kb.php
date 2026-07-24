@@ -28,7 +28,27 @@ get_header();
 		<article <?php post_class( 'saai-kb-layout__content' ); ?>>
 			<?php echo do_blocks( '<!-- wp:saai-knowledge/breadcrumbs /-->' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- do_blocks() output of a trusted, hardcoded block. ?>
 			<h1><?php echo esc_html( get_the_title() ); ?></h1>
+			<?php
+			/**
+			 * Fires before the KB article body.
+			 *
+			 * @since 0.1.0
+			 *
+			 * @param WP_Post $post The KB article being viewed.
+			 */
+			do_action( 'saai_kb_before_article', get_post() );
+			?>
 			<?php the_content(); ?>
+			<?php
+			/**
+			 * Fires after the KB article body.
+			 *
+			 * @since 0.1.0
+			 *
+			 * @param WP_Post $post The KB article being viewed.
+			 */
+			do_action( 'saai_kb_after_article', get_post() );
+			?>
 		</article>
 		<?php
 	endwhile;

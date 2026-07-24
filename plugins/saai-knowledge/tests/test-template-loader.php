@@ -22,9 +22,12 @@ class Test_Template_Loader extends WP_UnitTestCase {
 	 * A block template should be registered for each content post type, the KB
 	 * archive, and the category taxonomy.
 	 *
-	 * Template_Loader::register() only hooks registration on block themes, and
-	 * the WP core test suite's default theme is classic, so bootstrap never
-	 * triggers it here. Call register_block_templates() directly instead.
+	 * Template_Loader::register() only conditionally hooks
+	 * register_block_templates() on block themes (its other hooks —
+	 * template_include, wp_enqueue_scripts, pre_get_posts — always run
+	 * regardless of theme type), and the WP core test suite's default theme
+	 * is classic, so bootstrap never triggers it here. Call
+	 * register_block_templates() directly instead.
 	 *
 	 * WP_Block_Templates_Registry isn't reset between tests (unlike registered
 	 * meta keys), so calling register_block_templates() more than once across
@@ -307,5 +310,76 @@ class Test_Template_Loader extends WP_UnitTestCase {
 		rmdir( $theme_dir ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir -- test-only cleanup of the fixture directory created above.
 
 		$this->assertSame( $original_post_type, $wp_query->get( 'post_type' ) );
+	}
+
+	/**
+	 * The documented saai_kb_before_article/saai_kb_after_article insertion
+	 * points (docs/DESIGN-HOOKS-API.md section 4) must actually fire around
+	 * the block-theme article body, with the viewed KB post passed through.
+	 */
+	public function test_kb_article_content_hooks_fire_for_current_singular_post() {
+		$post_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_content' => 'Hello from the article body.',
+			)
+		);
+		$this->go_to( get_permalink( $post_id ) );
+		// render_block()'s postId/postType context comes from the global
+		// $post, which real requests only get from the block template
+		// canvas's the_post() call before it renders the template content;
+		// go_to() alone doesn't set it, so core/post-content would render
+		// as the wrong (or no) post without this.
+		the_post();
+
+		// Template_Loader::register() is already hooked from the plugin's own
+		// normal bootstrap (it's an active plugin for the whole test suite,
+		// not something instantiated per-test) — adding a second registration
+		// here via a fresh instance would double-fire the hooks below.
+		$fired  = array();
+		$before = static function ( $post ) use ( &$fired ) {
+			$fired[] = array( 'before', $post->ID );
+		};
+		$after  = static function ( $post ) use ( &$fired ) {
+			$fired[] = array( 'after', $post->ID );
+		};
+		add_action( 'saai_kb_before_article', $before );
+		add_action( 'saai_kb_after_article', $after );
+
+		$output = do_blocks( '<!-- wp:post-content /-->' );
+
+		remove_action( 'saai_kb_before_article', $before );
+		remove_action( 'saai_kb_after_article', $after );
+
+		$this->assertSame( array( array( 'before', $post_id ), array( 'after', $post_id ) ), $fired );
+		$this->assertStringContainsString( 'Hello from the article body.', $output );
+	}
+
+	/**
+	 * Views outside a saai_kb singular post (e.g. a plain page) must not fire
+	 * the KB article insertion points, even though they may render their own
+	 * core/post-content block.
+	 */
+	public function test_kb_article_content_hooks_do_not_fire_for_unrelated_posts() {
+		$page_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'page',
+				'post_content' => 'Page body.',
+			)
+		);
+		$this->go_to( get_permalink( $page_id ) );
+		the_post();
+
+		$fired  = false;
+		$before = static function () use ( &$fired ) {
+			$fired = true;
+		};
+		add_action( 'saai_kb_before_article', $before );
+
+		do_blocks( '<!-- wp:post-content /-->' );
+
+		remove_action( 'saai_kb_before_article', $before );
+
+		$this->assertFalse( $fired );
 	}
 }
