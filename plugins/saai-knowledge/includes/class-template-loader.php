@@ -287,8 +287,10 @@ final class Template_Loader {
 		return strtr(
 			$content,
 			array(
-				'{{saai_categories_label}}' => esc_html__( 'Categories', 'saai-knowledge' ),
-				'{{saai_toc_label}}'        => esc_html__( 'Table of contents', 'saai-knowledge' ),
+				'{{saai_categories_label}}'        => esc_html__( 'Categories', 'saai-knowledge' ),
+				'{{saai_toc_label}}'               => esc_html__( 'Table of contents', 'saai-knowledge' ),
+				'{{saai_kb_hub_empty_label}}'      => esc_html__( 'No knowledge base articles found.', 'saai-knowledge' ),
+				'{{saai_kb_category_empty_label}}' => esc_html__( 'No knowledge base articles found in this category.', 'saai-knowledge' ),
 			)
 		);
 	}

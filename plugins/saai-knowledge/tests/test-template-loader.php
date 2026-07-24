@@ -47,10 +47,16 @@ class Test_Template_Loader extends WP_UnitTestCase {
 		$archive = $registry->get_registered( 'saai-knowledge//archive-saai_kb' );
 		$this->assertNotNull( $archive, 'archive-saai_kb block template should be registered' );
 		$this->assertStringContainsString( 'saai-knowledge/kb-sidebar', $archive->content );
+		$this->assertStringContainsString( 'wp:query-no-results', $archive->content );
+		$this->assertStringContainsString( 'No knowledge base articles found.', $archive->content );
+		$this->assertStringNotContainsString( '{{saai_kb_hub_empty_label}}', $archive->content );
 
 		$taxonomy = $registry->get_registered( 'saai-knowledge//taxonomy-saai_category' );
 		$this->assertNotNull( $taxonomy, 'taxonomy-saai_category block template should be registered' );
 		$this->assertStringContainsString( 'saai-knowledge/kb-sidebar', $taxonomy->content );
+		$this->assertStringContainsString( 'wp:query-no-results', $taxonomy->content );
+		$this->assertStringContainsString( 'No knowledge base articles found in this category.', $taxonomy->content );
+		$this->assertStringNotContainsString( '{{saai_kb_category_empty_label}}', $taxonomy->content );
 
 		$single_kb = $registry->get_registered( 'saai-knowledge//single-saai_kb' );
 		$this->assertNotNull( $single_kb, 'single-saai_kb block template should be registered' );
