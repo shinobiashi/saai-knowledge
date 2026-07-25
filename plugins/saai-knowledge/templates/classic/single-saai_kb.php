@@ -29,25 +29,11 @@ get_header();
 			<?php echo do_blocks( '<!-- wp:saai-knowledge/breadcrumbs /-->' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- do_blocks() output of a trusted, hardcoded block. ?>
 			<h1><?php echo esc_html( get_the_title() ); ?></h1>
 			<?php
-			/**
-			 * Fires before the KB article body.
-			 *
-			 * @since 0.1.0
-			 *
-			 * @param WP_Post $post The KB article being viewed.
-			 */
-			do_action( 'saai_kb_before_article', get_post() );
-			?>
-			<?php the_content(); ?>
-			<?php
-			/**
-			 * Fires after the KB article body.
-			 *
-			 * @since 0.1.0
-			 *
-			 * @param WP_Post $post The KB article being viewed.
-			 */
-			do_action( 'saai_kb_after_article', get_post() );
+			// saai_kb_before_article / saai_kb_after_article (docs/DESIGN-HOOKS-API.md
+			// section 4) fire around this via Template_Loader::wrap_kb_article_content_classic(),
+			// hooked on the_content — not called directly here — so a theme
+			// overriding this file (or the saai_template filter) still gets them.
+			the_content();
 			?>
 		</article>
 		<?php

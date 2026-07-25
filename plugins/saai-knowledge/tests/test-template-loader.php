@@ -527,6 +527,74 @@ class Test_Template_Loader extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A KB article that itself embeds a Query Loop (e.g. a "related
+	 * articles" section written into its own body) renders that loop's
+	 * nested core/post-content blocks *during* the outer article's own
+	 * core/post-content render — in between fire_before_article_hook()
+	 * buffering the before-hook output and wrap_kb_article_content()
+	 * consuming it for the real, outer post. The nested, unrelated
+	 * invocations must not consume (and thereby discard) that buffer before
+	 * the outer one gets to it.
+	 */
+	public function test_before_article_hook_output_survives_a_query_loop_embedded_in_the_article_body() {
+		$viewed_post_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_content' => 'placeholder',
+			)
+		);
+		self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_content' => 'Other article body.',
+			)
+		);
+
+		// Excludes the viewed post itself: build_query_vars_from_query_block()
+		// has no 'include' attribute, only 'exclude' (as post__not_in), so
+		// this is the only way to keep the loop from also matching the
+		// article whose own body it's embedded in.
+		$query_attrs = wp_json_encode(
+			array(
+				'query' => array(
+					'postType' => 'saai_kb',
+					'perPage'  => 10,
+					'exclude'  => array( $viewed_post_id ),
+					'inherit'  => false,
+				),
+			)
+		);
+
+		wp_update_post(
+			array(
+				'ID'           => $viewed_post_id,
+				'post_content' => 'Viewed article body.' .
+					"<!-- wp:query {$query_attrs} -->" .
+					'<div class="wp-block-query">' .
+					'<!-- wp:post-template -->' .
+					'<!-- wp:post-content /-->' .
+					'<!-- /wp:post-template -->' .
+					'</div>' .
+					'<!-- /wp:query -->',
+			)
+		);
+
+		$this->go_to( get_permalink( $viewed_post_id ) );
+		the_post();
+
+		$before = static function () {
+			echo '<div id="saai-debug-marker">BEFORE-HOOK-OUTPUT</div>';
+		};
+		add_action( 'saai_kb_before_article', $before );
+
+		$output = do_blocks( '<!-- wp:post-content /-->' );
+
+		remove_action( 'saai_kb_before_article', $before );
+
+		$this->assertMatchesRegularExpression( '/BEFORE-HOOK-OUTPUT.*Viewed article body\./s', $output );
+	}
+
+	/**
 	 * Views outside a saai_kb singular post (e.g. a plain page) must not fire
 	 * the KB article insertion points, even though they may render their own
 	 * core/post-content block.
@@ -552,5 +620,109 @@ class Test_Template_Loader extends WP_UnitTestCase {
 		remove_action( 'saai_kb_before_article', $before );
 
 		$this->assertFalse( $fired );
+	}
+
+	/**
+	 * A classic theme calling the standard the_content() — whether from the
+	 * bundled templates/classic/single-saai_kb.php, a theme's own
+	 * saai-knowledge/single-saai_kb.php override, or via the saai_template
+	 * filter — must still get the documented saai_kb_before_article/
+	 * saai_kb_after_article insertion points (docs/DESIGN-HOOKS-API.md
+	 * section 4), since none of those alternatives call the do_action()s
+	 * themselves.
+	 */
+	public function test_kb_article_content_hooks_fire_via_the_content_for_classic_rendering() {
+		$post_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_content' => 'Hello from the article body.',
+			)
+		);
+		$this->go_to( get_permalink( $post_id ) );
+		the_post();
+
+		$fired  = array();
+		$before = static function ( $post ) use ( &$fired ) {
+			$fired[] = array( 'before', $post->ID );
+		};
+		$after  = static function ( $post ) use ( &$fired ) {
+			$fired[] = array( 'after', $post->ID );
+		};
+		add_action( 'saai_kb_before_article', $before );
+		add_action( 'saai_kb_after_article', $after );
+
+		$output = apply_filters( 'the_content', get_the_content() ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- 'the_content' is WordPress core's own hook name, not this plugin's.
+
+		remove_action( 'saai_kb_before_article', $before );
+		remove_action( 'saai_kb_after_article', $after );
+
+		$this->assertSame( array( array( 'before', $post_id ), array( 'after', $post_id ) ), $fired );
+		$this->assertStringContainsString( 'Hello from the article body.', $output );
+	}
+
+	/**
+	 * Views outside a saai_kb singular post must not fire the KB article
+	 * insertion points via the_content either, mirroring
+	 * test_kb_article_content_hooks_do_not_fire_for_unrelated_posts() for
+	 * the classic-theme mechanism.
+	 */
+	public function test_kb_article_content_hooks_via_the_content_do_not_fire_for_unrelated_posts() {
+		$page_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'page',
+				'post_content' => 'Page body.',
+			)
+		);
+		$this->go_to( get_permalink( $page_id ) );
+		the_post();
+
+		$fired  = false;
+		$before = static function () use ( &$fired ) {
+			$fired = true;
+		};
+		add_action( 'saai_kb_before_article', $before );
+
+		apply_filters( 'the_content', get_the_content() ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- 'the_content' is WordPress core's own hook name, not this plugin's.
+
+		remove_action( 'saai_kb_before_article', $before );
+
+		$this->assertFalse( $fired );
+	}
+
+	/**
+	 * A block theme's core/post-content block applies the_content too (see
+	 * render_block_core_post_content()), so wrap_kb_article_content_classic()
+	 * — hooked on the_content unconditionally, not gated to classic themes —
+	 * must recognize it's rendering as part of that block (via
+	 * $post_content_render_depth) and defer to
+	 * fire_before_article_hook()/wrap_kb_article_content() instead of firing
+	 * a second time.
+	 */
+	public function test_kb_article_content_hooks_do_not_double_fire_through_a_post_content_block() {
+		$post_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_content' => 'Hello from the article body.',
+			)
+		);
+		$this->go_to( get_permalink( $post_id ) );
+		the_post();
+
+		$fired  = array();
+		$before = static function ( $post ) use ( &$fired ) {
+			$fired[] = array( 'before', $post->ID );
+		};
+		$after  = static function ( $post ) use ( &$fired ) {
+			$fired[] = array( 'after', $post->ID );
+		};
+		add_action( 'saai_kb_before_article', $before );
+		add_action( 'saai_kb_after_article', $after );
+
+		do_blocks( '<!-- wp:post-content /-->' );
+
+		remove_action( 'saai_kb_before_article', $before );
+		remove_action( 'saai_kb_after_article', $after );
+
+		$this->assertSame( array( array( 'before', $post_id ), array( 'after', $post_id ) ), $fired );
 	}
 }

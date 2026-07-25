@@ -53,9 +53,20 @@ final class Template_Loader {
 	private const LAYOUT_STYLE_POST_TYPES = array( 'saai_kb' );
 
 	/**
+	 * Plugin identifier passed as the register_block_template() namespace,
+	 * and matched back against WP_Block_Template::$plugin to recognize the
+	 * plugin's own block templates specifically (see
+	 * plugin_taxonomy_template_wins()).
+	 *
+	 * @var string
+	 */
+	private const PLUGIN_SLUG = 'saai-knowledge';
+
+	/**
 	 * Output buffered from the saai_kb_before_article action, captured in
-	 * fire_before_article_hook() and consumed by the very next
-	 * wrap_kb_article_content() call.
+	 * fire_before_article_hook() and consumed by wrap_kb_article_content()
+	 * once it confirms the article's own core/post-content is rendering
+	 * (not some other, nested one — see that method for why).
 	 *
 	 * A hooked callback that echoes markup — the ordinary WordPress
 	 * convention for an insertion-point action — would otherwise write
@@ -66,6 +77,23 @@ final class Template_Loader {
 	 * @var string|null
 	 */
 	private $before_article_output = null;
+
+	/**
+	 * How many core/post-content blocks are currently being rendered,
+	 * counting from pre_render_block (fire_before_article_hook()) to
+	 * render_block_core/post-content (wrap_kb_article_content()).
+	 *
+	 * The core/post-content render callback applies the_content, the same
+	 * filter wrap_kb_article_content_classic() hooks for classic themes; a
+	 * nonzero depth here means the_content is firing as part of that block's
+	 * render (whether the outer article's own, or a nested one from a Query
+	 * Loop the article embeds), so wrap_kb_article_content_classic() must
+	 * defer to the block-specific hooks already covering it rather than
+	 * firing a second time.
+	 *
+	 * @var int
+	 */
+	private $post_content_render_depth = 0;
 
 	/**
 	 * Hooks template resolution into WordPress.
@@ -80,6 +108,18 @@ final class Template_Loader {
 		add_action( 'pre_get_posts', array( $this, 'restrict_category_archive_to_kb' ) );
 		add_filter( 'pre_render_block', array( $this, 'fire_before_article_hook' ), 10, 2 );
 		add_filter( 'render_block_core/post-content', array( $this, 'wrap_kb_article_content' ), 10, 3 );
+
+		// Fires the same insertion points for classic themes via the_content
+		// rather than the bundled classic template's own do_action() calls,
+		// so a theme (or the saai_template filter) overriding that template
+		// file still gets them, as long as it renders the body the standard
+		// way via the_content(). Registered unconditionally, not gated on
+		// wp_is_block_theme(): core/post-content's own render applies
+		// the_content too (see wrap_kb_article_content_classic()'s docblock),
+		// so this can't tell classic and block themes apart by theme type
+		// alone — $post_content_render_depth is what actually prevents it
+		// from double-firing when that happens.
+		add_filter( 'the_content', array( $this, 'wrap_kb_article_content_classic' ), PHP_INT_MAX );
 	}
 
 	/**
@@ -95,7 +135,7 @@ final class Template_Loader {
 	public function register_block_templates(): void {
 		foreach ( self::TEMPLATES as $slug => $spec ) {
 			register_block_template(
-				"saai-knowledge//{$slug}",
+				self::PLUGIN_SLUG . "//{$slug}",
 				array(
 					'title'       => $this->template_title( $slug ),
 					'description' => __( 'Template provided by SAAI Knowledge. Customize it from the Site Editor.', 'saai-knowledge' ),
@@ -264,6 +304,12 @@ final class Template_Loader {
 	 * archive, but built only from the public get_block_templates(), since
 	 * calling an internal core function directly isn't safe to depend on.
 	 *
+	 * The winner is identified by WP_Block_Template::$plugin rather than
+	 * just $source: another add-on can register its own 'plugin'-sourced
+	 * template at any of these same hierarchy candidates (e.g. its own
+	 * taxonomy-saai_category or a generic taxonomy template), and that must
+	 * be treated as a site override too, not mistaken for this plugin's own.
+	 *
 	 * @param \WP_Term $term The queried term.
 	 * @return bool Whether the plugin's own template is the one that wins.
 	 */
@@ -298,7 +344,7 @@ final class Template_Loader {
 			}
 		);
 
-		return 'plugin' === $templates[0]->source;
+		return self::PLUGIN_SLUG === $templates[0]->plugin;
 	}
 
 	/**
@@ -334,16 +380,24 @@ final class Template_Loader {
 	 * inner blocks (the same mechanism a classic Loop uses), so get_the_ID()
 	 * reflects whichever post is actually being rendered right now.
 	 *
+	 * $post_content_render_depth, in contrast, is tracked for every
+	 * core/post-content block regardless of which post it's for — see that
+	 * property's docblock.
+	 *
 	 * @param string|null          $pre_render   Pass-through; never short-circuits.
 	 * @param array<string, mixed> $parsed_block The block about to render.
 	 * @return string|null
 	 */
 	public function fire_before_article_hook( $pre_render, array $parsed_block ) {
-		if ( 'core/post-content' !== ( $parsed_block['blockName'] ?? null ) || ! is_singular( 'saai_kb' ) ) {
+		if ( 'core/post-content' !== ( $parsed_block['blockName'] ?? null ) ) {
 			return $pre_render;
 		}
 
-		if ( get_queried_object_id() !== get_the_ID() ) {
+		// Tracked for every core/post-content block, matched or not: see
+		// $post_content_render_depth.
+		++$this->post_content_render_depth;
+
+		if ( ! is_singular( 'saai_kb' ) || get_queried_object_id() !== get_the_ID() ) {
 			return $pre_render;
 		}
 
@@ -376,8 +430,8 @@ final class Template_Loader {
 	 * own to call do_action() from directly, so this wraps the one block that
 	 * renders the article body instead — scoped to core/post-content
 	 * specifically so it doesn't fire for unrelated uses of that block
-	 * elsewhere on the site. The classic-theme template calls the same
-	 * action directly after the_content().
+	 * elsewhere on the site. wrap_kb_article_content_classic() covers the
+	 * equivalent classic-theme case via the_content instead.
 	 *
 	 * @param string               $block_content The rendered post-content block.
 	 * @param array<string, mixed> $parsed_block Parsed block data (unused).
@@ -387,11 +441,10 @@ final class Template_Loader {
 	 * @return string
 	 */
 	public function wrap_kb_article_content( string $block_content, array $parsed_block, \WP_Block $block ): string {
-		// Consumed unconditionally (and only once): whatever fire_before_article_hook()
-		// buffered for this render belongs directly before this block's own
-		// content, never left to leak into a later, unrelated one.
-		$before                      = $this->before_article_output ?? '';
-		$this->before_article_output = null;
+		// This filter only ever fires for core/post-content (its dynamic hook
+		// name), so every call here is one such block finishing its render —
+		// see $post_content_render_depth.
+		--$this->post_content_render_depth;
 
 		if ( ! is_singular( 'saai_kb' ) ) {
 			return $block_content;
@@ -409,6 +462,16 @@ final class Template_Loader {
 			return $block_content;
 		}
 
+		// Only consumed once this invocation is confirmed to be the queried
+		// article's own body: an unrelated nested core/post-content (e.g. a
+		// Query Loop the article itself embeds) renders and hits the checks
+		// above before the outer, real one does, and must leave the buffer
+		// untouched for that real invocation still to come — reading it here
+		// unconditionally would let the nested render's early return above
+		// discard the outer article's before-hook output.
+		$before                      = $this->before_article_output ?? '';
+		$this->before_article_output = null;
+
 		/**
 		 * Fires after the KB article body.
 		 *
@@ -421,6 +484,79 @@ final class Template_Loader {
 		$after = ob_get_clean();
 
 		return $before . $block_content . $after;
+	}
+
+	/**
+	 * Fires the documented saai_kb_before_article/saai_kb_after_article
+	 * insertion points (docs/DESIGN-HOOKS-API.md section 4) around a classic
+	 * theme's rendered KB article body.
+	 *
+	 * Hooked on the_content rather than called directly from the bundled
+	 * templates/classic/single-saai_kb.php: that file is only one of several
+	 * ways the body ends up rendered (a theme's own
+	 * saai-knowledge/single-saai_kb.php override, or an add-on's saai_template
+	 * filter, both take priority over it — see resolved_classic_template_path()),
+	 * and none of those alternatives call our do_action()s. the_content is
+	 * the one thing every classic template calls to output the body, so
+	 * hooking it here fires these consistently regardless of which template
+	 * wins. Registered at PHP_INT_MAX so the wrapped output is the fully
+	 * processed content (past wpautop, do_blocks, etc.), matching how
+	 * wrap_kb_article_content() concatenates onto already-rendered markup for
+	 * block themes.
+	 *
+	 * A block theme's core/post-content also applies the_content (see
+	 * render_block_core_post_content()), so this fires there too — the
+	 * $post_content_render_depth guard below is what actually prevents it
+	 * from double-firing alongside fire_before_article_hook()/
+	 * wrap_kb_article_content(), not the theme type.
+	 *
+	 * Scoped to the queried post itself, not just any the_content call on a
+	 * saai_kb singular request: the article body can itself embed a Query
+	 * Loop rendering other posts' content through the very same filter, and
+	 * is_singular( 'saai_kb' ) alone can't tell those apart from the article
+	 * being viewed — same reasoning as fire_before_article_hook()'s docblock.
+	 *
+	 * @param string $content The fully filtered post content.
+	 * @return string
+	 */
+	public function wrap_kb_article_content_classic( string $content ): string {
+		if ( 0 !== $this->post_content_render_depth ) {
+			return $content;
+		}
+
+		if ( ! is_singular( 'saai_kb' ) || get_queried_object_id() !== get_the_ID() ) {
+			return $content;
+		}
+
+		$post = get_post( get_the_ID() );
+
+		if ( ! $post instanceof \WP_Post ) {
+			return $content;
+		}
+
+		/**
+		 * Fires before the KB article body.
+		 *
+		 * @since 0.1.0
+		 *
+		 * @param \WP_Post $post The KB article being viewed.
+		 */
+		ob_start();
+		do_action( 'saai_kb_before_article', $post );
+		$before = ob_get_clean();
+
+		/**
+		 * Fires after the KB article body.
+		 *
+		 * @since 0.1.0
+		 *
+		 * @param \WP_Post $post The KB article being viewed.
+		 */
+		ob_start();
+		do_action( 'saai_kb_after_article', $post );
+		$after = ob_get_clean();
+
+		return $before . $content . $after;
 	}
 
 	/**
