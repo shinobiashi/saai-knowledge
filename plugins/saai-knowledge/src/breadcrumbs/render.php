@@ -97,35 +97,43 @@ if ( ! function_exists( 'saai_render_breadcrumbs_json_ld' ) ) {
 	}
 }
 
-// See docs/DESIGN-HOOKS-API.md section 3.2: the block-renderer REST endpoint
-// (editor ServerSideRender preview) supplies postId context from its post_id
-// parameter; the front end's render_block() derives it from the main query.
-// Because postId wins over the is_tax() check below, a Query Loop supplies
-// each looped article's postId — on a term archive template this block must
-// sit outside the loop to render the term trail, not a per-article trail.
-$saai_post_id = isset( $block->context['postId'] ) ? (int) $block->context['postId'] : 0;
-
-if ( ! $saai_post_id && is_singular( 'saai_kb' ) ) {
-	$saai_post_id = get_queried_object_id();
-}
-
+// This block sits outside the Query Loop on every bundled template (single
+// article, KB hub archive, category archive alike), rendering once per page
+// rather than once per looped item — so archive-vs-singular conditional
+// tags, checked first below, must win over usesContext's postId. On a
+// non-empty archive, WordPress's own WP::register_globals() (via
+// $GLOBALS['post'] = $wp_query->post) primes the global $post — and with
+// it, render_block()'s default postId context — to the FIRST result before
+// any block renders, even though no Query Loop has iterated yet; trusting
+// postId first would misidentify this as the first article's own singular
+// trail instead of the hub's or term's.
 $saai_post = null;
-
-if ( $saai_post_id ) {
-	$saai_candidate = get_post( $saai_post_id );
-
-	if ( $saai_candidate instanceof WP_Post && 'saai_kb' === $saai_candidate->post_type ) {
-		$saai_post = $saai_candidate;
-	}
-}
-
 $saai_term = null;
 
-if ( ! $saai_post instanceof WP_Post && is_tax( 'saai_category' ) ) {
+if ( is_tax( 'saai_category' ) ) {
 	$saai_queried_object = get_queried_object();
 
 	if ( $saai_queried_object instanceof WP_Term ) {
 		$saai_term = $saai_queried_object;
+	}
+} elseif ( ! is_post_type_archive( 'saai_kb' ) ) {
+	// Not any archive: resolve a specific article instead. See
+	// docs/DESIGN-HOOKS-API.md section 3.2 — the block-renderer REST
+	// endpoint (editor ServerSideRender preview) supplies postId context
+	// from its post_id parameter; the front end's render_block() derives it
+	// from the main query, with is_singular() as a fallback.
+	$saai_post_id = isset( $block->context['postId'] ) ? (int) $block->context['postId'] : 0;
+
+	if ( ! $saai_post_id && is_singular( 'saai_kb' ) ) {
+		$saai_post_id = get_queried_object_id();
+	}
+
+	if ( $saai_post_id ) {
+		$saai_candidate = get_post( $saai_post_id );
+
+		if ( $saai_candidate instanceof WP_Post && 'saai_kb' === $saai_candidate->post_type ) {
+			$saai_post = $saai_candidate;
+		}
 	}
 }
 

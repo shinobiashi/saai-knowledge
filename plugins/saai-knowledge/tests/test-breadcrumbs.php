@@ -346,4 +346,74 @@ class Test_Breadcrumbs extends WP_UnitTestCase {
 
 		delete_option( 'saai_knowledge_settings' );
 	}
+
+	/**
+	 * Renders src/breadcrumbs/render.php directly, replicating the variable
+	 * contract WordPress core sets up for a block.json "render" callback —
+	 * see Test_Kb_Toc::render_kb_toc() for why (same reasoning: avoids
+	 * depending on the webpack-built build/breadcrumbs/ directory, which
+	 * CI's PHP-only workflow never generates).
+	 *
+	 * @param int $post_id A postId to simulate in the block's context, or 0 for none.
+	 * @return string
+	 */
+	private function render_kb_breadcrumbs( int $post_id ): string {
+		$attributes = array();
+		$content    = '';
+		$block      = (object) array( 'context' => $post_id ? array( 'postId' => $post_id ) : array() );
+
+		$previous_block_to_render            = \WP_Block_Supports::$block_to_render;
+		\WP_Block_Supports::$block_to_render = array(
+			'blockName' => 'saai-knowledge/breadcrumbs',
+			'attrs'     => $attributes,
+		);
+
+		ob_start();
+		require SAAI_KNOWLEDGE_DIR . 'src/breadcrumbs/render.php';
+		$output = ob_get_clean();
+
+		\WP_Block_Supports::$block_to_render = $previous_block_to_render;
+
+		return $output;
+	}
+
+	/**
+	 * On a non-empty saai_category term archive, WordPress's own
+	 * WP::register_globals() primes the global $post (and with it, this
+	 * root-level block's default postId context, since it sits outside the
+	 * Query Loop) to the archive's first result — even though no Query Loop
+	 * has actually iterated yet. The block must still render the term's own
+	 * trail, not that first article's singular one.
+	 */
+	public function test_render_prioritizes_archive_context_over_first_result_postid() {
+		$term_id      = self::factory()->term->create(
+			array(
+				'taxonomy' => 'saai_category',
+				'name'     => 'Archive Context Test Term',
+			)
+		);
+		$first_result = self::factory()->post->create(
+			array(
+				'post_type'  => 'saai_kb',
+				'post_title' => 'First Archive Result',
+			)
+		);
+		wp_set_object_terms( $first_result, array( $term_id ), 'saai_category' );
+
+		$this->go_to( get_term_link( $term_id, 'saai_category' ) );
+
+		$this->assertSame(
+			$first_result,
+			get_the_ID(),
+			'test setup should have primed the global $post to the archive\'s first result'
+		);
+
+		// Simulates the postId context a root-level usesContext:['postId']
+		// block actually receives on this archive, per render_block()'s own
+		// default-context resolution from the primed global $post.
+		$output = $this->render_kb_breadcrumbs( get_the_ID() );
+
+		$this->assertStringContainsString( 'Archive Context Test Term', $output );
+		$this->assertStringNotContainsString( 'First Archive Result', $output );
+	}
 }
