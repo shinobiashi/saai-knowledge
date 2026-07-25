@@ -38,6 +38,15 @@ test.describe( 'KB two-column layout — block theme (Twenty Twenty-Five)', () =
 			page.locator( '.saai-kb-layout__content h1' )
 		).toContainText( fixtures.post.title.rendered );
 
+		// Visibility alone doesn't prove the three panels actually formed
+		// side-by-side columns — a broken @container rule would still leave
+		// every element above "visible" while the page fell back to the
+		// single-column mobile layout.
+		const gridTemplateColumns = await page
+			.locator( '.saai-kb-layout__grid' )
+			.evaluate( ( el ) => getComputedStyle( el ).gridTemplateColumns );
+		expect( gridTemplateColumns.trim().split( /\s+/ ) ).toHaveLength( 3 );
+
 		expect( consoleErrors ).toEqual( [] );
 	} );
 
@@ -189,8 +198,14 @@ test.describe( 'KB two-column layout — block theme (Twenty Twenty-Five)', () =
 					status: 'publish',
 					password: 'correct-horse-battery-staple',
 					content:
+						// Two headings: with only one, the TOC would already be
+						// hidden by the fewer-than-two-headings rule alone, so the
+						// assertions below wouldn't actually exercise
+						// post_password_required() at all.
 						'<!-- wp:heading --><h2>Confidential Section</h2><!-- /wp:heading -->' +
-						'<!-- wp:paragraph --><p>Secret body.</p><!-- /wp:paragraph -->',
+						'<!-- wp:paragraph --><p>Secret body.</p><!-- /wp:paragraph -->' +
+						'<!-- wp:heading --><h2>Another Confidential Section</h2><!-- /wp:heading -->' +
+						'<!-- wp:paragraph --><p>More secret body.</p><!-- /wp:paragraph -->',
 				},
 			} );
 
