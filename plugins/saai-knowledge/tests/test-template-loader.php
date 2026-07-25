@@ -436,6 +436,39 @@ class Test_Template_Loader extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A saai_kb_before_article callback that echoes markup — the ordinary
+	 * WordPress convention for an insertion-point action, as opposed to
+	 * registering a filter — must have that output captured into
+	 * do_blocks()'s return value directly before the article body, not
+	 * written straight to the output stream (where it would land wherever
+	 * do_blocks() happens to be assembling the surrounding template instead).
+	 */
+	public function test_saai_kb_before_article_echoed_output_is_captured_in_place() {
+		$post_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_content' => 'Real body text.',
+			)
+		);
+		$this->go_to( get_permalink( $post_id ) );
+		the_post();
+
+		$before_action = static function () {
+			echo '<div id="saai-echo-marker">ECHOED-BEFORE</div>';
+		};
+		add_action( 'saai_kb_before_article', $before_action );
+
+		ob_start();
+		$returned      = do_blocks( '<!-- wp:post-content /-->' );
+		$direct_output = ob_get_clean();
+
+		remove_action( 'saai_kb_before_article', $before_action );
+
+		$this->assertSame( '', $direct_output, 'the echoed markup must not be written directly to the output stream' );
+		$this->assertMatchesRegularExpression( '/ECHOED-BEFORE.*Real body text\./s', $returned );
+	}
+
+	/**
 	 * Views outside a saai_kb singular post (e.g. a plain page) must not fire
 	 * the KB article insertion points, even though they may render their own
 	 * core/post-content block.

@@ -53,6 +53,21 @@ final class Template_Loader {
 	private const LAYOUT_STYLE_POST_TYPES = array( 'saai_kb' );
 
 	/**
+	 * Output buffered from the saai_kb_before_article action, captured in
+	 * fire_before_article_hook() and consumed by the very next
+	 * wrap_kb_article_content() call.
+	 *
+	 * A hooked callback that echoes markup — the ordinary WordPress
+	 * convention for an insertion-point action — would otherwise write
+	 * straight to the output stream from inside pre_render_block(), landing
+	 * wherever do_blocks() happens to be in assembling the surrounding
+	 * template rather than next to the article body its name promises.
+	 *
+	 * @var string|null
+	 */
+	private $before_article_output = null;
+
+	/**
 	 * Hooks template resolution into WordPress.
 	 */
 	public function register(): void {
@@ -250,6 +265,9 @@ final class Template_Loader {
 	 * mirrors the classic template's do_action() call directly ahead of
 	 * the_content().
 	 *
+	 * The action's output is captured rather than left to print immediately:
+	 * see $before_article_output.
+	 *
 	 * @param string|null          $pre_render   Pass-through; never short-circuits.
 	 * @param array<string, mixed> $parsed_block The block about to render.
 	 * @return string|null
@@ -272,7 +290,9 @@ final class Template_Loader {
 		 *
 		 * @param \WP_Post $post The KB article being viewed.
 		 */
+		ob_start();
 		do_action( 'saai_kb_before_article', $post );
+		$this->before_article_output = ob_get_clean();
 
 		return $pre_render;
 	}
@@ -297,6 +317,12 @@ final class Template_Loader {
 	 * @return string
 	 */
 	public function wrap_kb_article_content( string $block_content, array $parsed_block, \WP_Block $block ): string {
+		// Consumed unconditionally (and only once): whatever fire_before_article_hook()
+		// buffered for this render belongs directly before this block's own
+		// content, never left to leak into a later, unrelated one.
+		$before                      = $this->before_article_output ?? '';
+		$this->before_article_output = null;
+
 		if ( ! is_singular( 'saai_kb' ) ) {
 			return $block_content;
 		}
@@ -324,7 +350,7 @@ final class Template_Loader {
 		do_action( 'saai_kb_after_article', $post );
 		$after = ob_get_clean();
 
-		return $block_content . $after;
+		return $before . $block_content . $after;
 	}
 
 	/**
