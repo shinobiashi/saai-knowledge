@@ -83,7 +83,11 @@ if ( post_password_required( $saai_post ) ) {
 
 $saai_headings = ( new Heading_Anchors() )->for_display( $saai_post );
 
-if ( $saai_headings ) {
+// A single heading gives a table of contents nothing to navigate between,
+// so kb-layout.css's :not(:has(.saai-kb-toc)) rule (which hides the whole
+// panel and collapses its grid column) relies on this block rendering
+// nothing below that count.
+if ( count( $saai_headings ) > 1 ) {
 	$saai_context     = array( 'post_id' => $saai_post->ID );
 	$saai_heading_ids = wp_list_pluck( $saai_headings, 'id' );
 
