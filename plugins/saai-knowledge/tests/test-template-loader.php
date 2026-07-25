@@ -359,6 +359,76 @@ class Test_Template_Loader extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A classic theme's term-specific taxonomy-saai_category-{term-slug}.php
+	 * override — which WordPress's own classic taxonomy template hierarchy
+	 * (get_taxonomy_template()) prefers over the generic
+	 * taxonomy-saai_category.php — must also defer the post_type
+	 * restriction, mirroring the block-theme branch's equivalent handling
+	 * (plugin_taxonomy_template_wins()).
+	 */
+	public function test_restrict_category_archive_to_kb_defers_to_classic_term_specific_theme_override() {
+		$term = self::factory()->term->create_and_get( array( 'taxonomy' => 'saai_category' ) );
+		$this->go_to( get_term_link( $term, 'saai_category' ) );
+
+		// get_stylesheet_directory() doesn't resolve to a real, writable path
+		// in the WP core test suite's bundled theme fixture, so point it at a
+		// temp directory of our own via its filter instead of touching that path.
+		$theme_dir      = rtrim( sys_get_temp_dir(), '/' ) . '/saai-template-loader-test-' . wp_generate_password( 8, false, false );
+		$override_dir   = $theme_dir . '/saai-knowledge';
+		$override_path  = $override_dir . "/taxonomy-saai_category-{$term->slug}.php";
+		$stylesheet_dir = static function () use ( $theme_dir ) {
+			return $theme_dir;
+		};
+
+		wp_mkdir_p( $override_dir );
+		file_put_contents( $override_path, '<?php // Test term-specific theme override.' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- test-only fixture file, not a runtime code path.
+		add_filter( 'stylesheet_directory', $stylesheet_dir );
+
+		global $wp_query;
+		$original_post_type = $wp_query->get( 'post_type' );
+
+		( new \SAAI\Knowledge\Template_Loader() )->restrict_category_archive_to_kb( $wp_query );
+
+		remove_filter( 'stylesheet_directory', $stylesheet_dir );
+		wp_delete_file( $override_path );
+		rmdir( $override_dir ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir -- test-only cleanup of the fixture directory created above.
+		rmdir( $theme_dir ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir -- test-only cleanup of the fixture directory created above.
+
+		$this->assertSame( $original_post_type, $wp_query->get( 'post_type' ) );
+	}
+
+	/**
+	 * The public saai_template filter must only be asked to resolve a given
+	 * classic taxonomy template once per request: restrict_category_archive_to_kb()
+	 * (pre_get_posts) and filter_template_include() (template_include) each
+	 * resolve it independently, and a stateful or self-removing third-party
+	 * callback answering differently on a second call would let the
+	 * query-scope decision and the template WordPress actually renders
+	 * disagree about which override is in play.
+	 */
+	public function test_saai_template_filter_only_applies_once_per_request_for_taxonomy() {
+		$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+		$this->go_to( get_term_link( $term_id, 'saai_category' ) );
+
+		$call_count = 0;
+		$filter     = static function ( $resolved ) use ( &$call_count ) {
+			++$call_count;
+			return $resolved;
+		};
+		add_filter( 'saai_template', $filter );
+
+		$loader = new \SAAI\Knowledge\Template_Loader();
+
+		global $wp_query;
+		$loader->restrict_category_archive_to_kb( $wp_query );
+		$loader->filter_template_include( '' );
+
+		remove_filter( 'saai_template', $filter );
+
+		$this->assertSame( 1, $call_count );
+	}
+
+	/**
 	 * The documented saai_kb_before_article/saai_kb_after_article insertion
 	 * points (docs/DESIGN-HOOKS-API.md section 4) must actually fire around
 	 * the block-theme article body, with the viewed KB post passed through.
@@ -658,6 +728,40 @@ class Test_Template_Loader extends WP_UnitTestCase {
 
 		$this->assertSame( array( array( 'before', $post_id ), array( 'after', $post_id ) ), $fired );
 		$this->assertStringContainsString( 'Hello from the article body.', $output );
+	}
+
+	/**
+	 * The saai_kb_before_article action must fire early enough (before
+	 * wpautop, do_blocks, and the rest of the default the_content chain)
+	 * that an add-on registering a the_content filter from within it
+	 * actually affects the classic-rendered article — mirroring
+	 * test_saai_kb_before_article_fires_early_enough_to_affect_rendered_content()
+	 * for the block-theme mechanism.
+	 */
+	public function test_saai_kb_before_article_fires_early_enough_to_affect_classic_rendered_content() {
+		$post_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_content' => 'Real body text.',
+			)
+		);
+		$this->go_to( get_permalink( $post_id ) );
+		the_post();
+
+		$content_filter = static function ( $content ) {
+			return '<p id="saai-debug-marker">BEFORE-HOOK-WORKED</p>' . $content;
+		};
+		$before_action  = static function () use ( $content_filter ) {
+			add_filter( 'the_content', $content_filter );
+		};
+		add_action( 'saai_kb_before_article', $before_action );
+
+		$output = apply_filters( 'the_content', get_the_content() ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- 'the_content' is WordPress core's own hook name, not this plugin's.
+
+		remove_action( 'saai_kb_before_article', $before_action );
+		remove_filter( 'the_content', $content_filter );
+
+		$this->assertStringContainsString( 'BEFORE-HOOK-WORKED', $output );
 	}
 
 	/**

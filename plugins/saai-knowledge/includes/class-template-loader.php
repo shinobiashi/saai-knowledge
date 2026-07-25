@@ -96,6 +96,35 @@ final class Template_Loader {
 	private $post_content_render_depth = 0;
 
 	/**
+	 * Output buffered from the saai_kb_before_article action for a classic
+	 * theme's rendering, captured in buffer_before_article_hook_classic()
+	 * and consumed by wrap_kb_article_content_classic() — the the_content
+	 * equivalent of $before_article_output, kept as its own property since
+	 * the two mechanisms run independently (see
+	 * wrap_kb_article_content_classic()'s docblock).
+	 *
+	 * @var string|null
+	 */
+	private $classic_before_article_output = null;
+
+	/**
+	 * Per-request memoization of resolved_classic_template_path() and
+	 * resolved_classic_taxonomy_template_path()'s results, keyed by slug (or,
+	 * for resolved_classic_taxonomy_template_path(), by term).
+	 *
+	 * Both are called more than once per request — filter_template_include()
+	 * and restrict_category_archive_to_kb() each resolve the same template
+	 * independently — and both apply the public saai_template filter. A
+	 * stateful or self-removing third-party callback could otherwise answer
+	 * differently on the second call, letting the query-scope decision and
+	 * the template WordPress actually renders disagree about which override
+	 * (if any) is in play.
+	 *
+	 * @var array<string, string>
+	 */
+	private $resolved_classic_template_cache = array();
+
+	/**
 	 * Hooks template resolution into WordPress.
 	 */
 	public function register(): void {
@@ -118,7 +147,15 @@ final class Template_Loader {
 		// the_content too (see wrap_kb_article_content_classic()'s docblock),
 		// so this can't tell classic and block themes apart by theme type
 		// alone — $post_content_render_depth is what actually prevents it
-		// from double-firing when that happens.
+		// from double-firing when that happens. Split into an early buffer
+		// (priority 1, before wpautop/do_blocks/etc.) and a late wrap
+		// (PHP_INT_MAX, after them): firing saai_kb_before_article early
+		// mirrors fire_before_article_hook()'s pre_render_block timing on
+		// block themes, so an add-on that registers its own the_content
+		// filter from within that action still gets to affect this same
+		// content pass, rather than the filter surviving unused into later,
+		// unrelated the_content calls.
+		add_filter( 'the_content', array( $this, 'buffer_before_article_hook_classic' ), 1 );
 		add_filter( 'the_content', array( $this, 'wrap_kb_article_content_classic' ), PHP_INT_MAX );
 	}
 
@@ -159,6 +196,18 @@ final class Template_Loader {
 			return $template;
 		}
 
+		if ( is_tax( 'saai_category' ) ) {
+			$term = get_queried_object();
+
+			if ( ! $term instanceof \WP_Term ) {
+				return $template;
+			}
+
+			$resolved = $this->resolved_classic_taxonomy_template_path( $term );
+
+			return '' !== $resolved && file_exists( $resolved ) ? $resolved : $template;
+		}
+
 		$slug = $this->queried_template_slug();
 
 		if ( null === $slug ) {
@@ -171,17 +220,27 @@ final class Template_Loader {
 	}
 
 	/**
-	 * Resolves the classic-theme template path for a slug, honoring both a
-	 * theme's own file override and the public saai_template filter.
+	 * Resolves the classic-theme template path for a fixed slug (singular
+	 * post types, the KB archive), honoring both a theme's own file override
+	 * and the public saai_template filter.
 	 *
 	 * Shared by filter_template_include() (which additionally validates the
 	 * result exists before using it) and restrict_category_archive_to_kb()
 	 * (which uses it to detect whether an override is in play at all).
+	 * Memoized per slug — see $resolved_classic_template_cache.
+	 *
+	 * The saai_category taxonomy has its own dedicated
+	 * resolved_classic_taxonomy_template_path() instead: unlike these fixed
+	 * slugs, its winning slug depends on the queried term.
 	 *
 	 * @param string $slug Template hierarchy slug, e.g. `single-saai_kb`.
 	 * @return string Absolute path, or '' if a saai_template filter returned something unusable.
 	 */
 	private function resolved_classic_template_path( string $slug ): string {
+		if ( array_key_exists( $slug, $this->resolved_classic_template_cache ) ) {
+			return $this->resolved_classic_template_cache[ $slug ];
+		}
+
 		$resolved = locate_template( array( "saai-knowledge/{$slug}.php" ) );
 
 		if ( '' === $resolved ) {
@@ -199,7 +258,74 @@ final class Template_Loader {
 		$resolved = apply_filters( 'saai_template', $resolved, $slug );
 
 		// @phpstan-ignore ternary.elseUnreachable (PHPStan trusts the docblock @param type above, but a third-party saai_template callback can violate it at runtime.)
-		return is_string( $resolved ) ? $resolved : '';
+		$resolved = is_string( $resolved ) ? $resolved : '';
+
+		$this->resolved_classic_template_cache[ $slug ] = $resolved;
+
+		return $resolved;
+	}
+
+	/**
+	 * Resolves the classic-theme template path for a saai_category term,
+	 * honoring a theme's term-specific override
+	 * (saai-knowledge/taxonomy-saai_category-{term-slug}.php) ahead of its
+	 * generic one (saai-knowledge/taxonomy-saai_category.php) — mirroring
+	 * WordPress's own classic taxonomy template hierarchy (see
+	 * get_taxonomy_template()) — and, like resolved_classic_template_path(),
+	 * the public saai_template filter.
+	 *
+	 * Shared by filter_template_include() and restrict_category_archive_to_kb(),
+	 * exactly as resolved_classic_template_path() is for the fixed slugs, and
+	 * memoized per term for the same reason — see
+	 * $resolved_classic_template_cache. Kept as its own method rather than
+	 * overloading that one's single-slug contract, since the winning slug
+	 * here depends on the term, not just a fixed name.
+	 *
+	 * @param \WP_Term $term The queried term.
+	 * @return string Absolute path, or '' if a saai_template filter returned something unusable.
+	 */
+	private function resolved_classic_taxonomy_template_path( \WP_Term $term ): string {
+		$cache_key = "taxonomy:{$term->term_id}";
+
+		if ( array_key_exists( $cache_key, $this->resolved_classic_template_cache ) ) {
+			return $this->resolved_classic_template_cache[ $cache_key ];
+		}
+
+		$candidates = array();
+
+		$decoded_slug = urldecode( $term->slug );
+
+		if ( $decoded_slug !== $term->slug ) {
+			$candidates[] = "taxonomy-{$term->taxonomy}-{$decoded_slug}";
+		}
+
+		$candidates[] = "taxonomy-{$term->taxonomy}-{$term->slug}";
+		$candidates[] = "taxonomy-{$term->taxonomy}";
+
+		$slug     = "taxonomy-{$term->taxonomy}";
+		$resolved = '';
+
+		foreach ( $candidates as $candidate ) {
+			$resolved = locate_template( array( "saai-knowledge/{$candidate}.php" ) );
+
+			if ( '' !== $resolved ) {
+				$slug = $candidate;
+				break;
+			}
+		}
+
+		if ( '' === $resolved ) {
+			$resolved = SAAI_KNOWLEDGE_DIR . "templates/classic/{$slug}.php";
+		}
+
+		/** This filter is documented in resolved_classic_template_path() */
+		$resolved = apply_filters( 'saai_template', $resolved, $slug );
+
+		$resolved = is_string( $resolved ) ? $resolved : '';
+
+		$this->resolved_classic_template_cache[ $cache_key ] = $resolved;
+
+		return $resolved;
 	}
 
 	/**
@@ -275,15 +401,19 @@ final class Template_Loader {
 		// restriction on it. This also has to defer to a more specific
 		// taxonomy-saai_category-{term-slug} override, which WordPress's own
 		// template hierarchy prefers over the generic slug.
-		if ( wp_is_block_theme() ) {
-			$term = $query->get_queried_object();
+		$term = $query->get_queried_object();
 
-			if ( ! $term instanceof \WP_Term || ! $this->plugin_taxonomy_template_wins( $term ) ) {
+		if ( ! $term instanceof \WP_Term ) {
+			return;
+		}
+
+		if ( wp_is_block_theme() ) {
+			if ( ! $this->plugin_taxonomy_template_wins( $term ) ) {
 				return;
 			}
 		} else {
 			$bundled  = SAAI_KNOWLEDGE_DIR . 'templates/classic/taxonomy-saai_category.php';
-			$resolved = $this->resolved_classic_template_path( 'taxonomy-saai_category' );
+			$resolved = $this->resolved_classic_taxonomy_template_path( $term );
 
 			if ( $bundled !== $resolved ) {
 				return;
@@ -487,48 +617,61 @@ final class Template_Loader {
 	}
 
 	/**
-	 * Fires the documented saai_kb_before_article/saai_kb_after_article
-	 * insertion points (docs/DESIGN-HOOKS-API.md section 4) around a classic
-	 * theme's rendered KB article body.
+	 * The queried KB article, if the current the_content call is rendering
+	 * its own body — shared by buffer_before_article_hook_classic() and
+	 * wrap_kb_article_content_classic().
 	 *
-	 * Hooked on the_content rather than called directly from the bundled
-	 * templates/classic/single-saai_kb.php: that file is only one of several
-	 * ways the body ends up rendered (a theme's own
-	 * saai-knowledge/single-saai_kb.php override, or an add-on's saai_template
-	 * filter, both take priority over it — see resolved_classic_template_path()),
-	 * and none of those alternatives call our do_action()s. the_content is
-	 * the one thing every classic template calls to output the body, so
-	 * hooking it here fires these consistently regardless of which template
-	 * wins. Registered at PHP_INT_MAX so the wrapped output is the fully
-	 * processed content (past wpautop, do_blocks, etc.), matching how
-	 * wrap_kb_article_content() concatenates onto already-rendered markup for
-	 * block themes.
-	 *
-	 * A block theme's core/post-content also applies the_content (see
-	 * render_block_core_post_content()), so this fires there too — the
-	 * $post_content_render_depth guard below is what actually prevents it
-	 * from double-firing alongside fire_before_article_hook()/
-	 * wrap_kb_article_content(), not the theme type.
-	 *
-	 * Scoped to the queried post itself, not just any the_content call on a
-	 * saai_kb singular request: the article body can itself embed a Query
-	 * Loop rendering other posts' content through the very same filter, and
+	 * A nonzero $post_content_render_depth means the_content is firing as
+	 * part of a core/post-content block's render (its own render callback
+	 * applies the_content too — see render_block_core_post_content()),
+	 * whether the outer article's own or a nested one from a Query Loop the
+	 * article embeds; either way, fire_before_article_hook()/
+	 * wrap_kb_article_content() already cover that case, so both classic
+	 * hooks defer to them rather than firing a second time. Otherwise, scoped
+	 * to the queried post itself, not just any the_content call on a saai_kb
+	 * singular request: the article body can itself embed a Query Loop
+	 * rendering other posts' content through the very same filter, and
 	 * is_singular( 'saai_kb' ) alone can't tell those apart from the article
 	 * being viewed — same reasoning as fire_before_article_hook()'s docblock.
 	 *
-	 * @param string $content The fully filtered post content.
-	 * @return string
+	 * @return \WP_Post|null
 	 */
-	public function wrap_kb_article_content_classic( string $content ): string {
+	private function queried_kb_article_for_classic_content_hooks(): ?\WP_Post {
 		if ( 0 !== $this->post_content_render_depth ) {
-			return $content;
+			return null;
 		}
 
 		if ( ! is_singular( 'saai_kb' ) || get_queried_object_id() !== get_the_ID() ) {
-			return $content;
+			return null;
 		}
 
 		$post = get_post( get_the_ID() );
+
+		return $post instanceof \WP_Post ? $post : null;
+	}
+
+	/**
+	 * Fires the documented saai_kb_before_article insertion point
+	 * (docs/DESIGN-HOOKS-API.md section 4) before a classic theme's
+	 * the_content filter chain processes the KB article body.
+	 *
+	 * Hooked at priority 1 — before wpautop, do_blocks, and the rest of the
+	 * default the_content chain — rather than at wrap_kb_article_content_classic()'s
+	 * late priority: an add-on that uses this hook to register its own
+	 * the_content filter (a supported pattern on the block-theme path — see
+	 * fire_before_article_hook()'s equivalent pre_render_block timing) needs
+	 * that filter added before this same content pass reaches it, or it
+	 * either misses affecting this article entirely or leaks into later,
+	 * unrelated the_content calls instead.
+	 *
+	 * The action's output is captured rather than left to print immediately:
+	 * see $classic_before_article_output.
+	 *
+	 * @param string $content The post content, not yet run through the_content.
+	 * @return string
+	 */
+	public function buffer_before_article_hook_classic( string $content ): string {
+		$post = $this->queried_kb_article_for_classic_content_hooks();
 
 		if ( ! $post instanceof \WP_Post ) {
 			return $content;
@@ -543,7 +686,42 @@ final class Template_Loader {
 		 */
 		ob_start();
 		do_action( 'saai_kb_before_article', $post );
-		$before = ob_get_clean();
+		$this->classic_before_article_output = ob_get_clean();
+
+		return $content;
+	}
+
+	/**
+	 * Fires the documented saai_kb_after_article insertion point
+	 * (docs/DESIGN-HOOKS-API.md section 4) after a classic theme's rendered
+	 * KB article body, and prepends buffer_before_article_hook_classic()'s
+	 * buffered output ahead of it.
+	 *
+	 * Hooked on the_content rather than called directly from the bundled
+	 * templates/classic/single-saai_kb.php: that file is only one of several
+	 * ways the body ends up rendered (a theme's own
+	 * saai-knowledge/single-saai_kb.php override, or an add-on's saai_template
+	 * filter, both take priority over it — see resolved_classic_template_path()),
+	 * and none of those alternatives call our do_action()s. the_content is
+	 * the one thing every classic template calls to output the body, so
+	 * hooking it here fires these consistently regardless of which template
+	 * wins. Registered at PHP_INT_MAX so the wrapped output is the fully
+	 * processed content (past wpautop, do_blocks, etc.), matching how
+	 * wrap_kb_article_content() concatenates onto already-rendered markup for
+	 * block themes.
+	 *
+	 * @param string $content The fully filtered post content.
+	 * @return string
+	 */
+	public function wrap_kb_article_content_classic( string $content ): string {
+		$post = $this->queried_kb_article_for_classic_content_hooks();
+
+		if ( ! $post instanceof \WP_Post ) {
+			return $content;
+		}
+
+		$before                              = $this->classic_before_article_output ?? '';
+		$this->classic_before_article_output = null;
 
 		/**
 		 * Fires after the KB article body.
