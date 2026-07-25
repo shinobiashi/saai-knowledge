@@ -73,6 +73,14 @@ if ( ! $saai_post instanceof WP_Post || 'saai_kb' !== $saai_post->post_type ) {
 	return;
 }
 
+// Heading_Anchors::extract() reads $post->post_content directly, bypassing
+// the the_content filter chain that normally swaps in WordPress's password
+// form for a protected post; without this, the TOC would expose section
+// headings before the visitor supplies the password.
+if ( post_password_required( $saai_post ) ) {
+	return;
+}
+
 $saai_headings = ( new Heading_Anchors() )->for_display( $saai_post );
 
 if ( $saai_headings ) {

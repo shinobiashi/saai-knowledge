@@ -163,4 +163,53 @@ test.describe( 'KB two-column layout — block theme (Twenty Twenty-Five)', () =
 			} );
 		}
 	} );
+
+	test.describe( 'when logged out', () => {
+		// A fresh, cookie-less context: post_password_required() treats the
+		// shared admin session used elsewhere in this file as the post's
+		// author/editor and always bypasses the password prompt for them, so
+		// this test needs a visitor with no session at all to be meaningful.
+		test.use( { storageState: { cookies: [], origins: [] } } );
+
+		// kb-toc reads raw post_content directly, bypassing the the_content
+		// filter chain that normally swaps in WordPress's password form for a
+		// protected post — without a guard, this would expose the article's
+		// section headings before the visitor supplies the password.
+		test( 'hides the TOC for a password-protected article', async ( {
+			page,
+			requestUtils,
+		} ) => {
+			const protectedPost = await requestUtils.rest( {
+				method: 'POST',
+				path: '/wp/v2/saai_kb',
+				data: {
+					title: `E2E KB Protected ${ Math.random()
+						.toString( 36 )
+						.slice( 2, 8 ) }`,
+					status: 'publish',
+					password: 'correct-horse-battery-staple',
+					content:
+						'<!-- wp:heading --><h2>Confidential Section</h2><!-- /wp:heading -->' +
+						'<!-- wp:paragraph --><p>Secret body.</p><!-- /wp:paragraph -->',
+				},
+			} );
+
+			try {
+				await page.goto( protectedPost.link );
+
+				await expect( page.locator( '.saai-kb-layout__toc' ) ).toBeHidden();
+				await expect(
+					page.getByText( 'Confidential Section' )
+				).toHaveCount( 0 );
+
+				expect( consoleErrors ).toEqual( [] );
+			} finally {
+				await requestUtils.rest( {
+					method: 'DELETE',
+					path: `/wp/v2/saai_kb/${ protectedPost.id }`,
+					params: { force: true },
+				} );
+			}
+		} );
+	} );
 } );
