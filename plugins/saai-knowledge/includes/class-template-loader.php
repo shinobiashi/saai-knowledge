@@ -118,7 +118,12 @@ final class Template_Loader {
 		add_filter( 'template_include', array( $this, 'filter_template_include' ) );
 		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_layout_style' ) );
 		add_action( 'pre_get_posts', array( $this, 'restrict_category_archive_to_kb' ) );
-		add_filter( 'pre_render_block', array( $this, 'fire_before_article_hook' ), 10, 2 );
+		// Hooked at PHP_INT_MAX (rather than the default priority) so that,
+		// by the time this runs, any other pre_render_block callback that
+		// short-circuits this same block (registered at a lower priority)
+		// has already set $pre_render — see fire_before_article_hook()'s
+		// docblock for why that must be checked before tracking depth.
+		add_filter( 'pre_render_block', array( $this, 'fire_before_article_hook' ), PHP_INT_MAX, 2 );
 		add_filter( 'render_block_core/post-content', array( $this, 'wrap_kb_article_content' ), 10, 3 );
 
 		// Fires the same insertion points for classic themes via the_content
@@ -180,6 +185,21 @@ final class Template_Loader {
 		}
 
 		if ( is_tax( 'saai_category' ) ) {
+			// A compound search on this taxonomy (e.g.
+			// /?s=setup&saai_category=guides) is still a saai_category
+			// taxonomy query, but WordPress's own template hierarchy
+			// (is_search() is checked ahead of is_tax() in
+			// template-loader.php) has already resolved $template to its
+			// search template, not ours — leave it alone rather than
+			// forcing the bundled KB-branded one onto it
+			// (restrict_category_archive_to_kb() likewise exempts this case
+			// from the post_type restriction). Returned here, rather than
+			// just skipping the block below, so this doesn't fall through
+			// to queried_template_slug()'s own is_tax() check further down.
+			if ( is_search() ) {
+				return $template;
+			}
+
 			$term = get_queried_object();
 
 			if ( ! $term instanceof \WP_Term ) {
@@ -541,14 +561,26 @@ final class Template_Loader {
 	 *
 	 * $post_content_render_depth, in contrast, is tracked for every
 	 * core/post-content block regardless of which post it's for — see that
-	 * property's docblock.
+	 * property's docblock. It's only incremented here if $pre_render is
+	 * still null: render_block() returns any non-null pre_render_block
+	 * result immediately, skipping WP_Block::render() (and with it,
+	 * render_block_core/post-content, the filter that decrements this)
+	 * entirely, so an already-short-circuited block (by another callback
+	 * registered at a lower priority than this one — see register(), which
+	 * hooks this one late for exactly this reason) must not be counted, or
+	 * the depth would leak upward with no matching decrement and wrongly
+	 * suppress wrap_kb_article_content_classic() for the rest of the
+	 * request. A callback registered at a higher priority still than this
+	 * one that later short-circuits the same block is a residual,
+	 * unavoidable gap — nothing currently in this filter chain can look
+	 * ahead to a callback that hasn't run yet.
 	 *
 	 * @param string|null          $pre_render   Pass-through; never short-circuits.
 	 * @param array<string, mixed> $parsed_block The block about to render.
 	 * @return string|null
 	 */
 	public function fire_before_article_hook( $pre_render, array $parsed_block ) {
-		if ( 'core/post-content' !== ( $parsed_block['blockName'] ?? null ) ) {
+		if ( null !== $pre_render || 'core/post-content' !== ( $parsed_block['blockName'] ?? null ) ) {
 			return $pre_render;
 		}
 

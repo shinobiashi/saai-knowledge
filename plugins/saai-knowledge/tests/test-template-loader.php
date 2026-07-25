@@ -320,6 +320,28 @@ class Test_Template_Loader extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A compound search on this taxonomy also leaves the resolved template
+	 * alone on classic themes: WordPress's own template hierarchy has
+	 * already resolved $template to its search template (is_search() is
+	 * checked ahead of is_tax() in template-loader.php), and forcing the
+	 * bundled KB-branded one onto it would contradict
+	 * restrict_category_archive_to_kb()'s own exemption for the same
+	 * request (unrestricted query, but KB-branded template — showing
+	 * saai_faq entries inside a page whose whole premise is "KB only").
+	 */
+	public function test_filter_template_include_ignores_compound_search_requests() {
+		$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+		$this->go_to( '/?s=setup&saai_category=' . get_term( $term_id, 'saai_category' )->slug );
+
+		$this->assertTrue( is_search(), 'test setup should have produced a search request' );
+		$this->assertTrue( is_tax( 'saai_category' ), 'test setup should have produced a taxonomy request' );
+
+		$resolved = ( new \SAAI\Knowledge\Template_Loader() )->filter_template_include( '/theme/search.php' );
+
+		$this->assertSame( '/theme/search.php', $resolved );
+	}
+
+	/**
 	 * A request that already carries an explicit post-type scope (e.g. a
 	 * ?post_type=saai_faq query var) before this runs must have that
 	 * deliberate choice respected, not silently overwritten.
@@ -914,5 +936,61 @@ class Test_Template_Loader extends WP_UnitTestCase {
 		remove_action( 'saai_kb_after_article', $after );
 
 		$this->assertSame( array( array( 'before', $post_id ), array( 'after', $post_id ) ), $fired );
+	}
+
+	/**
+	 * When another plugin's pre_render_block callback short-circuits
+	 * core/post-content (returns non-null), render_block() returns that
+	 * value immediately without ever reaching WP_Block::render() — so
+	 * render_block_core/post-content (wrap_kb_article_content(), which
+	 * decrements $post_content_render_depth) never fires for it. If
+	 * fire_before_article_hook() had already incremented the depth for that
+	 * same block, the count would leak upward with no matching decrement,
+	 * permanently suppressing wrap_kb_article_content_classic() (the
+	 * classic-theme mechanism) for the rest of the request.
+	 */
+	public function test_post_content_render_depth_does_not_leak_when_a_block_is_short_circuited() {
+		$post_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_content' => 'Hello from the article body.',
+			)
+		);
+		$this->go_to( get_permalink( $post_id ) );
+		the_post();
+
+		// Registered at the default priority — i.e. before
+		// fire_before_article_hook(), which register() hooks at PHP_INT_MAX
+		// for exactly this reason — to simulate another plugin
+		// short-circuiting core/post-content ahead of it.
+		$short_circuit = static function ( $pre_render, array $parsed_block ) {
+			if ( 'core/post-content' === ( $parsed_block['blockName'] ?? null ) ) {
+				return 'SHORT-CIRCUITED';
+			}
+
+			return $pre_render;
+		};
+		add_filter( 'pre_render_block', $short_circuit, 10, 2 );
+
+		$output = do_blocks( '<!-- wp:post-content /-->' );
+
+		remove_filter( 'pre_render_block', $short_circuit, 10 );
+
+		$this->assertSame( 'SHORT-CIRCUITED', $output, 'test setup should have short-circuited the block' );
+
+		// A later, unrelated the_content() call (the classic-theme
+		// mechanism) must still fire normally — proving the depth didn't
+		// leak from the short-circuited block above.
+		$fired  = false;
+		$before = static function () use ( &$fired ) {
+			$fired = true;
+		};
+		add_action( 'saai_kb_before_article', $before );
+
+		apply_filters( 'the_content', get_the_content() ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- 'the_content' is WordPress core's own hook name, not this plugin's.
+
+		remove_action( 'saai_kb_before_article', $before );
+
+		$this->assertTrue( $fired, 'post_content_render_depth must not have leaked from the short-circuited block' );
 	}
 }
