@@ -425,6 +425,42 @@ class Test_Template_Loader extends WP_UnitTestCase {
 	}
 
 	/**
+	 * An add-on's saai_template callback that only customizes a completely
+	 * unrelated slug (e.g. single-saai_faq), passing everything else
+	 * through unchanged, must not be mistaken for a taxonomy override — the
+	 * restriction still applies, since the actual, invoked filter leaves
+	 * this taxonomy's resolution untouched.
+	 */
+	public function test_restrict_category_archive_to_kb_ignores_saai_template_filter_for_an_unrelated_slug() {
+		$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+
+		// Registered before go_to(): Template_Loader::register() already
+		// hooks this on the live, bootstrap-registered instance, so it must
+		// see the same filter state go_to() itself does — otherwise a
+		// leftover "already saai_kb" value from that earlier, unfiltered
+		// invocation could make this assertion pass by coincidence
+		// regardless of what the explicit call below actually decides.
+		$filter = static function ( $resolved, $slug ) {
+			if ( 'single-saai_faq' === $slug ) {
+				return '/some/other/template.php';
+			}
+
+			return $resolved;
+		};
+		add_filter( 'saai_template', $filter, 10, 2 );
+
+		$this->go_to( get_term_link( $term_id, 'saai_category' ) );
+
+		global $wp_query;
+
+		( new \SAAI\Knowledge\Template_Loader() )->restrict_category_archive_to_kb( $wp_query );
+
+		remove_filter( 'saai_template', $filter, 10 );
+
+		$this->assertSame( 'saai_kb', $wp_query->get( 'post_type' ) );
+	}
+
+	/**
 	 * A classic theme's term-specific taxonomy-saai_category-{term-slug}.php
 	 * override — which WordPress's own classic taxonomy template hierarchy
 	 * (get_taxonomy_template()) prefers over the generic
@@ -702,6 +738,74 @@ class Test_Template_Loader extends WP_UnitTestCase {
 
 		$this->assertSame( array( $viewed_post_id ), $fired, 'should fire exactly once, for the viewed post only' );
 		$this->assertNotContains( $other_post_id, $fired );
+	}
+
+	/**
+	 * A Query Loop the article body embeds might revisit the very post
+	 * being viewed (an unusual "related articles" configuration, but not an
+	 * impossible one) — its nested core/post-content then has the same
+	 * global and queried post IDs as the primary article body, and
+	 * get_the_ID()-based matching alone can't tell them apart. The action
+	 * must still fire exactly once, for the outermost (primary) render only.
+	 */
+	public function test_before_article_hook_fires_only_once_when_a_nested_query_loop_revisits_the_viewed_post() {
+		// The Query Loop must be embedded in the viewed post's own content
+		// (not a sibling top-level block) to actually nest within the
+		// outer post-content's render: sibling top-level blocks render
+		// sequentially — the outer's pre_render_block/render_block_core/post-content
+		// pair fully unwinds back to depth 0 before a sibling block ever
+		// starts — so a sibling arrangement wouldn't exercise the depth
+		// check at all (see test_before_article_hook_output_survives_a_query_loop_embedded_in_the_article_body()
+		// for the same reasoning, applied to the before-hook buffer).
+		$viewed_post_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_content' => 'placeholder',
+			)
+		);
+
+		$query_attrs = wp_json_encode(
+			array(
+				'query' => array(
+					'postType' => 'saai_kb',
+					'perPage'  => 10,
+					'inherit'  => false,
+				),
+			)
+		);
+
+		wp_update_post(
+			array(
+				'ID'           => $viewed_post_id,
+				'post_content' => 'Viewed article body.' .
+					"<!-- wp:query {$query_attrs} -->" .
+					'<div class="wp-block-query">' .
+					'<!-- wp:post-template -->' .
+					'<!-- wp:post-content /-->' .
+					'<!-- /wp:post-template -->' .
+					'</div>' .
+					'<!-- /wp:query -->',
+			)
+		);
+
+		$this->go_to( get_permalink( $viewed_post_id ) );
+		the_post();
+
+		$fired  = array();
+		$before = static function ( $post ) use ( &$fired ) {
+			$fired[] = $post->ID;
+		};
+		add_action( 'saai_kb_before_article', $before );
+
+		do_blocks( '<!-- wp:post-content /-->' );
+
+		remove_action( 'saai_kb_before_article', $before );
+
+		$this->assertSame(
+			array( $viewed_post_id ),
+			$fired,
+			'should fire exactly once, even though the nested Query Loop revisits the same post'
+		);
 	}
 
 	/**

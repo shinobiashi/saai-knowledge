@@ -269,9 +269,6 @@ final class Template_Loader {
 	 * term, term-specific first — mirrors WordPress's own classic taxonomy
 	 * template hierarchy (see get_taxonomy_template()).
 	 *
-	 * Shared by resolved_classic_taxonomy_template_path() and
-	 * classic_taxonomy_template_overridden().
-	 *
 	 * @param \WP_Term $term The queried term.
 	 * @return string[] Slugs, e.g. `taxonomy-saai_category-{term-slug}`.
 	 */
@@ -299,9 +296,18 @@ final class Template_Loader {
 	 * resolved_classic_template_path()'s docblock on why this isn't
 	 * memoized.
 	 *
-	 * Only called from filter_template_include(); restrict_category_archive_to_kb()
-	 * uses classic_taxonomy_template_overridden() instead, precisely to
-	 * avoid invoking the saai_template filter this early.
+	 * Shared by filter_template_include() and restrict_category_archive_to_kb(),
+	 * exactly as resolved_classic_template_path() is for the fixed slugs —
+	 * each calls it fresh, at its own phase, rather than one reusing the
+	 * other's result. A has_filter( 'saai_template' ) presence check was
+	 * tried here instead for the query-scope decision (to avoid invoking
+	 * the filter this early at all), but that treats any callback
+	 * registered for a completely unrelated slug (e.g. one that only
+	 * customizes single-saai_faq) as if it overrode this taxonomy too,
+	 * incorrectly deferring the restriction even though the actual,
+	 * invoked filter would leave this slug's resolution unchanged.
+	 * Invoking it for real, for both call sites independently, is the only
+	 * way to know whether a registered callback actually affects this term.
 	 *
 	 * @param \WP_Term $term The queried term.
 	 * @return string Absolute path, or '' if a saai_template filter returned something unusable.
@@ -327,38 +333,6 @@ final class Template_Loader {
 		$resolved = apply_filters( 'saai_template', $resolved, $slug );
 
 		return is_string( $resolved ) ? $resolved : '';
-	}
-
-	/**
-	 * Whether a classic theme file override exists in the
-	 * taxonomy-saai_category template hierarchy for this term (term-specific
-	 * or generic slug), or an add-on has registered a saai_template
-	 * callback at all — used by restrict_category_archive_to_kb() to decide
-	 * whether to defer its post_type restriction.
-	 *
-	 * Deliberately doesn't invoke the saai_template filter itself (only
-	 * has_filter()'s presence check): resolved_classic_taxonomy_template_path()
-	 * is the one place that does, at its own correct phase
-	 * (filter_template_include(), on template_include) — see that method's
-	 * docblock. A currently-registered callback is treated as "an override
-	 * might be in play" and deferred to that later, authoritative
-	 * evaluation, rather than guessed at here.
-	 *
-	 * @param \WP_Term $term The queried term.
-	 * @return bool
-	 */
-	private function classic_taxonomy_template_overridden( \WP_Term $term ): bool {
-		if ( has_filter( 'saai_template' ) ) {
-			return true;
-		}
-
-		foreach ( $this->classic_taxonomy_template_slug_candidates( $term ) as $candidate ) {
-			if ( '' !== locate_template( array( "saai-knowledge/{$candidate}.php" ) ) ) {
-				return true;
-			}
-		}
-
-		return false;
 	}
 
 	/**
@@ -465,8 +439,13 @@ final class Template_Loader {
 			if ( ! $this->plugin_taxonomy_template_wins( $term ) ) {
 				return;
 			}
-		} elseif ( $this->classic_taxonomy_template_overridden( $term ) ) {
-			return;
+		} else {
+			$bundled  = SAAI_KNOWLEDGE_DIR . 'templates/classic/taxonomy-saai_category.php';
+			$resolved = $this->resolved_classic_taxonomy_template_path( $term );
+
+			if ( $bundled !== $resolved ) {
+				return;
+			}
 		}
 
 		$query->set( 'post_type', 'saai_kb' );
@@ -559,11 +538,20 @@ final class Template_Loader {
 	 * inner blocks (the same mechanism a classic Loop uses), so get_the_ID()
 	 * reflects whichever post is actually being rendered right now.
 	 *
-	 * $post_content_render_depth, in contrast, is tracked for every
-	 * core/post-content block regardless of which post it's for — see that
-	 * property's docblock. It's only incremented here if $pre_render is
-	 * still null: render_block() returns any non-null pre_render_block
-	 * result immediately, skipping WP_Block::render() (and with it,
+	 * That signal alone still isn't enough, though: if the article body (or
+	 * the template) embeds a Query Loop that happens to include the very
+	 * post being viewed (an unusual "related articles" configuration, but
+	 * not an impossible one), that nested core/post-content's the_post()
+	 * call sets get_the_ID() to the SAME post, and would otherwise be
+	 * mistaken for the primary article body. $post_content_render_depth
+	 * doubles as the guard for this: it's tracked for every core/post-content
+	 * block regardless of which post it's for (see that property's
+	 * docblock), so checking it's exactly 1 — no other core/post-content is
+	 * currently mid-render above this one — confirms this is the outermost
+	 * such block, not a nested one, independent of which post it happens to
+	 * match. It's only incremented here if $pre_render is still null:
+	 * render_block() returns any non-null pre_render_block result
+	 * immediately, skipping WP_Block::render() (and with it,
 	 * render_block_core/post-content, the filter that decrements this)
 	 * entirely, so an already-short-circuited block (by another callback
 	 * registered at a lower priority than this one — see register(), which
@@ -587,6 +575,13 @@ final class Template_Loader {
 		// Tracked for every core/post-content block, matched or not: see
 		// $post_content_render_depth.
 		++$this->post_content_render_depth;
+
+		if ( 1 !== $this->post_content_render_depth ) {
+			// Nested inside another core/post-content's own render — can't
+			// be the primary article body even if it happens to match the
+			// checks below (see this method's docblock).
+			return $pre_render;
+		}
 
 		if ( ! is_singular( 'saai_kb' ) || get_queried_object_id() !== get_the_ID() ) {
 			return $pre_render;
@@ -624,6 +619,14 @@ final class Template_Loader {
 	 * elsewhere on the site. wrap_kb_article_content_classic() covers the
 	 * equivalent classic-theme case via the_content instead.
 	 *
+	 * The block's own postId context (below) isn't enough on its own to
+	 * reject a nested core/post-content that happens to revisit the very
+	 * post being viewed (see fire_before_article_hook()'s docblock) — its
+	 * context would correctly resolve to that same post's ID too. Checking
+	 * $post_content_render_depth was exactly 1 before this decrements it —
+	 * i.e. no other core/post-content is still mid-render above this one —
+	 * confirms this is the outermost such block instead.
+	 *
 	 * @param string               $block_content The rendered post-content block.
 	 * @param array<string, mixed> $parsed_block Parsed block data (unused).
 	 * @param \WP_Block            $block The block instance, used to confirm this is the
@@ -635,7 +638,12 @@ final class Template_Loader {
 		// This filter only ever fires for core/post-content (its dynamic hook
 		// name), so every call here is one such block finishing its render —
 		// see $post_content_render_depth.
+		$was_outermost = 1 === $this->post_content_render_depth;
 		--$this->post_content_render_depth;
+
+		if ( ! $was_outermost ) {
+			return $block_content;
+		}
 
 		if ( ! is_singular( 'saai_kb' ) ) {
 			return $block_content;
