@@ -331,6 +331,34 @@ class Test_Template_Loader extends WP_UnitTestCase {
 	}
 
 	/**
+	 * An add-on using the public saai_template filter to override the classic
+	 * taxonomy-saai_category template — same priority as a theme file override
+	 * (filter_template_include() applies this filter regardless of the
+	 * source) — must also defer the post_type restriction.
+	 */
+	public function test_restrict_category_archive_to_kb_defers_to_saai_template_filter_override() {
+		$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+		$this->go_to( get_term_link( $term_id, 'saai_category' ) );
+
+		$override_path = tempnam( sys_get_temp_dir(), 'saai-template-' );
+
+		$filter = static function () use ( $override_path ) {
+			return $override_path;
+		};
+		add_filter( 'saai_template', $filter );
+
+		global $wp_query;
+		$original_post_type = $wp_query->get( 'post_type' );
+
+		( new \SAAI\Knowledge\Template_Loader() )->restrict_category_archive_to_kb( $wp_query );
+
+		remove_filter( 'saai_template', $filter );
+		wp_delete_file( $override_path );
+
+		$this->assertSame( $original_post_type, $wp_query->get( 'post_type' ) );
+	}
+
+	/**
 	 * The documented saai_kb_before_article/saai_kb_after_article insertion
 	 * points (docs/DESIGN-HOOKS-API.md section 4) must actually fire around
 	 * the block-theme article body, with the viewed KB post passed through.
@@ -371,6 +399,40 @@ class Test_Template_Loader extends WP_UnitTestCase {
 
 		$this->assertSame( array( array( 'before', $post_id ), array( 'after', $post_id ) ), $fired );
 		$this->assertStringContainsString( 'Hello from the article body.', $output );
+	}
+
+	/**
+	 * The saai_kb_before_article action must fire early enough that an
+	 * add-on registering a the_content filter from within it actually
+	 * affects the article body being rendered — not just "before" in output
+	 * order. This is exactly the classic template's do_action() ...
+	 * the_content() sequencing; pre_render_block is what makes the
+	 * block-theme side match it.
+	 */
+	public function test_saai_kb_before_article_fires_early_enough_to_affect_rendered_content() {
+		$post_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_content' => 'Real body text.',
+			)
+		);
+		$this->go_to( get_permalink( $post_id ) );
+		the_post();
+
+		$content_filter = static function ( $content ) {
+			return '<p id="saai-debug-marker">BEFORE-HOOK-WORKED</p>' . $content;
+		};
+		$before_action  = static function () use ( $content_filter ) {
+			add_filter( 'the_content', $content_filter );
+		};
+		add_action( 'saai_kb_before_article', $before_action );
+
+		$output = do_blocks( '<!-- wp:post-content /-->' );
+
+		remove_action( 'saai_kb_before_article', $before_action );
+		remove_filter( 'the_content', $content_filter );
+
+		$this->assertStringContainsString( 'BEFORE-HOOK-WORKED', $output );
 	}
 
 	/**

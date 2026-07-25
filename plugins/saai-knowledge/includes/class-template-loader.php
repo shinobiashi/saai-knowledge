@@ -63,6 +63,7 @@ final class Template_Loader {
 		add_filter( 'template_include', array( $this, 'filter_template_include' ) );
 		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_layout_style' ) );
 		add_action( 'pre_get_posts', array( $this, 'restrict_category_archive_to_kb' ) );
+		add_filter( 'pre_render_block', array( $this, 'fire_before_article_hook' ), 10, 2 );
 		add_filter( 'render_block_core/post-content', array( $this, 'wrap_kb_article_content' ), 10, 3 );
 	}
 
@@ -109,6 +110,23 @@ final class Template_Loader {
 			return $template;
 		}
 
+		$resolved = $this->resolved_classic_template_path( $slug );
+
+		return '' !== $resolved && file_exists( $resolved ) ? $resolved : $template;
+	}
+
+	/**
+	 * Resolves the classic-theme template path for a slug, honoring both a
+	 * theme's own file override and the public saai_template filter.
+	 *
+	 * Shared by filter_template_include() (which additionally validates the
+	 * result exists before using it) and restrict_category_archive_to_kb()
+	 * (which uses it to detect whether an override is in play at all).
+	 *
+	 * @param string $slug Template hierarchy slug, e.g. `single-saai_kb`.
+	 * @return string Absolute path, or '' if a saai_template filter returned something unusable.
+	 */
+	private function resolved_classic_template_path( string $slug ): string {
 		$resolved = locate_template( array( "saai-knowledge/{$slug}.php" ) );
 
 		if ( '' === $resolved ) {
@@ -125,7 +143,8 @@ final class Template_Loader {
 		 */
 		$resolved = apply_filters( 'saai_template', $resolved, $slug );
 
-		return is_string( $resolved ) && '' !== $resolved && file_exists( $resolved ) ? $resolved : $template;
+		// @phpstan-ignore ternary.elseUnreachable (PHPStan trusts the docblock @param type above, but a third-party saai_template callback can violate it at runtime.)
+		return is_string( $resolved ) ? $resolved : '';
 	}
 
 	/**
@@ -195,33 +214,80 @@ final class Template_Loader {
 
 		// A site's own taxonomy-saai_category override — already given
 		// priority over the bundled template (register_block_templates()'s
-		// docblock; filter_template_include() for classic themes) — may
-		// deliberately want a broader post-type scope for this shared
-		// taxonomy; don't force our restriction on it.
+		// docblock; filter_template_include() for classic themes, including
+		// via the public saai_template filter) — may deliberately want a
+		// broader post-type scope for this shared taxonomy; don't force our
+		// restriction on it.
 		if ( wp_is_block_theme() ) {
 			foreach ( get_block_templates( array( 'slug__in' => array( 'taxonomy-saai_category' ) ) ) as $template ) {
 				if ( 'plugin' !== $template->source ) {
 					return;
 				}
 			}
-		} elseif ( '' !== locate_template( array( 'saai-knowledge/taxonomy-saai_category.php' ) ) ) {
-			return;
+		} else {
+			$bundled  = SAAI_KNOWLEDGE_DIR . 'templates/classic/taxonomy-saai_category.php';
+			$resolved = $this->resolved_classic_template_path( 'taxonomy-saai_category' );
+
+			if ( $bundled !== $resolved ) {
+				return;
+			}
 		}
 
 		$query->set( 'post_type', 'saai_kb' );
 	}
 
 	/**
-	 * Fires the documented saai_kb_before_article/saai_kb_after_article
-	 * insertion points (docs/DESIGN-HOOKS-API.md section 4) around the block
-	 * theme's rendered KB article body.
+	 * Fires the documented saai_kb_before_article insertion point
+	 * (docs/DESIGN-HOOKS-API.md section 4) before the block theme renders the
+	 * KB article body.
+	 *
+	 * Hooked on pre_render_block rather than wrap_kb_article_content()'s
+	 * render_block_core/post-content filter: that filter only sees the block
+	 * after core/post-content's render_callback already produced the
+	 * content, which is too late for an add-on that uses this hook to set up
+	 * something the render itself depends on (e.g. registering a the_content
+	 * filter). pre_render_block fires before the callback runs, so this
+	 * mirrors the classic template's do_action() call directly ahead of
+	 * the_content().
+	 *
+	 * @param string|null          $pre_render   Pass-through; never short-circuits.
+	 * @param array<string, mixed> $parsed_block The block about to render.
+	 * @return string|null
+	 */
+	public function fire_before_article_hook( $pre_render, array $parsed_block ) {
+		if ( 'core/post-content' !== ( $parsed_block['blockName'] ?? null ) || ! is_singular( 'saai_kb' ) ) {
+			return $pre_render;
+		}
+
+		$post = get_post( get_queried_object_id() );
+
+		if ( ! $post instanceof \WP_Post ) {
+			return $pre_render;
+		}
+
+		/**
+		 * Fires before the KB article body.
+		 *
+		 * @since 0.1.0
+		 *
+		 * @param \WP_Post $post The KB article being viewed.
+		 */
+		do_action( 'saai_kb_before_article', $post );
+
+		return $pre_render;
+	}
+
+	/**
+	 * Fires the documented saai_kb_after_article insertion point
+	 * (docs/DESIGN-HOOKS-API.md section 4) after the block theme's rendered
+	 * KB article body.
 	 *
 	 * The single-saai_kb.html block template has no PHP execution point of its
 	 * own to call do_action() from directly, so this wraps the one block that
 	 * renders the article body instead — scoped to core/post-content
 	 * specifically so it doesn't fire for unrelated uses of that block
 	 * elsewhere on the site. The classic-theme template calls the same
-	 * actions directly around the_content().
+	 * action directly after the_content().
 	 *
 	 * @param string               $block_content The rendered post-content block.
 	 * @param array<string, mixed> $parsed_block Parsed block data (unused).
@@ -248,17 +314,6 @@ final class Template_Loader {
 		}
 
 		/**
-		 * Fires before the KB article body.
-		 *
-		 * @since 0.1.0
-		 *
-		 * @param \WP_Post $post The KB article being viewed.
-		 */
-		ob_start();
-		do_action( 'saai_kb_before_article', $post );
-		$before = ob_get_clean();
-
-		/**
 		 * Fires after the KB article body.
 		 *
 		 * @since 0.1.0
@@ -269,7 +324,7 @@ final class Template_Loader {
 		do_action( 'saai_kb_after_article', $post );
 		$after = ob_get_clean();
 
-		return $before . $block_content . $after;
+		return $block_content . $after;
 	}
 
 	/**
