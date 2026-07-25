@@ -189,18 +189,22 @@ final class Template_Loader {
 		// saai_category taxonomy query, but it's served by WordPress's own
 		// feed templates, not the bundled KB-branded archive template — don't
 		// hide saai_faq entries from it too.
-		if ( is_feed() ) {
+		if ( $query->is_feed() ) {
 			return;
 		}
 
-		// On a classic theme, a site's own taxonomy-saai_category.php override
-		// (which filter_template_include() already gives priority over the
-		// bundled template) may deliberately want a broader post-type scope
-		// for this shared taxonomy; don't force our restriction on it. Block
-		// themes resolve template overrides later, during template_include —
-		// after pre_get_posts has already run here — so there's no equivalent
-		// early check available for them.
-		if ( ! wp_is_block_theme() && '' !== locate_template( array( 'saai-knowledge/taxonomy-saai_category.php' ) ) ) {
+		// A site's own taxonomy-saai_category override — already given
+		// priority over the bundled template (register_block_templates()'s
+		// docblock; filter_template_include() for classic themes) — may
+		// deliberately want a broader post-type scope for this shared
+		// taxonomy; don't force our restriction on it.
+		if ( wp_is_block_theme() ) {
+			foreach ( get_block_templates( array( 'slug__in' => array( 'taxonomy-saai_category' ) ) ) as $template ) {
+				if ( 'plugin' !== $template->source ) {
+					return;
+				}
+			}
+		} elseif ( '' !== locate_template( array( 'saai-knowledge/taxonomy-saai_category.php' ) ) ) {
 			return;
 		}
 
