@@ -360,6 +360,29 @@ class Test_Template_Loader extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The bundled taxonomy-saai_category template is entirely KB-branded, so
+	 * it must not win for a request that explicitly carries a non-KB
+	 * post-type scope (e.g. ?post_type=saai_faq) — restrict_category_archive_to_kb()
+	 * already leaves such a request's query alone, and forcing the KB
+	 * template onto it anyway would show its results inside KB-only
+	 * sidebar, breadcrumbs, and empty-state UI regardless.
+	 */
+	public function test_filter_template_include_ignores_explicit_post_type_scope() {
+		$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+		$this->go_to( add_query_arg( 'post_type', 'saai_faq', get_term_link( $term_id, 'saai_category' ) ) );
+
+		$this->assertSame(
+			'saai_faq',
+			get_query_var( 'post_type' ),
+			'test setup should have produced an explicit post_type scope'
+		);
+
+		$resolved = ( new \SAAI\Knowledge\Template_Loader() )->filter_template_include( '/theme/fallback.php' );
+
+		$this->assertSame( '/theme/fallback.php', $resolved );
+	}
+
+	/**
 	 * A site's own classic-theme taxonomy-saai_category.php override — already
 	 * given priority by filter_template_include() — may deliberately want a
 	 * broader post-type scope for this shared taxonomy, so the restriction

@@ -258,7 +258,27 @@ final class Template_Loader {
 
 			$resolved = $this->resolved_classic_taxonomy_template_path( $term );
 
-			return '' !== $resolved && file_exists( $resolved ) ? $resolved : $template;
+			if ( '' === $resolved || ! file_exists( $resolved ) ) {
+				return $template;
+			}
+
+			// The bundled template is entirely KB-branded, so it must only
+			// win when the query is actually KB-only — either
+			// restrict_category_archive_to_kb()'s own restriction (a plain
+			// archive) or a harmless explicit ?post_type=saai_kb — never an
+			// explicitly broader scope (e.g. ?post_type=saai_faq), which
+			// that method deliberately leaves unrestricted. A genuine site
+			// override (a term-specific file, or the saai_template filter)
+			// still wins regardless of post_type: $resolved would already
+			// differ from $bundled in that case, so this check never
+			// reaches it.
+			$bundled = SAAI_KNOWLEDGE_DIR . 'templates/classic/taxonomy-saai_category.php';
+
+			if ( $bundled === $resolved && 'saai_kb' !== get_query_var( 'post_type' ) ) {
+				return $template;
+			}
+
+			return $resolved;
 		}
 
 		$slug = $this->queried_template_slug();
