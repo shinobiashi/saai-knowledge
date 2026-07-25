@@ -268,12 +268,32 @@ final class Template_Loader {
 	 * The action's output is captured rather than left to print immediately:
 	 * see $before_article_output.
 	 *
+	 * Restricted to the queried KB post itself, not just any core/post-content
+	 * on a saai_kb singular request: a customized single-saai_kb.html could
+	 * nest a Query/Post Template block (e.g. a "related articles" section)
+	 * that also renders core/post-content once per listed post, and
+	 * is_singular( 'saai_kb' ) alone can't tell those apart from the article
+	 * being viewed. Unlike wrap_kb_article_content(), this can't check the
+	 * block's own postId context — pre_render_block's $parent_block is one
+	 * level up the tree, and at this point core/post-content's own context
+	 * (which it does declare wanting via usesContext) hasn't been resolved
+	 * yet; that only happens later, via the render_block_context filter,
+	 * inside the very same render_block() call this filter is part of. The
+	 * reliable signal instead is the global $post: core/post-template's own
+	 * render callback calls the_post() for each item before rendering its
+	 * inner blocks (the same mechanism a classic Loop uses), so get_the_ID()
+	 * reflects whichever post is actually being rendered right now.
+	 *
 	 * @param string|null          $pre_render   Pass-through; never short-circuits.
 	 * @param array<string, mixed> $parsed_block The block about to render.
 	 * @return string|null
 	 */
 	public function fire_before_article_hook( $pre_render, array $parsed_block ) {
 		if ( 'core/post-content' !== ( $parsed_block['blockName'] ?? null ) || ! is_singular( 'saai_kb' ) ) {
+			return $pre_render;
+		}
+
+		if ( get_queried_object_id() !== get_the_ID() ) {
 			return $pre_render;
 		}
 

@@ -469,6 +469,64 @@ class Test_Template_Loader extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A customized single-saai_kb.html could nest a Query/Post Template block
+	 * (e.g. a "related articles" section) that also renders core/post-content
+	 * once per listed post. is_singular( 'saai_kb' ) stays true throughout, so
+	 * only comparing against the current global post (which core/post-template
+	 * changes via the_post() for each item it renders) can tell those nested
+	 * instances apart from the article actually being viewed.
+	 */
+	public function test_before_article_hook_does_not_fire_for_nested_post_content_in_a_query_loop() {
+		$viewed_post_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_content' => 'Viewed article body.',
+			)
+		);
+		$other_post_id  = self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_content' => 'Other article body.',
+			)
+		);
+		$this->go_to( get_permalink( $viewed_post_id ) );
+		the_post();
+
+		$fired  = array();
+		$before = static function ( $post ) use ( &$fired ) {
+			$fired[] = $post->ID;
+		};
+		add_action( 'saai_kb_before_article', $before );
+
+		$query_attrs = wp_json_encode(
+			array(
+				'query' => array(
+					'postType' => 'saai_kb',
+					'perPage'  => 10,
+					'exclude'  => array( $viewed_post_id ),
+					'inherit'  => false,
+				),
+			)
+		);
+
+		do_blocks(
+			'<!-- wp:post-content /-->' .
+			"<!-- wp:query {$query_attrs} -->" .
+			'<div class="wp-block-query">' .
+			'<!-- wp:post-template -->' .
+			'<!-- wp:post-content /-->' .
+			'<!-- /wp:post-template -->' .
+			'</div>' .
+			'<!-- /wp:query -->'
+		);
+
+		remove_action( 'saai_kb_before_article', $before );
+
+		$this->assertSame( array( $viewed_post_id ), $fired, 'should fire exactly once, for the viewed post only' );
+		$this->assertNotContains( $other_post_id, $fired );
+	}
+
+	/**
 	 * Views outside a saai_kb singular post (e.g. a plain page) must not fire
 	 * the KB article insertion points, even though they may render their own
 	 * core/post-content block.
