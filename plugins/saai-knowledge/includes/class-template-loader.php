@@ -232,12 +232,14 @@ final class Template_Loader {
 		// docblock; filter_template_include() for classic themes, including
 		// via the public saai_template filter) — may deliberately want a
 		// broader post-type scope for this shared taxonomy; don't force our
-		// restriction on it.
+		// restriction on it. This also has to defer to a more specific
+		// taxonomy-saai_category-{term-slug} override, which WordPress's own
+		// template hierarchy prefers over the generic slug.
 		if ( wp_is_block_theme() ) {
-			foreach ( get_block_templates( array( 'slug__in' => array( 'taxonomy-saai_category' ) ) ) as $template ) {
-				if ( 'plugin' !== $template->source ) {
-					return;
-				}
+			$term = $query->get_queried_object();
+
+			if ( ! $term instanceof \WP_Term || ! $this->plugin_taxonomy_template_wins( $term ) ) {
+				return;
 			}
 		} else {
 			$bundled  = SAAI_KNOWLEDGE_DIR . 'templates/classic/taxonomy-saai_category.php';
@@ -249,6 +251,54 @@ final class Template_Loader {
 		}
 
 		$query->set( 'post_type', 'saai_kb' );
+	}
+
+	/**
+	 * Determines whether the plugin's bundled taxonomy-saai_category block
+	 * template is the one WordPress will actually render for the given term,
+	 * or whether a site's own override — general or term-specific — wins
+	 * instead.
+	 *
+	 * Mirrors the slug candidates and priority-sort algorithm core's
+	 * (`@access private`) resolve_block_template() applies for a taxonomy
+	 * archive, but built only from the public get_block_templates(), since
+	 * calling an internal core function directly isn't safe to depend on.
+	 *
+	 * @param \WP_Term $term The queried term.
+	 * @return bool Whether the plugin's own template is the one that wins.
+	 */
+	private function plugin_taxonomy_template_wins( \WP_Term $term ): bool {
+		$slugs = array();
+
+		$decoded_slug = urldecode( $term->slug );
+
+		if ( $decoded_slug !== $term->slug ) {
+			$slugs[] = "taxonomy-{$term->taxonomy}-{$decoded_slug}";
+		}
+
+		$slugs[] = "taxonomy-{$term->taxonomy}-{$term->slug}";
+		$slugs[] = "taxonomy-{$term->taxonomy}";
+		$slugs[] = 'taxonomy';
+
+		$templates = get_block_templates( array( 'slug__in' => $slugs ) );
+
+		if ( ! $templates ) {
+			// No registered template matches any hierarchy candidate at all —
+			// keep the previous default of applying the restriction rather
+			// than silently widening the query's scope.
+			return true;
+		}
+
+		$priorities = array_flip( $slugs );
+
+		usort(
+			$templates,
+			static function ( \WP_Block_Template $a, \WP_Block_Template $b ) use ( $priorities ) {
+				return $priorities[ $a->slug ] - $priorities[ $b->slug ];
+			}
+		);
+
+		return 'plugin' === $templates[0]->source;
 	}
 
 	/**
