@@ -53,6 +53,13 @@ add_action( 'saai_loaded', function ( $plugin ) {
 | `saai_structured_data` | `( array $schema, string $schema_type, ?WP_Post $post ): array` | JSON-LD 出力の加工。`$schema_type` は `faq-page` / `defined-term` / `breadcrumbs` |
 | `saai_template` | `( string $template_path, string $slug ): string` | クラシックテーマ向けテンプレート解決の最終上書き。`$slug` 例: `single-saai_kb` |
 
+`saai_template` は `taxonomy-saai_category` の解決時に限り、`pre_get_posts`（`saai_category`
+タクソノミーアーカイブの KB 限定クエリスコープ判定）と `template_include`（最終的なテンプレー
+ト決定）の2箇所から呼ばれる。ステートフルまたは自己解除するコールバックは、この2回の呼び出し
+で異なる結果を返しうるため、その場合はクエリスコープと実際に描画されるテンプレートが一致しな
+くなることがある。クエリスコープの判定にも確実に反映させたい場合は、`init` フック以前
+（またはそれより早く）で登録すること。
+
 ### 3.3 検索
 
 | フック | シグネチャ | 用途 |
