@@ -185,6 +185,14 @@ final class Template_Loader {
 			return;
 		}
 
+		// A category feed (/knowledge-category/{term}/feed/) is still a
+		// saai_category taxonomy query, but it's served by WordPress's own
+		// feed templates, not the bundled KB-branded archive template — don't
+		// hide saai_faq entries from it too.
+		if ( is_feed() ) {
+			return;
+		}
+
 		// On a classic theme, a site's own taxonomy-saai_category.php override
 		// (which filter_template_include() already gives priority over the
 		// bundled template) may deliberately want a broader post-type scope

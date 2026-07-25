@@ -276,6 +276,24 @@ class Test_Template_Loader extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A saai_category feed request must not be restricted to saai_kb — it's
+	 * served by WordPress's own feed templates, not the KB-branded archive
+	 * template, so saai_faq entries belong in it too.
+	 */
+	public function test_restrict_category_archive_to_kb_ignores_feed_requests() {
+		$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+		$this->go_to( get_term_feed_link( $term_id, 'saai_category' ) );
+
+		global $wp_query;
+		$this->assertTrue( $wp_query->is_feed(), 'test setup should have produced a feed request' );
+		$original_post_type = $wp_query->get( 'post_type' );
+
+		( new \SAAI\Knowledge\Template_Loader() )->restrict_category_archive_to_kb( $wp_query );
+
+		$this->assertSame( $original_post_type, $wp_query->get( 'post_type' ) );
+	}
+
+	/**
 	 * A site's own classic-theme taxonomy-saai_category.php override — already
 	 * given priority by filter_template_include() — may deliberately want a
 	 * broader post-type scope for this shared taxonomy, so the restriction
