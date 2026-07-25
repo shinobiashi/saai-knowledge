@@ -79,6 +79,28 @@ final class Template_Loader {
 	private $before_article_output = null;
 
 	/**
+	 * Whether fire_before_article_hook()/wrap_kb_article_content() have
+	 * already fired once this request — set the moment
+	 * fire_before_article_hook() identifies the outermost, matching
+	 * core/post-content and buffers its before-hook output.
+	 *
+	 * $post_content_render_depth alone only rejects a core/post-content
+	 * still nested inside another one's own render (e.g. a Query Loop
+	 * embedded in the article's own content); a SIBLING core/post-content
+	 * that also happens to render the viewed post — e.g. a "related
+	 * articles" Query Loop placed after the primary block in a customized
+	 * template — has already unwound the depth back to 0 by the time it
+	 * starts, so it looks identical to the primary block's own render
+	 * without this flag. Checked (and, once matched, set) in
+	 * fire_before_article_hook(); wrap_kb_article_content() instead gates
+	 * on whether $before_article_output is non-null, which is only ever
+	 * true for the one render this flag let through.
+	 *
+	 * @var bool
+	 */
+	private $article_content_hooks_fired = false;
+
+	/**
 	 * How many core/post-content blocks are currently being rendered,
 	 * counting from pre_render_block (fire_before_article_hook()) to
 	 * render_block_core/post-content (wrap_kb_article_content()).
@@ -108,6 +130,21 @@ final class Template_Loader {
 	private $classic_before_article_output = null;
 
 	/**
+	 * The the_content equivalent of $article_content_hooks_fired, kept as
+	 * its own property for the same reason $classic_before_article_output
+	 * is: any the_content() call applied to the queried post before the
+	 * main template's own — e.g. an SEO plugin or cache warmer deriving a
+	 * meta description from get_the_content() ahead of time — would
+	 * otherwise satisfy queried_kb_article_for_classic_content_hooks()'s
+	 * checks just as well as the real, main-template call, firing the
+	 * hooks into that unrelated derived content and then again for the
+	 * genuine render.
+	 *
+	 * @var bool
+	 */
+	private $classic_article_hooks_fired = false;
+
+	/**
 	 * Hooks template resolution into WordPress.
 	 */
 	public function register(): void {
@@ -118,6 +155,19 @@ final class Template_Loader {
 		add_filter( 'template_include', array( $this, 'filter_template_include' ) );
 		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_layout_style' ) );
 		add_action( 'pre_get_posts', array( $this, 'restrict_category_archive_to_kb' ) );
+		// Separate from the above (which only concerns saai_category
+		// archives): a real HTTP request is a fresh PHP process, so
+		// $article_content_hooks_fired/$classic_article_hooks_fired start
+		// false naturally, but a single long-running script rendering more
+		// than one KB article in the same process — a WP-CLI export tool or
+		// sitemap generator looping over saai_kb posts, or this test suite
+		// itself — reuses this same instance across each one, and without
+		// resetting here, only the first article it ever renders would get
+		// these hooks; every one after it in that same process would find
+		// the flags still true. pre_get_posts fires for every new main
+		// query, main-query-only so this doesn't affect this class's own
+		// secondary Query Loop handling above.
+		add_action( 'pre_get_posts', array( $this, 'reset_article_content_hooks_state' ) );
 		// Hooked at PHP_INT_MAX (rather than the default priority) so that,
 		// by the time this runs, any other pre_render_block callback that
 		// short-circuits this same block (registered at a lower priority)
@@ -452,6 +502,24 @@ final class Template_Loader {
 	}
 
 	/**
+	 * Resets $article_content_hooks_fired/$classic_article_hooks_fired for
+	 * each new main query — see register()'s docblock for why this can't
+	 * just be folded into restrict_category_archive_to_kb() (which only
+	 * concerns saai_category archives specifically, and returns early for
+	 * any other request type before reaching logic like this).
+	 *
+	 * @param \WP_Query $query The query WordPress is about to run.
+	 */
+	public function reset_article_content_hooks_state( \WP_Query $query ): void {
+		if ( ! $query->is_main_query() ) {
+			return;
+		}
+
+		$this->article_content_hooks_fired = false;
+		$this->classic_article_hooks_fired = false;
+	}
+
+	/**
 	 * Determines whether the plugin's bundled taxonomy-saai_category block
 	 * template is the one WordPress will actually render for the given term,
 	 * or whether a site's own override — general or term-specific — wins
@@ -563,6 +631,13 @@ final class Template_Loader {
 	 * unavoidable gap — nothing currently in this filter chain can look
 	 * ahead to a callback that hasn't run yet.
 	 *
+	 * Depth alone still doesn't catch a SIBLING core/post-content that also
+	 * renders the viewed post (e.g. a "related articles" Query Loop placed
+	 * after the primary block): by the time it starts, the primary has
+	 * already unwound the depth back to 0, so it looks just as "outermost"
+	 * as the primary was. $article_content_hooks_fired is what rejects that
+	 * — see its own docblock.
+	 *
 	 * @param string|null          $pre_render   Pass-through; never short-circuits.
 	 * @param array<string, mixed> $parsed_block The block about to render.
 	 * @return string|null
@@ -576,10 +651,11 @@ final class Template_Loader {
 		// $post_content_render_depth.
 		++$this->post_content_render_depth;
 
-		if ( 1 !== $this->post_content_render_depth ) {
-			// Nested inside another core/post-content's own render — can't
-			// be the primary article body even if it happens to match the
-			// checks below (see this method's docblock).
+		if ( 1 !== $this->post_content_render_depth || $this->article_content_hooks_fired ) {
+			// Nested inside another core/post-content's own render, or a
+			// sibling of one that already fired — can't be the primary
+			// article body even if it happens to match the checks below
+			// (see this method's docblock).
 			return $pre_render;
 		}
 
@@ -592,6 +668,8 @@ final class Template_Loader {
 		if ( ! $post instanceof \WP_Post ) {
 			return $pre_render;
 		}
+
+		$this->article_content_hooks_fired = true;
 
 		/**
 		 * Fires before the KB article body.
@@ -619,56 +697,51 @@ final class Template_Loader {
 	 * elsewhere on the site. wrap_kb_article_content_classic() covers the
 	 * equivalent classic-theme case via the_content instead.
 	 *
-	 * The block's own postId context (below) isn't enough on its own to
-	 * reject a nested core/post-content that happens to revisit the very
-	 * post being viewed (see fire_before_article_hook()'s docblock) — its
-	 * context would correctly resolve to that same post's ID too. Checking
-	 * $post_content_render_depth was exactly 1 before this decrements it —
-	 * i.e. no other core/post-content is still mid-render above this one —
-	 * confirms this is the outermost such block instead.
+	 * The block's own postId context isn't enough on its own to identify the
+	 * right invocation to consume the buffer from — see
+	 * $article_content_hooks_fired's docblock for why. Two checks together
+	 * do the job instead: $before_article_output being non-null is
+	 * necessary (fire_before_article_hook() only ever sets it for the one
+	 * render $article_content_hooks_fired let through) but not sufficient —
+	 * a nested core/post-content still mid-unwind (a Query Loop embedded in
+	 * the article's own content, rendering some other, unrelated post)
+	 * reaches this filter before the outer, primary block's own
+	 * render_callback (which contains it) finishes, while that buffer is
+	 * still sitting there unconsumed. $was_outermost (below) rejects that
+	 * nested call, leaving the buffer for the one, outermost render it was
+	 * actually meant for.
 	 *
 	 * @param string               $block_content The rendered post-content block.
 	 * @param array<string, mixed> $parsed_block Parsed block data (unused).
-	 * @param \WP_Block            $block The block instance, used to confirm this is the
-	 *                                    currently-viewed post's own content, not some
-	 *                                    other post's rendered via a nested query loop.
+	 * @param \WP_Block            $block Unused.
 	 * @return string
 	 */
-	public function wrap_kb_article_content( string $block_content, array $parsed_block, \WP_Block $block ): string {
+	public function wrap_kb_article_content( string $block_content, array $parsed_block, \WP_Block $block ): string { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed -- kept to match the render_block_core/post-content filter signature.
 		// This filter only ever fires for core/post-content (its dynamic hook
 		// name), so every call here is one such block finishing its render —
 		// see $post_content_render_depth.
 		$was_outermost = 1 === $this->post_content_render_depth;
 		--$this->post_content_render_depth;
 
-		if ( ! $was_outermost ) {
+		// $was_outermost, not just $before_article_output being non-null, is
+		// required: a nested core/post-content still mid-unwind (a Query
+		// Loop embedded in the article's own content, rendering an
+		// unrelated post) finishes and reaches this filter before the outer,
+		// primary block's own render_callback (which contains it) does —
+		// while the buffer is still sitting there, unconsumed, waiting for
+		// that outer call. Without also checking $was_outermost, this
+		// nested call would wrongly consume it for itself.
+		if ( ! $was_outermost || null === $this->before_article_output ) {
 			return $block_content;
 		}
 
-		if ( ! is_singular( 'saai_kb' ) ) {
-			return $block_content;
-		}
-
-		$post_id = isset( $block->context['postId'] ) ? (int) $block->context['postId'] : get_queried_object_id();
-
-		if ( get_queried_object_id() !== $post_id ) {
-			return $block_content;
-		}
-
-		$post = get_post( $post_id );
+		$post = get_post( get_queried_object_id() );
 
 		if ( ! $post instanceof \WP_Post ) {
 			return $block_content;
 		}
 
-		// Only consumed once this invocation is confirmed to be the queried
-		// article's own body: an unrelated nested core/post-content (e.g. a
-		// Query Loop the article itself embeds) renders and hits the checks
-		// above before the outer, real one does, and must leave the buffer
-		// untouched for that real invocation still to come — reading it here
-		// unconditionally would let the nested render's early return above
-		// discard the outer article's before-hook output.
-		$before                      = $this->before_article_output ?? '';
+		$before                      = $this->before_article_output;
 		$this->before_article_output = null;
 
 		/**
@@ -687,8 +760,10 @@ final class Template_Loader {
 
 	/**
 	 * The queried KB article, if the current the_content call is rendering
-	 * its own body — shared by buffer_before_article_hook_classic() and
-	 * wrap_kb_article_content_classic().
+	 * its own body — used by buffer_before_article_hook_classic() only;
+	 * wrap_kb_article_content_classic() instead gates on whether
+	 * $classic_before_article_output is non-null, for the same reason
+	 * wrap_kb_article_content() does — see that method's docblock.
 	 *
 	 * A nonzero $post_content_render_depth means the_content is firing as
 	 * part of a core/post-content block's render (its own render callback
@@ -696,17 +771,21 @@ final class Template_Loader {
 	 * whether the outer article's own or a nested one from a Query Loop the
 	 * article embeds; either way, fire_before_article_hook()/
 	 * wrap_kb_article_content() already cover that case, so both classic
-	 * hooks defer to them rather than firing a second time. Otherwise, scoped
-	 * to the queried post itself, not just any the_content call on a saai_kb
-	 * singular request: the article body can itself embed a Query Loop
-	 * rendering other posts' content through the very same filter, and
-	 * is_singular( 'saai_kb' ) alone can't tell those apart from the article
-	 * being viewed — same reasoning as fire_before_article_hook()'s docblock.
+	 * hooks defer to them rather than firing a second time.
+	 * $classic_article_hooks_fired rejects a the_content() call applied to
+	 * the queried post ahead of the main template's own (e.g. an SEO plugin
+	 * or cache warmer deriving a meta description early) — see that
+	 * property's docblock. Otherwise, scoped to the queried post itself,
+	 * not just any the_content call on a saai_kb singular request: the
+	 * article body can itself embed a Query Loop rendering other posts'
+	 * content through the very same filter, and is_singular( 'saai_kb' )
+	 * alone can't tell those apart from the article being viewed — same
+	 * reasoning as fire_before_article_hook()'s docblock.
 	 *
 	 * @return \WP_Post|null
 	 */
 	private function queried_kb_article_for_classic_content_hooks(): ?\WP_Post {
-		if ( 0 !== $this->post_content_render_depth ) {
+		if ( 0 !== $this->post_content_render_depth || $this->classic_article_hooks_fired ) {
 			return null;
 		}
 
@@ -746,6 +825,8 @@ final class Template_Loader {
 			return $content;
 		}
 
+		$this->classic_article_hooks_fired = true;
+
 		/**
 		 * Fires before the KB article body.
 		 *
@@ -779,17 +860,29 @@ final class Template_Loader {
 	 * wrap_kb_article_content() concatenates onto already-rendered markup for
 	 * block themes.
 	 *
+	 * Gates on $classic_before_article_output being non-null rather than
+	 * calling queried_kb_article_for_classic_content_hooks() again: that
+	 * method now also depends on $classic_article_hooks_fired, which
+	 * buffer_before_article_hook_classic() already set for this same call —
+	 * calling it again here would find that flag true and (wrongly) never
+	 * match, the exact same reasoning as wrap_kb_article_content()'s
+	 * docblock.
+	 *
 	 * @param string $content The fully filtered post content.
 	 * @return string
 	 */
 	public function wrap_kb_article_content_classic( string $content ): string {
-		$post = $this->queried_kb_article_for_classic_content_hooks();
+		if ( null === $this->classic_before_article_output ) {
+			return $content;
+		}
+
+		$post = get_post( get_queried_object_id() );
 
 		if ( ! $post instanceof \WP_Post ) {
 			return $content;
 		}
 
-		$before                              = $this->classic_before_article_output ?? '';
+		$before                              = $this->classic_before_article_output;
 		$this->classic_before_article_output = null;
 
 		/**

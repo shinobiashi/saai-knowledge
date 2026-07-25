@@ -809,6 +809,62 @@ class Test_Template_Loader extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A customized single-KB block template could place a "related
+	 * articles" Query Loop as a SIBLING of the primary core/post-content
+	 * block (e.g. after it, rather than embedded inside the article's own
+	 * content) — if that loop's results include the viewed article itself,
+	 * $post_content_render_depth alone can't reject it: by the time the
+	 * sibling block starts, the primary has already fully unwound the depth
+	 * back to 0, so the sibling looks just as "outermost" as the primary
+	 * was.
+	 */
+	public function test_before_article_hook_fires_only_once_when_a_sibling_query_loop_revisits_the_viewed_post() {
+		$viewed_post_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_content' => 'Viewed article body.',
+			)
+		);
+		$this->go_to( get_permalink( $viewed_post_id ) );
+		the_post();
+
+		$fired  = array();
+		$before = static function ( $post ) use ( &$fired ) {
+			$fired[] = $post->ID;
+		};
+		add_action( 'saai_kb_before_article', $before );
+
+		$query_attrs = wp_json_encode(
+			array(
+				'query' => array(
+					'postType' => 'saai_kb',
+					'perPage'  => 10,
+					'inherit'  => false,
+				),
+			)
+		);
+
+		do_blocks(
+			'<!-- wp:post-content /-->' .
+			"<!-- wp:query {$query_attrs} -->" .
+			'<div class="wp-block-query">' .
+			'<!-- wp:post-template -->' .
+			'<!-- wp:post-content /-->' .
+			'<!-- /wp:post-template -->' .
+			'</div>' .
+			'<!-- /wp:query -->'
+		);
+
+		remove_action( 'saai_kb_before_article', $before );
+
+		$this->assertSame(
+			array( $viewed_post_id ),
+			$fired,
+			'should fire exactly once, even though a sibling Query Loop revisits the same post'
+		);
+	}
+
+	/**
 	 * A KB article that itself embeds a Query Loop (e.g. a "related
 	 * articles" section written into its own body) renders that loop's
 	 * nested core/post-content blocks *during* the outer article's own
@@ -940,6 +996,47 @@ class Test_Template_Loader extends WP_UnitTestCase {
 
 		$this->assertSame( array( array( 'before', $post_id ), array( 'after', $post_id ) ), $fired );
 		$this->assertStringContainsString( 'Hello from the article body.', $output );
+	}
+
+	/**
+	 * An SEO plugin, cache warmer, or similar callback deriving something
+	 * (e.g. a meta description) from get_the_content() ahead of the main
+	 * template — a completely ordinary the_content() call on the same
+	 * queried post, just earlier — must not be mistaken for the real,
+	 * main-template render: the hooks must fire exactly once, for the
+	 * template's own call, not for that earlier one too.
+	 */
+	public function test_kb_article_content_hooks_via_the_content_fire_only_once_despite_an_earlier_unrelated_call() {
+		$post_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_content' => 'Hello from the article body.',
+			)
+		);
+		$this->go_to( get_permalink( $post_id ) );
+		the_post();
+
+		$fired  = array();
+		$before = static function ( $post ) use ( &$fired ) {
+			$fired[] = array( 'before', $post->ID );
+		};
+		$after  = static function ( $post ) use ( &$fired ) {
+			$fired[] = array( 'after', $post->ID );
+		};
+		add_action( 'saai_kb_before_article', $before );
+		add_action( 'saai_kb_after_article', $after );
+
+		// Simulates an SEO plugin (or similar) deriving something from the
+		// content before the main template calls the_content() itself.
+		apply_filters( 'the_content', get_the_content() ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- 'the_content' is WordPress core's own hook name, not this plugin's.
+
+		// The main template's own call.
+		apply_filters( 'the_content', get_the_content() ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- 'the_content' is WordPress core's own hook name, not this plugin's.
+
+		remove_action( 'saai_kb_before_article', $before );
+		remove_action( 'saai_kb_after_article', $after );
+
+		$this->assertSame( array( array( 'before', $post_id ), array( 'after', $post_id ) ), $fired );
 	}
 
 	/**
