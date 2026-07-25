@@ -108,23 +108,6 @@ final class Template_Loader {
 	private $classic_before_article_output = null;
 
 	/**
-	 * Per-request memoization of resolved_classic_template_path() and
-	 * resolved_classic_taxonomy_template_path()'s results, keyed by slug (or,
-	 * for resolved_classic_taxonomy_template_path(), by term).
-	 *
-	 * Both are called more than once per request — filter_template_include()
-	 * and restrict_category_archive_to_kb() each resolve the same template
-	 * independently — and both apply the public saai_template filter. A
-	 * stateful or self-removing third-party callback could otherwise answer
-	 * differently on the second call, letting the query-scope decision and
-	 * the template WordPress actually renders disagree about which override
-	 * (if any) is in play.
-	 *
-	 * @var array<string, string>
-	 */
-	private $resolved_classic_template_cache = array();
-
-	/**
 	 * Hooks template resolution into WordPress.
 	 */
 	public function register(): void {
@@ -224,10 +207,14 @@ final class Template_Loader {
 	 * post types, the KB archive), honoring both a theme's own file override
 	 * and the public saai_template filter.
 	 *
-	 * Shared by filter_template_include() (which additionally validates the
-	 * result exists before using it) and restrict_category_archive_to_kb()
-	 * (which uses it to detect whether an override is in play at all).
-	 * Memoized per slug — see $resolved_classic_template_cache.
+	 * Called fresh (not memoized) each time: the public saai_template filter
+	 * is documented as the final override for classic-theme template
+	 * resolution, so it must run at whichever phase actually calls this —
+	 * caching an early result across hook phases would either duplicate a
+	 * later, correctly-timed evaluation or, worse, pre-empt it entirely for
+	 * a callback an add-on registers on a later hook (e.g.
+	 * wp/template_redirect — a normal pattern for a "final override" hook
+	 * like this one).
 	 *
 	 * The saai_category taxonomy has its own dedicated
 	 * resolved_classic_taxonomy_template_path() instead: unlike these fixed
@@ -237,10 +224,6 @@ final class Template_Loader {
 	 * @return string Absolute path, or '' if a saai_template filter returned something unusable.
 	 */
 	private function resolved_classic_template_path( string $slug ): string {
-		if ( array_key_exists( $slug, $this->resolved_classic_template_cache ) ) {
-			return $this->resolved_classic_template_cache[ $slug ];
-		}
-
 		$resolved = locate_template( array( "saai-knowledge/{$slug}.php" ) );
 
 		if ( '' === $resolved ) {
@@ -258,39 +241,21 @@ final class Template_Loader {
 		$resolved = apply_filters( 'saai_template', $resolved, $slug );
 
 		// @phpstan-ignore ternary.elseUnreachable (PHPStan trusts the docblock @param type above, but a third-party saai_template callback can violate it at runtime.)
-		$resolved = is_string( $resolved ) ? $resolved : '';
-
-		$this->resolved_classic_template_cache[ $slug ] = $resolved;
-
-		return $resolved;
+		return is_string( $resolved ) ? $resolved : '';
 	}
 
 	/**
-	 * Resolves the classic-theme template path for a saai_category term,
-	 * honoring a theme's term-specific override
-	 * (saai-knowledge/taxonomy-saai_category-{term-slug}.php) ahead of its
-	 * generic one (saai-knowledge/taxonomy-saai_category.php) — mirroring
-	 * WordPress's own classic taxonomy template hierarchy (see
-	 * get_taxonomy_template()) — and, like resolved_classic_template_path(),
-	 * the public saai_template filter.
+	 * Ordered classic-theme template-file candidates for a saai_category
+	 * term, term-specific first — mirrors WordPress's own classic taxonomy
+	 * template hierarchy (see get_taxonomy_template()).
 	 *
-	 * Shared by filter_template_include() and restrict_category_archive_to_kb(),
-	 * exactly as resolved_classic_template_path() is for the fixed slugs, and
-	 * memoized per term for the same reason — see
-	 * $resolved_classic_template_cache. Kept as its own method rather than
-	 * overloading that one's single-slug contract, since the winning slug
-	 * here depends on the term, not just a fixed name.
+	 * Shared by resolved_classic_taxonomy_template_path() and
+	 * classic_taxonomy_template_overridden().
 	 *
 	 * @param \WP_Term $term The queried term.
-	 * @return string Absolute path, or '' if a saai_template filter returned something unusable.
+	 * @return string[] Slugs, e.g. `taxonomy-saai_category-{term-slug}`.
 	 */
-	private function resolved_classic_taxonomy_template_path( \WP_Term $term ): string {
-		$cache_key = "taxonomy:{$term->term_id}";
-
-		if ( array_key_exists( $cache_key, $this->resolved_classic_template_cache ) ) {
-			return $this->resolved_classic_template_cache[ $cache_key ];
-		}
-
+	private function classic_taxonomy_template_slug_candidates( \WP_Term $term ): array {
 		$candidates = array();
 
 		$decoded_slug = urldecode( $term->slug );
@@ -302,10 +267,30 @@ final class Template_Loader {
 		$candidates[] = "taxonomy-{$term->taxonomy}-{$term->slug}";
 		$candidates[] = "taxonomy-{$term->taxonomy}";
 
+		return $candidates;
+	}
+
+	/**
+	 * Resolves the classic-theme template path for a saai_category term,
+	 * honoring a theme's term-specific override
+	 * (saai-knowledge/taxonomy-saai_category-{term-slug}.php) ahead of its
+	 * generic one (saai-knowledge/taxonomy-saai_category.php), and the
+	 * public saai_template filter — same reasoning as
+	 * resolved_classic_template_path()'s docblock on why this isn't
+	 * memoized.
+	 *
+	 * Only called from filter_template_include(); restrict_category_archive_to_kb()
+	 * uses classic_taxonomy_template_overridden() instead, precisely to
+	 * avoid invoking the saai_template filter this early.
+	 *
+	 * @param \WP_Term $term The queried term.
+	 * @return string Absolute path, or '' if a saai_template filter returned something unusable.
+	 */
+	private function resolved_classic_taxonomy_template_path( \WP_Term $term ): string {
 		$slug     = "taxonomy-{$term->taxonomy}";
 		$resolved = '';
 
-		foreach ( $candidates as $candidate ) {
+		foreach ( $this->classic_taxonomy_template_slug_candidates( $term ) as $candidate ) {
 			$resolved = locate_template( array( "saai-knowledge/{$candidate}.php" ) );
 
 			if ( '' !== $resolved ) {
@@ -321,11 +306,39 @@ final class Template_Loader {
 		/** This filter is documented in resolved_classic_template_path() */
 		$resolved = apply_filters( 'saai_template', $resolved, $slug );
 
-		$resolved = is_string( $resolved ) ? $resolved : '';
+		return is_string( $resolved ) ? $resolved : '';
+	}
 
-		$this->resolved_classic_template_cache[ $cache_key ] = $resolved;
+	/**
+	 * Whether a classic theme file override exists in the
+	 * taxonomy-saai_category template hierarchy for this term (term-specific
+	 * or generic slug), or an add-on has registered a saai_template
+	 * callback at all — used by restrict_category_archive_to_kb() to decide
+	 * whether to defer its post_type restriction.
+	 *
+	 * Deliberately doesn't invoke the saai_template filter itself (only
+	 * has_filter()'s presence check): resolved_classic_taxonomy_template_path()
+	 * is the one place that does, at its own correct phase
+	 * (filter_template_include(), on template_include) — see that method's
+	 * docblock. A currently-registered callback is treated as "an override
+	 * might be in play" and deferred to that later, authoritative
+	 * evaluation, rather than guessed at here.
+	 *
+	 * @param \WP_Term $term The queried term.
+	 * @return bool
+	 */
+	private function classic_taxonomy_template_overridden( \WP_Term $term ): bool {
+		if ( has_filter( 'saai_template' ) ) {
+			return true;
+		}
 
-		return $resolved;
+		foreach ( $this->classic_taxonomy_template_slug_candidates( $term ) as $candidate ) {
+			if ( '' !== locate_template( array( "saai-knowledge/{$candidate}.php" ) ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
@@ -393,6 +406,27 @@ final class Template_Loader {
 			return;
 		}
 
+		// A compound search scoped to this taxonomy (e.g.
+		// /?s=setup&saai_category=guides) is also a saai_category taxonomy
+		// query, but WordPress's own template hierarchy (is_search() is
+		// checked ahead of is_tax() in template-loader.php) renders its
+		// search template for it, not the bundled KB-branded archive
+		// template — don't hide saai_faq entries from a plain search
+		// results page.
+		if ( $query->is_search() ) {
+			return;
+		}
+
+		// Something already gave this query an explicit post-type scope
+		// (e.g. a ?post_type=saai_faq query var) before this runs — a plain
+		// taxonomy archive still has post_type unset at this point, it's
+		// only resolved to the taxonomy's registered object types later in
+		// WP_Query::get_posts(). Respect that deliberate choice rather than
+		// silently overwriting it.
+		if ( '' !== $query->get( 'post_type' ) ) {
+			return;
+		}
+
 		// A site's own taxonomy-saai_category override — already given
 		// priority over the bundled template (register_block_templates()'s
 		// docblock; filter_template_include() for classic themes, including
@@ -411,13 +445,8 @@ final class Template_Loader {
 			if ( ! $this->plugin_taxonomy_template_wins( $term ) ) {
 				return;
 			}
-		} else {
-			$bundled  = SAAI_KNOWLEDGE_DIR . 'templates/classic/taxonomy-saai_category.php';
-			$resolved = $this->resolved_classic_taxonomy_template_path( $term );
-
-			if ( $bundled !== $resolved ) {
-				return;
-			}
+		} elseif ( $this->classic_taxonomy_template_overridden( $term ) ) {
+			return;
 		}
 
 		$query->set( 'post_type', 'saai_kb' );

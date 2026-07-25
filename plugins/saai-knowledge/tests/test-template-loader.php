@@ -294,6 +294,50 @@ class Test_Template_Loader extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A compound search scoped to this taxonomy (e.g.
+	 * /?s=setup&saai_category=guides) is still a saai_category taxonomy
+	 * query, but WordPress's own template hierarchy renders its search
+	 * template for it, not the bundled KB-branded archive template — the
+	 * restriction must not hide saai_faq entries from a plain search
+	 * results page.
+	 */
+	public function test_restrict_category_archive_to_kb_ignores_compound_search_requests() {
+		$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+		$this->go_to( '/?s=setup&saai_category=' . get_term( $term_id, 'saai_category' )->slug );
+
+		global $wp_query;
+		$this->assertTrue( $wp_query->is_search(), 'test setup should have produced a search request' );
+		$this->assertTrue( $wp_query->is_tax( 'saai_category' ), 'test setup should have produced a taxonomy request' );
+
+		// Not a before/after comparison: Template_Loader::register() already
+		// hooks this on the live, bootstrap-registered instance, so go_to()
+		// itself already invoked it once for this same $wp_query — comparing
+		// against a "before" value captured after that would just compare
+		// the method's output with itself and never catch a regression here.
+		( new \SAAI\Knowledge\Template_Loader() )->restrict_category_archive_to_kb( $wp_query );
+
+		$this->assertNotSame( 'saai_kb', $wp_query->get( 'post_type' ) );
+	}
+
+	/**
+	 * A request that already carries an explicit post-type scope (e.g. a
+	 * ?post_type=saai_faq query var) before this runs must have that
+	 * deliberate choice respected, not silently overwritten.
+	 */
+	public function test_restrict_category_archive_to_kb_ignores_explicit_post_type_scope() {
+		$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+		$this->go_to( add_query_arg( 'post_type', 'saai_faq', get_term_link( $term_id, 'saai_category' ) ) );
+
+		global $wp_query;
+
+		// Not a before/after comparison — see the equivalent comment in
+		// test_restrict_category_archive_to_kb_ignores_compound_search_requests().
+		( new \SAAI\Knowledge\Template_Loader() )->restrict_category_archive_to_kb( $wp_query );
+
+		$this->assertSame( 'saai_faq', $wp_query->get( 'post_type' ) );
+	}
+
+	/**
 	 * A site's own classic-theme taxonomy-saai_category.php override — already
 	 * given priority by filter_template_include() — may deliberately want a
 	 * broader post-type scope for this shared taxonomy, so the restriction
@@ -398,13 +442,16 @@ class Test_Template_Loader extends WP_UnitTestCase {
 	}
 
 	/**
-	 * The public saai_template filter must only be asked to resolve a given
-	 * classic taxonomy template once per request: restrict_category_archive_to_kb()
-	 * (pre_get_posts) and filter_template_include() (template_include) each
-	 * resolve it independently, and a stateful or self-removing third-party
-	 * callback answering differently on a second call would let the
-	 * query-scope decision and the template WordPress actually renders
-	 * disagree about which override is in play.
+	 * The public saai_template filter must only be invoked once per request
+	 * for a given classic taxonomy template, and only from
+	 * filter_template_include() (template_include) — its documented,
+	 * correctly-timed phase.
+	 * restrict_category_archive_to_kb() (pre_get_posts) only checks
+	 * has_filter() to decide whether to defer its own restriction; it never
+	 * calls the filter itself (see classic_taxonomy_template_overridden()'s
+	 * docblock for why: caching an early result across these two phases
+	 * would either duplicate this evaluation or pre-empt it for a callback
+	 * registered on a later hook — see the next test).
 	 */
 	public function test_saai_template_filter_only_applies_once_per_request_for_taxonomy() {
 		$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
@@ -426,6 +473,45 @@ class Test_Template_Loader extends WP_UnitTestCase {
 		remove_filter( 'saai_template', $filter );
 
 		$this->assertSame( 1, $call_count );
+	}
+
+	/**
+	 * An add-on registering the documented saai_template override on a hook
+	 * later than pre_get_posts (e.g. wp/template_redirect — a normal
+	 * pattern for a "final template override" hook) must still have it
+	 * honored by filter_template_include(), even though
+	 * restrict_category_archive_to_kb() already ran (and, finding no
+	 * override registered yet, applied its own restriction).
+	 */
+	public function test_filter_template_include_honors_a_saai_template_filter_registered_after_the_query_was_scoped() {
+		$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+		$this->go_to( get_term_link( $term_id, 'saai_category' ) );
+
+		$loader = new \SAAI\Knowledge\Template_Loader();
+
+		global $wp_query;
+		$loader->restrict_category_archive_to_kb( $wp_query );
+
+		$this->assertSame(
+			'saai_kb',
+			$wp_query->get( 'post_type' ),
+			'no override was registered yet, so the restriction should still have applied'
+		);
+
+		// Simulates an add-on that only registers the override on a hook
+		// later than pre_get_posts.
+		$override_path = tempnam( sys_get_temp_dir(), 'saai-template-' );
+		$filter        = static function () use ( $override_path ) {
+			return $override_path;
+		};
+		add_filter( 'saai_template', $filter );
+
+		$resolved_template = $loader->filter_template_include( 'fallback.php' );
+
+		remove_filter( 'saai_template', $filter );
+		wp_delete_file( $override_path );
+
+		$this->assertSame( $override_path, $resolved_template );
 	}
 
 	/**
