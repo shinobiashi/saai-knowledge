@@ -411,7 +411,7 @@ class Test_Template_Loader extends WP_UnitTestCase {
 		$result = ( new \SAAI\Knowledge\Template_Loader() )->exclude_kb_template_for_non_kb_query(
 			array( $own_template, $theme_template ),
 			array(),
-			'taxonomy'
+			'wp_template'
 		);
 
 		$this->assertSame( array( $theme_template ), array_values( $result ) );
@@ -436,23 +436,25 @@ class Test_Template_Loader extends WP_UnitTestCase {
 		$result = ( new \SAAI\Knowledge\Template_Loader() )->exclude_kb_template_for_non_kb_query(
 			array( $own_template ),
 			array(),
-			'taxonomy'
+			'wp_template'
 		);
 
 		$this->assertSame( array( $own_template ), $result );
 	}
 
 	/**
-	 * Only concerns taxonomy template resolution; an unrelated template_type
-	 * must pass the candidate list through untouched.
+	 * $template_type is get_block_templates()'s own object-type parameter
+	 * ('wp_template' or 'wp_template_part'), not the template hierarchy kind
+	 * (e.g. 'taxonomy') — a 'wp_template_part' query (e.g. resolving a
+	 * header/footer part) must pass the candidate list through untouched.
 	 */
-	public function test_exclude_kb_template_for_non_kb_query_ignores_unrelated_template_types() {
+	public function test_exclude_kb_template_for_non_kb_query_ignores_template_parts() {
 		$own_template = $this->make_block_template_stub( 'single-saai_kb', 'saai-knowledge' );
 
 		$result = ( new \SAAI\Knowledge\Template_Loader() )->exclude_kb_template_for_non_kb_query(
 			array( $own_template ),
 			array(),
-			'single'
+			'wp_template_part'
 		);
 
 		$this->assertSame( array( $own_template ), $result );
@@ -1301,6 +1303,76 @@ class Test_Template_Loader extends WP_UnitTestCase {
 		remove_action( 'saai_kb_after_article', $after );
 
 		$this->assertSame( array( array( 'before', $post_id ), array( 'after', $post_id ) ), $fired );
+	}
+
+	/**
+	 * A classic-theme KB article can itself embed a Query Loop whose
+	 * core/post-content block renders an unrelated post via do_blocks(),
+	 * partway through the same the_content chain
+	 * buffer_before_article_hook_classic() (priority 1) and
+	 * wrap_kb_article_content_classic() (PHP_INT_MAX) bracket. Without
+	 * checking $post_content_render_depth, that nested block's own
+	 * the_content call would consume the pending buffer and wrap the
+	 * unrelated post instead of the primary article — the classic-theme
+	 * counterpart of test_before_article_hook_output_survives_a_query_loop_embedded_in_the_article_body()
+	 * for the block-theme mechanism.
+	 */
+	public function test_kb_article_content_hooks_via_the_content_survive_a_query_loop_embedded_in_the_article_body() {
+		$viewed_post_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_content' => 'placeholder',
+			)
+		);
+		self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_content' => 'Other article body.',
+			)
+		);
+
+		// Excludes the viewed post itself: build_query_vars_from_query_block()
+		// has no 'include' attribute, only 'exclude' (as post__not_in), so
+		// this is the only way to keep the loop from also matching the
+		// article whose own body it's embedded in.
+		$query_attrs = wp_json_encode(
+			array(
+				'query' => array(
+					'postType' => 'saai_kb',
+					'perPage'  => 10,
+					'exclude'  => array( $viewed_post_id ),
+					'inherit'  => false,
+				),
+			)
+		);
+
+		wp_update_post(
+			array(
+				'ID'           => $viewed_post_id,
+				'post_content' => 'Viewed article body.' .
+					"<!-- wp:query {$query_attrs} -->" .
+					'<div class="wp-block-query">' .
+					'<!-- wp:post-template -->' .
+					'<!-- wp:post-content /-->' .
+					'<!-- /wp:post-template -->' .
+					'</div>' .
+					'<!-- /wp:query -->',
+			)
+		);
+
+		$this->go_to( get_permalink( $viewed_post_id ) );
+		the_post();
+
+		$before = static function () {
+			echo '<div id="saai-debug-marker">BEFORE-HOOK-OUTPUT</div>';
+		};
+		add_action( 'saai_kb_before_article', $before );
+
+		$output = apply_filters( 'the_content', get_the_content() ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- 'the_content' is WordPress core's own hook name, not this plugin's.
+
+		remove_action( 'saai_kb_before_article', $before );
+
+		$this->assertMatchesRegularExpression( '/BEFORE-HOOK-OUTPUT.*Viewed article body\./s', $output );
 	}
 
 	/**

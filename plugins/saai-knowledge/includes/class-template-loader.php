@@ -621,13 +621,19 @@ final class Template_Loader {
 	 * unrestricted" without duplicating that method's own reasoning about
 	 * which case is which.
 	 *
+	 * $template_type here is get_block_templates()'s own parameter — the
+	 * object type ('wp_template' or 'wp_template_part'), NOT the template
+	 * hierarchy kind (e.g. 'taxonomy') resolve_block_template() is resolving.
+	 * The taxonomy context instead comes from $wp_query->is_tax() below,
+	 * which is what this filter actually needs.
+	 *
 	 * @param \WP_Block_Template[] $templates     Candidate templates, highest priority first.
 	 * @param array<string, mixed> $query         The query passed to get_block_templates().
-	 * @param string               $template_type The template type being resolved.
+	 * @param string               $template_type The template object type ('wp_template' or 'wp_template_part').
 	 * @return \WP_Block_Template[]
 	 */
 	public function exclude_kb_template_for_non_kb_query( array $templates, array $query, string $template_type ): array { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed -- kept to match the get_block_templates filter signature.
-		if ( 'taxonomy' !== $template_type || is_admin() ) {
+		if ( 'wp_template' !== $template_type || is_admin() ) {
 			return $templates;
 		}
 
@@ -961,11 +967,26 @@ final class Template_Loader {
 	 * match, the exact same reasoning as wrap_kb_article_content()'s
 	 * docblock.
 	 *
+	 * Also requires $post_content_render_depth to be back at 0: the article
+	 * body can itself embed a Query Loop whose core/post-content block
+	 * renders some other, unrelated post through do_blocks() partway through
+	 * this same the_content chain (do_blocks() runs at the default priority,
+	 * sandwiched between buffer_before_article_hook_classic()'s priority 1
+	 * and this method's PHP_INT_MAX). That nested block's own the_content
+	 * call reaches this same filter while the buffer is still pending and,
+	 * without this check, would consume it for the unrelated post instead of
+	 * the primary article — the classic-theme counterpart of
+	 * wrap_kb_article_content()'s $was_outermost check. Unlike that method,
+	 * this doesn't decrement the depth itself (it isn't the
+	 * render_block_core/post-content filter), so checking the current value
+	 * is enough: it's only nonzero while such a nested block is actively
+	 * rendering, and always back to 0 by the time do_blocks() itself returns.
+	 *
 	 * @param string $content The fully filtered post content.
 	 * @return string
 	 */
 	public function wrap_kb_article_content_classic( string $content ): string {
-		if ( null === $this->classic_before_article_output ) {
+		if ( 0 !== $this->post_content_render_depth || null === $this->classic_before_article_output ) {
 			return $content;
 		}
 
