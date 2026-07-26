@@ -132,13 +132,14 @@ final class Template_Loader {
 	/**
 	 * The the_content equivalent of $article_content_hooks_fired, kept as
 	 * its own property for the same reason $classic_before_article_output
-	 * is: any the_content() call applied to the queried post before the
-	 * main template's own — e.g. an SEO plugin or cache warmer deriving a
-	 * meta description from get_the_content() ahead of time — would
-	 * otherwise satisfy queried_kb_article_for_classic_content_hooks()'s
-	 * checks just as well as the real, main-template call, firing the
-	 * hooks into that unrelated derived content and then again for the
-	 * genuine render.
+	 * is. queried_kb_article_for_classic_content_hooks()'s in_the_loop()
+	 * check already rejects a the_content() call made before the main
+	 * query's Loop starts (e.g. an SEO plugin deriving a meta description
+	 * early); this flag instead rejects a SECOND the_content() call for the
+	 * same post within that same Loop pass — e.g. a theme calling
+	 * the_content() more than once for the current post for some reason —
+	 * which would otherwise satisfy every other check there just as well as
+	 * the first, genuine call.
 	 *
 	 * @var bool
 	 */
@@ -150,6 +151,7 @@ final class Template_Loader {
 	public function register(): void {
 		if ( wp_is_block_theme() ) {
 			add_action( 'init', array( $this, 'register_block_templates' ) );
+			add_filter( 'get_block_templates', array( $this, 'exclude_kb_template_for_non_kb_query' ), 10, 3 );
 		}
 
 		add_filter( 'template_include', array( $this, 'filter_template_include' ) );
@@ -594,6 +596,62 @@ final class Template_Loader {
 	}
 
 	/**
+	 * Excludes the plugin's bundled taxonomy-saai_category block template from
+	 * the candidates block template resolution considers, when the current
+	 * main query has been left with an explicit non-KB post_type scope (e.g.
+	 * ?post_type=saai_faq) — the block-theme equivalent of
+	 * filter_template_include()'s post_type guard for classic themes.
+	 *
+	 * Unlike the classic-theme path, WordPress's own resolve_block_template()
+	 * (wp-includes/block-template.php) picks a block template purely by slug
+	 * hierarchy, with no awareness of query vars at all: nothing else stops
+	 * the KB-branded template (sidebar, breadcrumbs, empty-state copy) from
+	 * still rendering around the FAQ results restrict_category_archive_to_kb()
+	 * deliberately left unrestricted. Filtering the get_block_templates
+	 * candidate list — the one point WordPress lets a plugin intervene in
+	 * which template wins — rather than trying to override template_include
+	 * after the fact: for block themes that filter's value always resolves to
+	 * the same wp-includes/template-canvas.php path regardless of which block
+	 * template won, so it can't distinguish this case at all.
+	 *
+	 * restrict_category_archive_to_kb() runs on pre_get_posts, well before
+	 * template resolution, and has by then already normalized the main
+	 * query's post_type to 'saai_kb' for the plain, unrestricted default case
+	 * (see that method) — checking it here doubles as "was the query left
+	 * unrestricted" without duplicating that method's own reasoning about
+	 * which case is which.
+	 *
+	 * @param \WP_Block_Template[] $templates     Candidate templates, highest priority first.
+	 * @param array<string, mixed> $query         The query passed to get_block_templates().
+	 * @param string               $template_type The template type being resolved.
+	 * @return \WP_Block_Template[]
+	 */
+	public function exclude_kb_template_for_non_kb_query( array $templates, array $query, string $template_type ): array { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed -- kept to match the get_block_templates filter signature.
+		if ( 'taxonomy' !== $template_type || is_admin() ) {
+			return $templates;
+		}
+
+		$wp_query = $GLOBALS['wp_query'] ?? null;
+
+		if ( ! $wp_query instanceof \WP_Query || ! $wp_query->is_main_query() || ! $wp_query->is_tax( 'saai_category' ) ) {
+			return $templates;
+		}
+
+		if ( 'saai_kb' === $wp_query->get( 'post_type' ) ) {
+			return $templates;
+		}
+
+		return array_values(
+			array_filter(
+				$templates,
+				static function ( \WP_Block_Template $template ) {
+					return self::PLUGIN_SLUG !== $template->plugin;
+				}
+			)
+		);
+	}
+
+	/**
 	 * Fires the documented saai_kb_before_article insertion point
 	 * (docs/DESIGN-HOOKS-API.md section 4) before the block theme renders the
 	 * KB article body.
@@ -792,20 +850,35 @@ final class Template_Loader {
 	 * article embeds; either way, fire_before_article_hook()/
 	 * wrap_kb_article_content() already cover that case, so both classic
 	 * hooks defer to them rather than firing a second time.
-	 * $classic_article_hooks_fired rejects a the_content() call applied to
-	 * the queried post ahead of the main template's own (e.g. an SEO plugin
-	 * or cache warmer deriving a meta description early) — see that
-	 * property's docblock. Otherwise, scoped to the queried post itself,
-	 * not just any the_content call on a saai_kb singular request: the
-	 * article body can itself embed a Query Loop rendering other posts'
-	 * content through the very same filter, and is_singular( 'saai_kb' )
-	 * alone can't tell those apart from the article being viewed — same
-	 * reasoning as fire_before_article_hook()'s docblock.
+	 *
+	 * in_the_loop() rejects a the_content() call applied to the queried post
+	 * ahead of the main template's own — e.g. an SEO plugin or cache warmer
+	 * deriving a meta description from get_the_content() during wp_head,
+	 * before the main query's Loop has even started. Without it, that earlier
+	 * call would satisfy every other check here just as well as the real,
+	 * visible template pass, permanently latching
+	 * $classic_article_hooks_fired onto its own throwaway derived string and
+	 * leaving the actual rendered output without the hooks at all.
+	 * in_the_loop() reflects the global (main) $wp_query specifically, so a
+	 * theme's own secondary WP_Query (e.g. a "related articles" loop using
+	 * its own the_post() calls) doesn't set it — only the main query's Loop
+	 * does, which is exactly the one call this needs to match.
+	 * $classic_article_hooks_fired still guards against a second the_content()
+	 * call for the same post later within that same Loop pass. Otherwise,
+	 * scoped to the queried post itself, not just any the_content call on a
+	 * saai_kb singular request: the article body can itself embed a Query
+	 * Loop rendering other posts' content through the very same filter, and
+	 * is_singular( 'saai_kb' ) alone can't tell those apart from the article
+	 * being viewed — same reasoning as fire_before_article_hook()'s docblock.
 	 *
 	 * @return \WP_Post|null
 	 */
 	private function queried_kb_article_for_classic_content_hooks(): ?\WP_Post {
 		if ( 0 !== $this->post_content_render_depth || $this->classic_article_hooks_fired ) {
+			return null;
+		}
+
+		if ( ! in_the_loop() ) {
 			return null;
 		}
 

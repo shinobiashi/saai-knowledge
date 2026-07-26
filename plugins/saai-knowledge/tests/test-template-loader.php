@@ -383,6 +383,100 @@ class Test_Template_Loader extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Unlike the classic-theme path (filter_template_include(), above),
+	 * WordPress's own block-theme template resolution (resolve_block_template(),
+	 * see wp-includes/block-template.php) selects a candidate purely by slug
+	 * hierarchy, with no awareness of query vars at all: nothing else stops
+	 * the KB-branded taxonomy-saai_category block template from still
+	 * rendering around the saai_faq results restrict_category_archive_to_kb()
+	 * deliberately leaves unrestricted. exclude_kb_template_for_non_kb_query()
+	 * must strip the plugin's own template from the get_block_templates()
+	 * candidates so WordPress's own hierarchy falls through to the theme's
+	 * instead.
+	 */
+	public function test_exclude_kb_template_for_non_kb_query_strips_own_template_for_explicit_scope() {
+		$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+		$this->go_to( add_query_arg( 'post_type', 'saai_faq', get_term_link( $term_id, 'saai_category' ) ) );
+
+		global $wp_query;
+		$this->assertSame(
+			'saai_faq',
+			$wp_query->get( 'post_type' ),
+			'test setup should have produced an explicit post_type scope'
+		);
+
+		$own_template   = $this->make_block_template_stub( 'taxonomy-saai_category', 'saai-knowledge' );
+		$theme_template = $this->make_block_template_stub( 'taxonomy-saai_category', null );
+
+		$result = ( new \SAAI\Knowledge\Template_Loader() )->exclude_kb_template_for_non_kb_query(
+			array( $own_template, $theme_template ),
+			array(),
+			'taxonomy'
+		);
+
+		$this->assertSame( array( $theme_template ), array_values( $result ) );
+	}
+
+	/**
+	 * The plain, unrestricted default case — restrict_category_archive_to_kb()
+	 * has already normalized post_type to saai_kb by the time template
+	 * resolution runs, since pre_get_posts fires well before it — must keep
+	 * the plugin's own template in the candidate list; only an explicit
+	 * non-KB scope should strip it.
+	 */
+	public function test_exclude_kb_template_for_non_kb_query_keeps_own_template_for_default_scope() {
+		$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+		$this->go_to( get_term_link( $term_id, 'saai_category' ) );
+
+		global $wp_query;
+		$wp_query->set( 'post_type', 'saai_kb' );
+
+		$own_template = $this->make_block_template_stub( 'taxonomy-saai_category', 'saai-knowledge' );
+
+		$result = ( new \SAAI\Knowledge\Template_Loader() )->exclude_kb_template_for_non_kb_query(
+			array( $own_template ),
+			array(),
+			'taxonomy'
+		);
+
+		$this->assertSame( array( $own_template ), $result );
+	}
+
+	/**
+	 * Only concerns taxonomy template resolution; an unrelated template_type
+	 * must pass the candidate list through untouched.
+	 */
+	public function test_exclude_kb_template_for_non_kb_query_ignores_unrelated_template_types() {
+		$own_template = $this->make_block_template_stub( 'single-saai_kb', 'saai-knowledge' );
+
+		$result = ( new \SAAI\Knowledge\Template_Loader() )->exclude_kb_template_for_non_kb_query(
+			array( $own_template ),
+			array(),
+			'single'
+		);
+
+		$this->assertSame( array( $own_template ), $result );
+	}
+
+	/**
+	 * Builds a minimal WP_Block_Template stub for exclude_kb_template_for_non_kb_query()
+	 * tests — the class has no required constructor args and is a plain data
+	 * object (public properties only), so this only needs to set the two
+	 * properties that method reads.
+	 *
+	 * @param string      $slug   Template slug.
+	 * @param string|null $plugin Registering plugin slug, or null for a theme-sourced template.
+	 * @return \WP_Block_Template
+	 */
+	private function make_block_template_stub( string $slug, ?string $plugin ): \WP_Block_Template {
+		$template         = new \WP_Block_Template();
+		$template->slug   = $slug;
+		$template->plugin = $plugin;
+
+		return $template;
+	}
+
+	/**
 	 * A site's own classic-theme taxonomy-saai_category.php override — already
 	 * given priority by filter_template_include() — may deliberately want a
 	 * broader post-type scope for this shared taxonomy, so the restriction
@@ -1024,10 +1118,12 @@ class Test_Template_Loader extends WP_UnitTestCase {
 	/**
 	 * An SEO plugin, cache warmer, or similar callback deriving something
 	 * (e.g. a meta description) from get_the_content() ahead of the main
-	 * template — a completely ordinary the_content() call on the same
-	 * queried post, just earlier — must not be mistaken for the real,
-	 * main-template render: the hooks must fire exactly once, for the
-	 * template's own call, not for that earlier one too.
+	 * template — typically during wp_head, before the main query's Loop has
+	 * even called the_post() — is a completely ordinary the_content() call
+	 * on the same queried post, just outside the Loop. It must not be
+	 * mistaken for the real, visible template render: the hooks must fire
+	 * exactly once, attached to the template's own in-Loop call, not
+	 * consumed by (and left invisible in) that earlier one.
 	 */
 	public function test_kb_article_content_hooks_via_the_content_fire_only_once_despite_an_earlier_unrelated_call() {
 		$post_id = self::factory()->post->create(
@@ -1037,7 +1133,6 @@ class Test_Template_Loader extends WP_UnitTestCase {
 			)
 		);
 		$this->go_to( get_permalink( $post_id ) );
-		the_post();
 
 		$fired  = array();
 		$before = static function ( $post ) use ( &$fired ) {
@@ -1050,16 +1145,62 @@ class Test_Template_Loader extends WP_UnitTestCase {
 		add_action( 'saai_kb_after_article', $after );
 
 		// Simulates an SEO plugin (or similar) deriving something from the
-		// content before the main template calls the_content() itself.
+		// content before the main query's Loop has started — global $post is
+		// already primed for a singular request even this early (see
+		// render.php's own docblock on WP::register_globals()), so this call
+		// is otherwise indistinguishable from the real one without
+		// in_the_loop().
+		$this->assertFalse( in_the_loop(), 'test setup should not have entered the Loop yet' );
 		apply_filters( 'the_content', get_the_content() ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- 'the_content' is WordPress core's own hook name, not this plugin's.
 
-		// The main template's own call.
+		// The main template's own call, inside the Loop.
+		the_post();
+		$this->assertTrue( in_the_loop() );
 		apply_filters( 'the_content', get_the_content() ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- 'the_content' is WordPress core's own hook name, not this plugin's.
 
 		remove_action( 'saai_kb_before_article', $before );
 		remove_action( 'saai_kb_after_article', $after );
 
 		$this->assertSame( array( array( 'before', $post_id ), array( 'after', $post_id ) ), $fired );
+	}
+
+	/**
+	 * The saai_kb_before_article action registering its own the_content
+	 * filter from within an early, outside-the-Loop the_content() call (the
+	 * scenario test_kb_article_content_hooks_via_the_content_fire_only_once_despite_an_earlier_unrelated_call
+	 * guards against) must not affect that call's own output — proving the
+	 * hook is actually being fired against the visible, in-Loop pass, not
+	 * just that the $fired bookkeeping array reports one entry.
+	 */
+	public function test_saai_kb_before_article_does_not_affect_content_rendered_outside_the_loop() {
+		$post_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_content' => 'Real body text.',
+			)
+		);
+		$this->go_to( get_permalink( $post_id ) );
+
+		$content_filter = static function ( $content ) {
+			return '<p id="saai-debug-marker">BEFORE-HOOK-WORKED</p>' . $content;
+		};
+		$before_action  = static function () use ( $content_filter ) {
+			add_filter( 'the_content', $content_filter );
+		};
+		add_action( 'saai_kb_before_article', $before_action );
+
+		// Outside the Loop: must not fire, so the filter it would have
+		// registered never gets a chance to run against this same content pass.
+		$early_output = apply_filters( 'the_content', get_the_content() ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- 'the_content' is WordPress core's own hook name, not this plugin's.
+
+		the_post();
+		$output = apply_filters( 'the_content', get_the_content() ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- 'the_content' is WordPress core's own hook name, not this plugin's.
+
+		remove_action( 'saai_kb_before_article', $before_action );
+		remove_filter( 'the_content', $content_filter );
+
+		$this->assertStringNotContainsString( 'BEFORE-HOOK-WORKED', $early_output );
+		$this->assertStringContainsString( 'BEFORE-HOOK-WORKED', $output );
 	}
 
 	/**
