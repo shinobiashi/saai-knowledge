@@ -354,13 +354,20 @@ class Test_Breadcrumbs extends WP_UnitTestCase {
 	 * depending on the webpack-built build/breadcrumbs/ directory, which
 	 * CI's PHP-only workflow never generates).
 	 *
-	 * @param int $post_id A postId to simulate in the block's context, or 0 for none.
+	 * @param int      $post_id  A postId to simulate in the block's context, or 0 for none.
+	 * @param int|null $query_id A queryId to simulate (a Query Loop ancestor providing it), or null for none.
 	 * @return string
 	 */
-	private function render_kb_breadcrumbs( int $post_id ): string {
+	private function render_kb_breadcrumbs( int $post_id, ?int $query_id = null ): string {
 		$attributes = array();
 		$content    = '';
-		$block      = (object) array( 'context' => $post_id ? array( 'postId' => $post_id ) : array() );
+		$context    = $post_id ? array( 'postId' => $post_id ) : array();
+
+		if ( null !== $query_id ) {
+			$context['queryId'] = $query_id;
+		}
+
+		$block = (object) array( 'context' => $context );
 
 		$previous_block_to_render            = \WP_Block_Supports::$block_to_render;
 		\WP_Block_Supports::$block_to_render = array(
@@ -414,6 +421,48 @@ class Test_Breadcrumbs extends WP_UnitTestCase {
 		$output = $this->render_kb_breadcrumbs( get_the_ID() );
 
 		$this->assertStringContainsString( 'Archive Context Test Term', $output );
+		$this->assertStringNotContainsString( 'First Archive Result', $output );
+	}
+
+	/**
+	 * A site-customized taxonomy-saai_category template can place this block
+	 * inside a Query Loop instead of at the root level (e.g. to show
+	 * per-article breadcrumbs in a listing). There, unlike the bundled
+	 * root-level block, postId is the Query Loop's own genuine per-item
+	 * context — not the archive's default-seeded first result — and must
+	 * win over the term trail even though is_tax( 'saai_category' ) is true.
+	 */
+	public function test_render_honors_query_loop_postid_on_a_taxonomy_archive() {
+		$term_id      = self::factory()->term->create(
+			array(
+				'taxonomy' => 'saai_category',
+				'name'     => 'Query Loop Archive Term',
+			)
+		);
+		$archive_post = self::factory()->post->create(
+			array(
+				'post_type'  => 'saai_kb',
+				'post_title' => 'First Archive Result',
+			)
+		);
+		wp_set_object_terms( $archive_post, array( $term_id ), 'saai_category' );
+
+		// Deliberately not a member of the viewed term: stands in for a Query
+		// Loop item that could list posts from anywhere, unrelated to the
+		// term being archived.
+		$looped_post = self::factory()->post->create(
+			array(
+				'post_type'  => 'saai_kb',
+				'post_title' => 'Looped Article',
+			)
+		);
+
+		$this->go_to( get_term_link( $term_id, 'saai_category' ) );
+
+		$output = $this->render_kb_breadcrumbs( $looped_post, 1 );
+
+		$this->assertStringContainsString( 'Looped Article', $output );
+		$this->assertStringNotContainsString( 'Query Loop Archive Term', $output );
 		$this->assertStringNotContainsString( 'First Archive Result', $output );
 	}
 }
