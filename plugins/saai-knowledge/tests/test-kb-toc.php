@@ -93,4 +93,37 @@ class Test_Kb_Toc extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'First Section', $output );
 		$this->assertStringContainsString( 'Second Section', $output );
 	}
+
+	/**
+	 * A saai_kb_toc_items callback can hand back a malformed entry (e.g.
+	 * missing text) alongside a genuine one. The two-entry list must not
+	 * satisfy the minimum-heading-count check on its raw count: only one
+	 * entry actually renders, so the block must render nothing, the same as
+	 * a real single-heading post — not a still-visible .saai-kb-toc wrapper
+	 * around a single item.
+	 */
+	public function test_ignores_malformed_third_party_entries_for_the_render_threshold() {
+		$post_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_content' => '<!-- wp:heading --><h2>Only Section</h2><!-- /wp:heading -->' .
+					'<!-- wp:paragraph --><p>Body text.</p><!-- /wp:paragraph -->',
+			)
+		);
+
+		$add_malformed_entry = static function ( array $headings ) {
+			$headings[] = array(
+				'id'   => 'malformed',
+				'text' => '',
+			);
+
+			return $headings;
+		};
+
+		add_filter( 'saai_kb_toc_items', $add_malformed_entry );
+		$output = $this->render_kb_toc( $post_id );
+		remove_filter( 'saai_kb_toc_items', $add_malformed_entry );
+
+		$this->assertSame( '', trim( $output ) );
+	}
 }
