@@ -622,13 +622,14 @@ final class Template_Loader {
 	 * archives specifically, and returns early for any other request type
 	 * before reaching logic like this).
 	 *
-	 * Resets depth and buffers alongside the boolean flags so that a
-	 * depth leak from an interrupted render (e.g. a saai_kb_before_article
-	 * callback that throws, leaving fire_before_article_hook()'s increment
-	 * without a matching decrement by wrap_kb_article_content()) doesn't
-	 * suppress hooks for every article rendered by that same process after
-	 * the interruption — a real risk in WP-CLI export loops and this test
-	 * suite itself, where multiple articles render in the same PHP process.
+	 * Resets both render-depth counters and both buffers alongside the
+	 * boolean flags so that a depth leak from an interrupted render (e.g. a
+	 * saai_kb_before_article callback that throws, leaving
+	 * fire_before_article_hook()'s or track_post_template_render_start()'s
+	 * increment without a matching decrement) doesn't suppress hooks for
+	 * every article rendered by that same process after the interruption —
+	 * a real risk in WP-CLI export loops and this test suite itself, where
+	 * multiple articles render in the same PHP process.
 	 *
 	 * @param \WP_Query $query The query WordPress is about to run.
 	 */
@@ -640,6 +641,7 @@ final class Template_Loader {
 		$this->article_content_hooks_fired   = false;
 		$this->classic_article_hooks_fired   = false;
 		$this->post_content_render_depth     = 0;
+		$this->post_template_render_depth    = 0;
 		$this->before_article_output         = null;
 		$this->classic_before_article_output = null;
 	}

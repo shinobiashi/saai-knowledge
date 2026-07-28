@@ -1589,6 +1589,10 @@ class Test_Template_Loader extends WP_UnitTestCase {
 		$depth_prop->setAccessible( true );
 		$depth_prop->setValue( $loader, 1 );
 
+		$template_depth_prop = new \ReflectionProperty( \SAAI\Knowledge\Template_Loader::class, 'post_template_render_depth' );
+		$template_depth_prop->setAccessible( true );
+		$template_depth_prop->setValue( $loader, 1 );
+
 		$before_prop = new \ReflectionProperty( \SAAI\Knowledge\Template_Loader::class, 'before_article_output' );
 		$before_prop->setAccessible( true );
 		$before_prop->setValue( $loader, '<stale/>' );
@@ -1602,6 +1606,7 @@ class Test_Template_Loader extends WP_UnitTestCase {
 		$loader->reset_article_content_hooks_state( $wp_query );
 
 		$this->assertSame( 0, $depth_prop->getValue( $loader ), 'post_content_render_depth must be reset for the next article' );
+		$this->assertSame( 0, $template_depth_prop->getValue( $loader ), 'post_template_render_depth must be reset for the next article' );
 		$this->assertNull( $before_prop->getValue( $loader ), 'before_article_output must be cleared for the next article' );
 		$this->assertNull( $classic_before_prop->getValue( $loader ), 'classic_before_article_output must be cleared for the next article' );
 	}
@@ -1621,12 +1626,12 @@ class Test_Template_Loader extends WP_UnitTestCase {
 		// Build two WP_Block_Template objects that both have the same
 		// taxonomy-saai_category slug: one from the plugin, one from a
 		// hypothetical theme that registered the same slug.
-		$plugin_tpl        = new \WP_Block_Template();
-		$plugin_tpl->slug  = 'taxonomy-saai_category';
+		$plugin_tpl         = new \WP_Block_Template();
+		$plugin_tpl->slug   = 'taxonomy-saai_category';
 		$plugin_tpl->plugin = 'saai-knowledge';
 
-		$theme_tpl        = new \WP_Block_Template();
-		$theme_tpl->slug  = 'taxonomy-saai_category';
+		$theme_tpl         = new \WP_Block_Template();
+		$theme_tpl->slug   = 'taxonomy-saai_category';
 		$theme_tpl->plugin = '';
 
 		$loader = new \SAAI\Knowledge\Template_Loader();
