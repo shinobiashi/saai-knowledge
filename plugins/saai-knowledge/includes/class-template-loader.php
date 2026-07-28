@@ -1249,6 +1249,19 @@ final class Template_Loader {
 	/**
 	 * Whether the current request renders the KB two-column layout.
 	 *
+	 * The saai_category taxonomy is shared with saai_faq (see
+	 * restrict_category_archive_to_kb()), so a saai_category archive only
+	 * counts as a KB layout view when the main
+	 * query is actually KB-only — an explicit non-KB scope (e.g.
+	 * ?post_type=saai_faq) already leaves this plugin's KB-branded template
+	 * unused (filter_template_include()/exclude_kb_template_for_non_kb_query()),
+	 * so loading kb-layout.css/kb-layout.js for it too would be wasted work.
+	 * An empty post_type here means restrict_category_archive_to_kb() hasn't
+	 * (or won't) restrict this particular request — a compound search, a feed,
+	 * or a site's own taxonomy-saai_category override all leave it that way —
+	 * which this method treats the same as the plain, unrestricted default
+	 * case rather than as an explicit non-KB scope.
+	 *
 	 * @return bool
 	 */
 	private function is_kb_layout_view(): bool {
@@ -1258,7 +1271,13 @@ final class Template_Loader {
 			}
 		}
 
-		return is_tax( 'saai_category' );
+		if ( ! is_tax( 'saai_category' ) ) {
+			return false;
+		}
+
+		$post_type = get_query_var( 'post_type' );
+
+		return '' === $post_type || self::is_kb_only_post_type_scope( $post_type );
 	}
 
 	/**

@@ -243,6 +243,29 @@ class Test_Template_Loader extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The saai_category taxonomy is shared with saai_faq; an explicit non-KB
+	 * scope (e.g. ?post_type=saai_faq) already leaves this plugin's
+	 * KB-branded template unused (see filter_template_include()'s post_type
+	 * guard) — loading kb-layout.css/kb-layout.js for that page too would be
+	 * wasted work.
+	 */
+	public function test_enqueue_layout_style_skips_an_explicit_non_kb_scope_on_the_category_archive() {
+		$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+		$this->go_to( add_query_arg( 'post_type', 'saai_faq', get_term_link( $term_id, 'saai_category' ) ) );
+
+		$this->assertSame(
+			'saai_faq',
+			get_query_var( 'post_type' ),
+			'test setup should have produced an explicit post_type scope'
+		);
+
+		( new \SAAI\Knowledge\Template_Loader() )->enqueue_layout_style();
+
+		$this->assertFalse( wp_style_is( 'saai-knowledge-kb-layout', 'enqueued' ) );
+		$this->assertFalse( wp_script_is( 'saai-knowledge-kb-layout', 'enqueued' ) );
+	}
+
+	/**
 	 * The Site Editor renders one of these registered templates without a
 	 * real front-end query (a template is edited in the abstract, not a
 	 * specific post/archive), so is_kb_layout_view()'s is_singular()/is_tax()
