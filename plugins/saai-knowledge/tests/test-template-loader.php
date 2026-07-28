@@ -1668,4 +1668,41 @@ class Test_Template_Loader extends WP_UnitTestCase {
 			);
 		}
 	}
+
+	/**
+	 * Must not leak its temporarily-removed filter back onto the global
+	 * process when that filter wasn't there to begin with.
+	 *
+	 * This method temporarily removes its own
+	 * exclude_kb_template_for_non_kb_query filter around its internal
+	 * get_block_templates() call, then restores it — but only if it was
+	 * actually there beforehand. Calling this (private, via reflection)
+	 * method without first going through register() — as this test class's
+	 * own test_plugin_taxonomy_template_wins_sort_is_deterministic_with_same_slug_tiebreaker
+	 * does — must not have the side effect of adding that filter globally
+	 * for the rest of the process; a naive unconditional remove-then-add
+	 * would do exactly that.
+	 */
+	public function test_plugin_taxonomy_template_wins_does_not_leak_the_exclude_filter_when_never_registered() {
+		$loader = new \SAAI\Knowledge\Template_Loader();
+		$method = new \ReflectionMethod( \SAAI\Knowledge\Template_Loader::class, 'plugin_taxonomy_template_wins' );
+		$method->setAccessible( true );
+
+		$callback = array( $loader, 'exclude_kb_template_for_non_kb_query' );
+
+		$this->assertFalse(
+			has_filter( 'get_block_templates', $callback ),
+			'test setup: the filter must not be registered before calling the method directly'
+		);
+
+		$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+		$term    = get_term( $term_id, 'saai_category' );
+
+		$method->invoke( $loader, $term );
+
+		$this->assertFalse(
+			has_filter( 'get_block_templates', $callback ),
+			'plugin_taxonomy_template_wins() must not leave its own filter registered when it was never there to begin with'
+		);
+	}
 }

@@ -105,7 +105,20 @@ if ( ! function_exists( 'saai_render_kb_sidebar_node' ) ) {
 	}
 }
 
-$saai_current_post_id = is_singular( 'saai_kb' ) ? get_queried_object_id() : null;
+// The editor's ServerSideRender preview provides the edited post via block
+// context (the block-renderer REST endpoint sets up the global post from its
+// post_id parameter, and render_block() derives postId context from it), and
+// the Site Editor canvas for a customized single-saai_kb template does the
+// same — see kb-toc/render.php's docblock for the same reasoning. On the
+// front end, and for any other view (e.g. a taxonomy archive, which has no
+// postId context to offer), is_singular() is the fallback.
+$saai_current_post_id = isset( $block->context['postId'] ) ? (int) $block->context['postId'] : 0;
+
+if ( ! $saai_current_post_id && is_singular( 'saai_kb' ) ) {
+	$saai_current_post_id = get_queried_object_id();
+}
+
+$saai_current_post_id = $saai_current_post_id ? $saai_current_post_id : null;
 $saai_current_term_id = is_tax( 'saai_category' ) ? get_queried_object_id() : null;
 $saai_tree            = ( new Sidebar_Tree() )->build( $saai_current_post_id, $saai_current_term_id );
 

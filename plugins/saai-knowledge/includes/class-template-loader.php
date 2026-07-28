@@ -671,7 +671,14 @@ final class Template_Loader {
 	 * the plugin's own candidate from the list this method is about to judge,
 	 * mistaking a not-yet-restricted query for a genuinely non-KB one and
 	 * wrongly declaring a lower-priority theme template the winner. Removed
-	 * for the duration of this call for that reason.
+	 * for the duration of this call for that reason — only if it was
+	 * actually registered beforehand (see has_filter() below): register()
+	 * always adds it before this method is ever reachable in a real request
+	 * (this is only called from restrict_category_archive_to_kb(), itself
+	 * only reachable via the pre_get_posts callback register() adds in that
+	 * same call), but a test invoking this method directly via reflection,
+	 * without first constructing it through register(), must not have the
+	 * side effect of adding the filter globally for the rest of the process.
 	 *
 	 * @param \WP_Term $term The queried term.
 	 * @return bool Whether the plugin's own template is the one that wins.
@@ -689,9 +696,17 @@ final class Template_Loader {
 		$slugs[] = "taxonomy-{$term->taxonomy}";
 		$slugs[] = 'taxonomy';
 
-		remove_filter( 'get_block_templates', array( $this, 'exclude_kb_template_for_non_kb_query' ), 10 );
+		$exclude_filter_priority = has_filter( 'get_block_templates', array( $this, 'exclude_kb_template_for_non_kb_query' ) );
+
+		if ( false !== $exclude_filter_priority ) {
+			remove_filter( 'get_block_templates', array( $this, 'exclude_kb_template_for_non_kb_query' ), $exclude_filter_priority );
+		}
+
 		$templates = get_block_templates( array( 'slug__in' => $slugs ) );
-		add_filter( 'get_block_templates', array( $this, 'exclude_kb_template_for_non_kb_query' ), 10, 3 );
+
+		if ( false !== $exclude_filter_priority ) {
+			add_filter( 'get_block_templates', array( $this, 'exclude_kb_template_for_non_kb_query' ), $exclude_filter_priority, 3 );
+		}
 
 		if ( ! $templates ) {
 			// No registered template matches any hierarchy candidate at all —

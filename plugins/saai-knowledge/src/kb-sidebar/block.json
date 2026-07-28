@@ -6,6 +6,7 @@
 	"category": "widgets",
 	"description": "Category tree and article list sidebar for Knowledge Base pages.",
 	"textdomain": "saai-knowledge",
+	"usesContext": [ "postId" ],
 	"editorScript": "file:./index.js",
 	"editorStyle": "file:./index.css",
 	"style": "file:./style-view.css",

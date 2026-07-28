@@ -262,6 +262,84 @@ class Test_Kb_Sidebar extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The editor's ServerSideRender preview and the Site Editor canvas render
+	 * this block via block context, not a real front-end query — is_singular()
+	 * is false there even though a specific KB article is what's being
+	 * previewed (see kb-toc/render.php's docblock for the same reasoning).
+	 * render.php must prefer $block->context['postId'] so the sidebar expands
+	 * the right branch in those views too, not just on the front end.
+	 */
+	public function test_render_expands_the_current_post_from_block_context_when_not_singular() {
+		$parent_term = self::factory()->term->create_and_get( array( 'taxonomy' => 'saai_category' ) );
+		$child_term  = self::factory()->term->create_and_get(
+			array(
+				'taxonomy' => 'saai_category',
+				'parent'   => $parent_term->term_id,
+			)
+		);
+		$other_term  = self::factory()->term->create_and_get( array( 'taxonomy' => 'saai_category' ) );
+
+		$post_id = self::factory()->post->create( array( 'post_type' => 'saai_kb' ) );
+		wp_set_object_terms( $post_id, array( $child_term->term_id ), 'saai_category' );
+
+		// Deliberately not a saai_kb singular (nor a saai_category archive):
+		// is_singular( 'saai_kb' )/is_tax( 'saai_category' ) are both false
+		// here, so only $block->context['postId'] can identify the article.
+		$this->go_to( home_url( '/' ) );
+
+		$output = $this->render_kb_sidebar( $post_id );
+
+		$this->assertStringContainsString(
+			esc_html( $parent_term->name ) . '</a></span><div id="',
+			$output,
+			'test setup: the ancestor term should be present in the rendered tree'
+		);
+		$this->assertStringNotContainsString(
+			esc_html( $other_term->name ) . '</a></span><div id="',
+			$output,
+			'test setup: the unrelated term is a distractor and should render collapsed'
+		);
+
+		$parent_children_open = strpos( $output, 'data-wp-context=\'{&quot;open&quot;:true}\'' ) !== false
+			|| strpos( $output, "data-wp-context='{\"open\":true}'" ) !== false;
+
+		$this->assertTrue(
+			$parent_children_open,
+			'the current post\'s ancestor term must be expanded from block context alone, even though the view is not singular'
+		);
+	}
+
+	/**
+	 * Renders src/kb-sidebar/render.php directly with the given postId block
+	 * context, replicating the variable contract WordPress core sets up for a
+	 * block.json "render" callback — see test-kb-toc.php's render_kb_toc()
+	 * for the same pattern and its docblock for why this doesn't need the
+	 * block actually registered or built.
+	 *
+	 * @param int $post_id Post to set as the block's postId context.
+	 * @return string
+	 */
+	private function render_kb_sidebar( int $post_id ): string {
+		$attributes = array();
+		$content    = '';
+		$block      = (object) array( 'context' => array( 'postId' => $post_id ) );
+
+		$previous_block_to_render            = \WP_Block_Supports::$block_to_render;
+		\WP_Block_Supports::$block_to_render = array(
+			'blockName' => 'saai-knowledge/kb-sidebar',
+			'attrs'     => $attributes,
+		);
+
+		ob_start();
+		require SAAI_KNOWLEDGE_DIR . 'src/kb-sidebar/render.php';
+		$output = ob_get_clean();
+
+		\WP_Block_Supports::$block_to_render = $previous_block_to_render;
+
+		return $output;
+	}
+
+	/**
 	 * Finds a node with the given term/post id at the top level of a node list.
 	 *
 	 * @param array<int, array<string, mixed>> $nodes Node list.
