@@ -155,7 +155,10 @@ final class Template_Loader {
 		}
 
 		add_filter( 'template_include', array( $this, 'filter_template_include' ) );
-		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_layout_style' ) );
+		// enqueue_block_assets fires on both wp_enqueue_scripts (front end)
+		// and admin_enqueue_scripts (including the Site Editor) — see
+		// enqueue_layout_style()'s docblock for why the Site Editor needs it too.
+		add_action( 'enqueue_block_assets', array( $this, 'enqueue_layout_style' ) );
 		add_action( 'pre_get_posts', array( $this, 'restrict_category_archive_to_kb' ) );
 		// Separate from the above (which only concerns saai_category
 		// archives): a real HTTP request is a fresh PHP process, so
@@ -276,7 +279,7 @@ final class Template_Loader {
 			// reaches it.
 			$bundled = SAAI_KNOWLEDGE_DIR . 'templates/classic/taxonomy-saai_category.php';
 
-			if ( $bundled === $resolved && 'saai_kb' !== get_query_var( 'post_type' ) ) {
+			if ( $bundled === $resolved && ! self::is_kb_only_post_type_scope( get_query_var( 'post_type' ) ) ) {
 				return $template;
 			}
 
@@ -412,22 +415,31 @@ final class Template_Loader {
 	 *
 	 * Both are hand-authored (no build step), so their own mtime drives
 	 * cache-busting instead of the plugin version constant.
+	 *
+	 * Hooked on enqueue_block_assets (see register()) rather than just
+	 * wp_enqueue_scripts so this also runs for a Site Editor request editing
+	 * one of these registered templates: is_kb_layout_view()'s is_singular()/
+	 * is_post_type_archive()/is_tax() checks never match there (a template is
+	 * being edited in the abstract, not a specific post/archive from a real
+	 * front-end query), so without is_site_editor_screen()'s unconditional
+	 * branch the canvas would render the advertised two/three-column template
+	 * as an unstyled single column, unlike the front end. Only the stylesheet
+	 * is loaded there, not kb-layout.js: that script's ResizeObserver keeps a
+	 * visitor's manually-collapsed panel open across a real container resize
+	 * (see its own docblock), which doesn't apply to the Site Editor's static
+	 * preview canvas.
 	 */
 	public function enqueue_layout_style(): void {
+		if ( $this->is_site_editor_screen() ) {
+			$this->enqueue_layout_stylesheet();
+			return;
+		}
+
 		if ( ! $this->is_kb_layout_view() ) {
 			return;
 		}
 
-		$style_path = SAAI_KNOWLEDGE_DIR . 'assets/css/kb-layout.css';
-
-		if ( file_exists( $style_path ) ) {
-			wp_enqueue_style(
-				'saai-knowledge-kb-layout',
-				SAAI_KNOWLEDGE_URL . 'assets/css/kb-layout.css',
-				array(),
-				(string) filemtime( $style_path )
-			);
-		}
+		$this->enqueue_layout_stylesheet();
 
 		$script_path = SAAI_KNOWLEDGE_DIR . 'assets/js/kb-layout.js';
 
@@ -443,6 +455,48 @@ final class Template_Loader {
 				)
 			);
 		}
+	}
+
+	/**
+	 * Enqueues just the KB layout stylesheet — the part of enqueue_layout_style()
+	 * shared by both its front-end and Site Editor branches.
+	 */
+	private function enqueue_layout_stylesheet(): void {
+		$style_path = SAAI_KNOWLEDGE_DIR . 'assets/css/kb-layout.css';
+
+		if ( file_exists( $style_path ) ) {
+			wp_enqueue_style(
+				'saai-knowledge-kb-layout',
+				SAAI_KNOWLEDGE_URL . 'assets/css/kb-layout.css',
+				array(),
+				(string) filemtime( $style_path )
+			);
+		}
+	}
+
+	/**
+	 * Whether the current request is the Site Editor admin screen.
+	 *
+	 * The stylesheet is loaded unconditionally there (rather than trying to
+	 * detect which specific template is being edited): the Site Editor is a
+	 * single-page app, so admin_enqueue_scripts/enqueue_block_assets only
+	 * fires once, on the initial full page load — a query var identifying the
+	 * template being edited (e.g. postId=saai-knowledge//single-saai_kb) is
+	 * only reliably present on that first load, not after the user navigates
+	 * to a different template client-side within the same session. The
+	 * stylesheet only targets class names this plugin's own bundled templates
+	 * emit, so loading it for the whole Site Editor session is harmless.
+	 *
+	 * @return bool
+	 */
+	private function is_site_editor_screen(): bool {
+		if ( ! is_admin() || ! function_exists( 'get_current_screen' ) ) {
+			return false;
+		}
+
+		$screen = get_current_screen();
+
+		return $screen instanceof \WP_Screen && 'site-editor' === $screen->id;
 	}
 
 	/**
@@ -643,7 +697,7 @@ final class Template_Loader {
 			return $templates;
 		}
 
-		if ( 'saai_kb' === $wp_query->get( 'post_type' ) ) {
+		if ( self::is_kb_only_post_type_scope( $wp_query->get( 'post_type' ) ) ) {
 			return $templates;
 		}
 
@@ -655,6 +709,22 @@ final class Template_Loader {
 				}
 			)
 		);
+	}
+
+	/**
+	 * Whether a query's post_type scope is limited to saai_kb only, in either
+	 * WordPress's supported scalar ('saai_kb') or array (['saai_kb']) form.
+	 *
+	 * @param mixed $post_type The query's post_type var, as returned by
+	 *                         get_query_var()/WP_Query::get().
+	 * @return bool
+	 */
+	private static function is_kb_only_post_type_scope( $post_type ): bool {
+		if ( is_array( $post_type ) ) {
+			return array( 'saai_kb' ) === array_values( array_unique( $post_type ) );
+		}
+
+		return 'saai_kb' === $post_type;
 	}
 
 	/**

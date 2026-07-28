@@ -24,7 +24,7 @@ class Test_Template_Loader extends WP_UnitTestCase {
 	 *
 	 * Template_Loader::register() only conditionally hooks
 	 * register_block_templates() on block themes (its other hooks —
-	 * template_include, wp_enqueue_scripts, pre_get_posts — always run
+	 * template_include, enqueue_block_assets, pre_get_posts — always run
 	 * regardless of theme type), and the WP core test suite's default theme
 	 * is classic, so bootstrap never triggers it here. Call
 	 * register_block_templates() directly instead.
@@ -243,6 +243,31 @@ class Test_Template_Loader extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The Site Editor renders one of these registered templates without a
+	 * real front-end query (a template is edited in the abstract, not a
+	 * specific post/archive), so is_kb_layout_view()'s is_singular()/is_tax()
+	 * checks never match there. The layout stylesheet must still load
+	 * unconditionally on that screen so a customized template's canvas isn't
+	 * an unstyled single column, unlike the front end — but not kb-layout.js,
+	 * whose ResizeObserver behavior is meaningless in a static preview
+	 * canvas (see enqueue_layout_style()'s docblock).
+	 */
+	public function test_enqueue_layout_style_loads_stylesheet_only_in_site_editor() {
+		require_once ABSPATH . 'wp-admin/includes/screen.php';
+
+		set_current_screen( 'site-editor' );
+
+		( new \SAAI\Knowledge\Template_Loader() )->enqueue_layout_style();
+
+		unset( $GLOBALS['current_screen'] );
+
+		$this->assertTrue( wp_style_is( 'saai-knowledge-kb-layout', 'enqueued' ) );
+		$this->assertFalse( wp_script_is( 'saai-knowledge-kb-layout', 'enqueued' ) );
+
+		wp_dequeue_style( 'saai-knowledge-kb-layout' );
+	}
+
+	/**
 	 * The saai_category taxonomy is shared with saai_faq, but the category
 	 * archive template is entirely KB-branded; its main query must be
 	 * restricted to saai_kb so FAQ posts assigned to the same term don't
@@ -383,6 +408,26 @@ class Test_Template_Loader extends WP_UnitTestCase {
 	}
 
 	/**
+	 * WordPress's array form of post_type (e.g. ?post_type[]=saai_kb, or an
+	 * earlier pre_get_posts callback calling $query->set('post_type', ['saai_kb']))
+	 * scopes a query to KB-only just as validly as the plain string form —
+	 * get_query_var('post_type') returning an array here must not be mistaken
+	 * for an explicit non-KB scope and fall back to the theme's own template.
+	 */
+	public function test_filter_template_include_accepts_array_valued_kb_only_scope() {
+		$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+		$this->go_to( get_term_link( $term_id, 'saai_category' ) );
+
+		global $wp_query;
+		$wp_query->set( 'post_type', array( 'saai_kb' ) );
+
+		$resolved = ( new \SAAI\Knowledge\Template_Loader() )->filter_template_include( '/theme/fallback.php' );
+
+		$this->assertNotSame( '/theme/fallback.php', $resolved );
+		$this->assertStringEndsWith( 'templates/classic/taxonomy-saai_category.php', $resolved );
+	}
+
+	/**
 	 * Unlike the classic-theme path (filter_template_include(), above),
 	 * WordPress's own block-theme template resolution (resolve_block_template(),
 	 * see wp-includes/block-template.php) selects a candidate purely by slug
@@ -430,6 +475,30 @@ class Test_Template_Loader extends WP_UnitTestCase {
 
 		global $wp_query;
 		$wp_query->set( 'post_type', 'saai_kb' );
+
+		$own_template = $this->make_block_template_stub( 'taxonomy-saai_category', 'saai-knowledge' );
+
+		$result = ( new \SAAI\Knowledge\Template_Loader() )->exclude_kb_template_for_non_kb_query(
+			array( $own_template ),
+			array(),
+			'wp_template'
+		);
+
+		$this->assertSame( array( $own_template ), $result );
+	}
+
+	/**
+	 * The block-theme equivalent of test_filter_template_include_accepts_array_valued_kb_only_scope():
+	 * a query scoped to post_type ['saai_kb'] (WordPress's array form) must
+	 * keep the plugin's own candidate template, not be mistaken for an
+	 * explicit non-KB scope.
+	 */
+	public function test_exclude_kb_template_for_non_kb_query_keeps_own_template_for_array_valued_kb_only_scope() {
+		$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+		$this->go_to( get_term_link( $term_id, 'saai_category' ) );
+
+		global $wp_query;
+		$wp_query->set( 'post_type', array( 'saai_kb' ) );
 
 		$own_template = $this->make_block_template_stub( 'taxonomy-saai_category', 'saai-knowledge' );
 
