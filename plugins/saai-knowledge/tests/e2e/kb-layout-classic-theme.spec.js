@@ -1,0 +1,109 @@
+const { test, expect } = require( '@wordpress/e2e-test-utils-playwright' );
+const { createKbFixtures, deleteKbFixtures } = require( './fixtures' );
+
+test.describe( 'KB two-column layout — classic theme (Twenty Twenty-One)', () => {
+	/** @type {{term: Object, post: Object}} */
+	let fixtures;
+	/** @type {string[]} */
+	let consoleErrors;
+
+	test.beforeAll( async ( { requestUtils } ) => {
+		await requestUtils.activateTheme( 'twentytwentyone' );
+		fixtures = await createKbFixtures( requestUtils );
+	} );
+
+	test.afterAll( async ( { requestUtils } ) => {
+		await deleteKbFixtures( requestUtils, fixtures );
+		// Leave the site on the default block theme for later manual checks.
+		await requestUtils.activateTheme( 'twentytwentyfive' );
+	} );
+
+	test.beforeEach( ( { page } ) => {
+		consoleErrors = [];
+		page.on( 'console', ( message ) => {
+			if ( message.type() === 'error' ) {
+				consoleErrors.push( message.text() );
+			}
+		} );
+	} );
+
+	test( 'renders the article as a three-column layout with sidebar, breadcrumbs, and TOC', async ( {
+		page,
+	} ) => {
+		await page.goto( fixtures.post.link );
+
+		await expect( page.locator( '.saai-kb-layout--article' ) ).toBeVisible();
+		await expect( page.locator( '.saai-kb-sidebar' ) ).toBeVisible();
+		await expect( page.locator( '.saai-kb-toc' ) ).toBeVisible();
+		await expect( page.locator( '.saai-breadcrumbs' ) ).toBeVisible();
+		await expect(
+			page.locator( '.saai-kb-layout__content h1' )
+		).toContainText( fixtures.post.title.rendered );
+
+		expect( consoleErrors ).toEqual( [] );
+	} );
+
+	test( 'the table of contents navigates to the clicked heading', async ( {
+		page,
+	} ) => {
+		await page.goto( fixtures.post.link );
+
+		const secondSectionHeading = page.locator( 'h2', {
+			hasText: 'Second Section',
+		} );
+
+		// The fixture pads content above "Second Section" so it starts below
+		// the fold; otherwise this test would pass even if the click didn't
+		// scroll anywhere.
+		await expect( secondSectionHeading ).not.toBeInViewport();
+
+		await page
+			.locator( '.saai-kb-toc a', { hasText: 'Second Section' } )
+			.click();
+
+		await expect( secondSectionHeading ).toBeInViewport();
+		expect( consoleErrors ).toEqual( [] );
+	} );
+
+	test( 'renders the KB hub archive with the sidebar and the article', async ( {
+		page,
+	} ) => {
+		await page.goto( '/kb/' );
+
+		await expect( page.locator( '.saai-kb-layout--archive' ) ).toBeVisible();
+		await expect( page.locator( '.saai-kb-sidebar' ) ).toBeVisible();
+		// Scoped to the content column, not the whole page: the sidebar also
+		// links to every KB article, so an unscoped assertion would still
+		// pass even if the archive's own post listing were broken.
+		await expect(
+			page
+				.locator( '.saai-kb-layout__content' )
+				.getByRole( 'link', { name: fixtures.post.title.rendered, exact: true } )
+		).toBeVisible();
+
+		expect( consoleErrors ).toEqual( [] );
+	} );
+
+	test( 'renders the category archive with the sidebar and the article', async ( {
+		page,
+	} ) => {
+		await page.goto( fixtures.term.link );
+
+		await expect( page.locator( '.saai-kb-layout--archive' ) ).toBeVisible();
+		await expect( page.locator( '.saai-kb-sidebar' ) ).toBeVisible();
+		// Scoped to the content column — see the KB hub test above for why.
+		await expect(
+			page
+				.locator( '.saai-kb-layout__content' )
+				.getByRole( 'link', { name: fixtures.post.title.rendered, exact: true } )
+		).toBeVisible();
+
+		expect( consoleErrors ).toEqual( [] );
+	} );
+
+	// No "reopens a manually-collapsed sidebar past the breakpoint" or
+	// "hides the TOC panel for an article with no headings" tests here: both
+	// behaviors come entirely from kb-layout.css/kb-layout.js, shared
+	// unchanged across both themes, so the block-theme spec's coverage of
+	// them isn't duplicated in this file.
+} );

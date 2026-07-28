@@ -105,11 +105,49 @@ if ( ! function_exists( 'saai_render_kb_sidebar_node' ) ) {
 	}
 }
 
-$saai_current_post_id = is_singular( 'saai_kb' ) ? get_queried_object_id() : null;
-$saai_tree            = ( new Sidebar_Tree() )->build( $saai_current_post_id );
+// See breadcrumbs/render.php's docblock for why archive-vs-singular
+// conditional tags must be checked before trusting usesContext's postId: on
+// a non-empty archive, WordPress's own WP::register_globals() primes the
+// global $post — and with it, the top-level render_block()'s default postId
+// context — to the FIRST result before any block renders, even though no
+// Query Loop has iterated yet; trusting postId first would misidentify the
+// hub/term archive itself as that first article's own singular view. queryId
+// is only ever provided by a genuine ancestor Query Loop (a site-customized
+// template could place this block inside one on an archive view), so its
+// presence reliably distinguishes a real per-item render from the archive's
+// default seed. The two branches below are mutually exclusive by
+// construction, so $saai_current_post_id/$saai_current_term_id — and the
+// $saai_context built from them below — can never both end up set at once,
+// matching Sidebar_Tree::build()'s own current_post_id-wins contract.
+$saai_in_query_loop = isset( $block->context['queryId'] );
+
+$saai_current_post_id = null;
+$saai_current_term_id = null;
+
+if ( is_tax( 'saai_category' ) && ! $saai_in_query_loop ) {
+	$saai_current_term_id = get_queried_object_id();
+} elseif ( ! is_post_type_archive( 'saai_kb' ) || $saai_in_query_loop ) {
+	// The editor's ServerSideRender preview provides the edited post via
+	// block context (the block-renderer REST endpoint sets up the global
+	// post from its post_id parameter, and render_block() derives postId
+	// context from it), and the Site Editor canvas for a customized
+	// single-saai_kb template does the same — see kb-toc/render.php's
+	// docblock for the same reasoning. is_singular() is the front-end
+	// fallback.
+	$saai_post_id = isset( $block->context['postId'] ) ? (int) $block->context['postId'] : 0;
+
+	if ( ! $saai_post_id && is_singular( 'saai_kb' ) ) {
+		$saai_post_id = get_queried_object_id();
+	}
+
+	$saai_current_post_id = $saai_post_id ? $saai_post_id : null;
+}
+
+$saai_tree = ( new Sidebar_Tree() )->build( $saai_current_post_id, $saai_current_term_id );
 
 $saai_context = array(
 	'current_post_id' => $saai_current_post_id,
+	'current_term_id' => $saai_current_term_id,
 	'taxonomy'        => 'saai_category',
 );
 

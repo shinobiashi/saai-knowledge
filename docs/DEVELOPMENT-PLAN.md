@@ -71,8 +71,8 @@ M1〜M5 の全タスクは GitHub Issues #1〜#27（マイルストーン M1〜M
 - [x] `saai-knowledge/kb-toc` ブロック（`parse_blocks()` で h2/h3 抽出、アンカー付与、スクロールスパイ）
 - [x] `saai-knowledge/breadcrumbs` ブロック（BreadcrumbList JSON-LD）
 - [x] 見出しアンカー付与フィルター（本文側の h2/h3 に ID を保証）
-- [ ] KB 記事テンプレート（2カラム、ブロック / クラシック両対応）+ モバイル折りたたみ
-- [ ] カテゴリーアーカイブ・KB ハブテンプレート
+- [x] KB 記事テンプレート（2カラム、ブロック / クラシック両対応）+ モバイル折りたたみ
+- [x] カテゴリーアーカイブ・KB ハブテンプレート
 - [x] タームメタ `saai_order`（ターム並び順）+ 管理 UI
 - [x] ショートコード版ラッパー（`[saai_kb_sidebar]` 等）
 

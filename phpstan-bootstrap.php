@@ -14,3 +14,7 @@ if ( ! defined( 'SAAI_KNOWLEDGE_VERSION' ) ) {
 if ( ! defined( 'SAAI_KNOWLEDGE_DIR' ) ) {
 	define( 'SAAI_KNOWLEDGE_DIR', __DIR__ . '/plugins/saai-knowledge/' );
 }
+
+if ( ! defined( 'SAAI_KNOWLEDGE_URL' ) ) {
+	define( 'SAAI_KNOWLEDGE_URL', 'http://example.com/wp-content/plugins/saai-knowledge/' );
+}

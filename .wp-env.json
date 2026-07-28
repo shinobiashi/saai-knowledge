@@ -24,6 +24,6 @@
         }
     },
     "lifecycleScripts": {
-        "afterStart": "bash bin/wp-env-prune-default-themes.sh"
+        "afterStart": "bash bin/wp-env-prune-default-themes.sh && bash bin/wp-env-configure-permalinks.sh"
     }
 }

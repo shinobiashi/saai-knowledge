@@ -6,7 +6,7 @@
 	"category": "widgets",
 	"description": "Hub / category / article breadcrumb trail for Knowledge Base pages, with BreadcrumbList JSON-LD.",
 	"textdomain": "saai-knowledge",
-	"usesContext": [ "postId" ],
+	"usesContext": [ "postId", "queryId" ],
 	"editorScript": "file:./index.js",
 	"editorStyle": "file:./index.css",
 	"style": "file:./style-index.css",

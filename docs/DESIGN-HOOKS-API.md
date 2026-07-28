@@ -46,12 +46,19 @@ add_action( 'saai_loaded', function ( $plugin ) {
 
 | フック | シグネチャ | 用途 |
 | --- | --- | --- |
-| `saai_kb_sidebar_items` | `( array $tree, array $context ): array` | サイドバーツリーの加工。node 形状: `[ 'type' => 'term'\|'post', 'id', 'title', 'url', 'order', 'children' => node[] ]`。`$context = [ 'current_post_id' => int\|null, 'taxonomy' => string ]` |
+| `saai_kb_sidebar_items` | `( array $tree, array $context ): array` | サイドバーツリーの加工。node 形状: `[ 'type' => 'term'\|'post', 'id', 'title', 'url', 'order', 'children' => node[] ]`。`$context = [ 'current_post_id' => int\|null, 'current_term_id' => int\|null, 'taxonomy' => string ]`（`current_term_id` は saai_category タクソノミーアーカイブ表示時のみ設定。単体記事表示では `current_post_id` が優先され `current_term_id` は常に null） |
 | `saai_kb_toc_items` | `( array $headings, array $context ): array` | ページ内目次の見出しリストの加工。heading 形状: `[ 'id' => string, 'text' => string, 'level' => 2\|3 ]`。`$context = [ 'post_id' => int ]` |
 | `saai_breadcrumbs_items` | `( array $trail, array $context ): array` | パンくずリストの加工。node 形状: `[ 'label' => string, 'url' => string, 'current' => bool ]`。`$context = [ 'post_id' => int\|null, 'term_id' => int\|null, 'taxonomy' => string ]` |
 | `saai_faq_query_args` | `( array $args, array $block_attrs ): array` | FAQ 一覧ブロックの WP_Query 引数調整。有料版が商品コンテキストの meta_query を注入 |
 | `saai_structured_data` | `( array $schema, string $schema_type, ?WP_Post $post ): array` | JSON-LD 出力の加工。`$schema_type` は `faq-page` / `defined-term` / `breadcrumbs` |
 | `saai_template` | `( string $template_path, string $slug ): string` | クラシックテーマ向けテンプレート解決の最終上書き。`$slug` 例: `single-saai_kb` |
+
+`saai_template` は `taxonomy-saai_category` の解決時に限り、`pre_get_posts`（`saai_category`
+タクソノミーアーカイブの KB 限定クエリスコープ判定）と `template_include`（最終的なテンプレー
+ト決定）の2箇所から呼ばれる。ステートフルまたは自己解除するコールバックは、この2回の呼び出し
+で異なる結果を返しうるため、その場合はクエリスコープと実際に描画されるテンプレートが一致しな
+くなることがある。クエリスコープの判定にも確実に反映させたい場合は、`init` フック以前
+（またはそれより早く）で登録すること。
 
 ### 3.3 検索
 

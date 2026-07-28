@@ -1,0 +1,106 @@
+/*
+ * KB two-column layout (DESIGN.md section 4.1).
+ *
+ * Container-query based and self-contained: no theme dependency. The
+ * sidebar and table of contents are native <details> disclosure widgets,
+ * server-rendered open so their content is always in the initial HTML
+ * (required regardless of viewport — many crawlers don't run JS). Below
+ * their breakpoint they behave as an ordinary foldable accordion (click
+ * <summary> to collapse/expand, no JS required). At/above their breakpoint
+ * the <summary> toggle is hidden and the grid lays the panels out as
+ * columns instead.
+ *
+ * The article layout (sidebar + content + TOC) and archive layout (sidebar
+ * + content) switch to columns at different container widths: article
+ * reserves two 220px side columns instead of archive's one, so using a
+ * single shared breakpoint low enough for the archive layout would leave
+ * the article body as little as ~110px wide right at that breakpoint.
+ *
+ * `.saai-kb-layout` only establishes the query container; the grid lives
+ * on the `__grid` child instead of on `.saai-kb-layout` itself, because a
+ * size container cannot be the querying element for its own layout.
+ *
+ * Hiding <summary> here only stops a visitor from toggling the panel at
+ * this width — it doesn't reopen one they already collapsed at a narrower
+ * width (CSS can't override a closed <details>'s `open` attribute). See
+ * kb-layout.js, enqueued alongside this stylesheet, which forces `open`
+ * back on once a panel's container crosses that same modifier's breakpoint.
+ */
+
+.saai-kb-layout {
+	container-type: inline-size;
+}
+
+.saai-kb-layout__grid {
+	display: grid;
+	grid-template-columns: 1fr;
+	gap: 1.5rem;
+	align-items: start;
+}
+
+.saai-kb-layout__sidebar,
+.saai-kb-layout__toc {
+	margin: 0;
+	border: 1px solid currentColor;
+	border-radius: 4px;
+	padding: 0.75rem 1rem;
+}
+
+.saai-kb-layout__sidebar > summary,
+.saai-kb-layout__toc > summary {
+	cursor: pointer;
+	font-weight: 600;
+}
+
+.saai-kb-layout__content {
+	min-width: 0;
+}
+
+/*
+ * The kb-toc block renders no markup at all when an article has fewer than
+ * two headings, so .saai-kb-layout__toc only ever contains a .saai-kb-toc
+ * nav when there's something to show. Without this, a short article would
+ * keep an empty "Table of contents" accordion (and, at the breakpoint
+ * below, an unnecessarily reserved 220px grid column).
+ */
+.saai-kb-layout__toc:not(:has(.saai-kb-toc)) {
+	display: none;
+}
+
+@container (min-width: 600px) {
+	.saai-kb-layout--archive .saai-kb-layout__grid {
+		grid-template-columns: 220px minmax(0, 1fr);
+	}
+
+	.saai-kb-layout--archive .saai-kb-layout__sidebar,
+	.saai-kb-layout--archive .saai-kb-layout__toc {
+		border: 0;
+		padding: 0;
+	}
+
+	.saai-kb-layout--archive .saai-kb-layout__sidebar > summary,
+	.saai-kb-layout--archive .saai-kb-layout__toc > summary {
+		display: none;
+	}
+}
+
+@container (min-width: 900px) {
+	.saai-kb-layout--article .saai-kb-layout__grid {
+		grid-template-columns: 220px minmax(0, 1fr) 220px;
+	}
+
+	.saai-kb-layout--article:has(.saai-kb-layout__toc:not(:has(.saai-kb-toc))) .saai-kb-layout__grid {
+		grid-template-columns: 220px minmax(0, 1fr);
+	}
+
+	.saai-kb-layout--article .saai-kb-layout__sidebar,
+	.saai-kb-layout--article .saai-kb-layout__toc {
+		border: 0;
+		padding: 0;
+	}
+
+	.saai-kb-layout--article .saai-kb-layout__sidebar > summary,
+	.saai-kb-layout--article .saai-kb-layout__toc > summary {
+		display: none;
+	}
+}

@@ -13,32 +13,52 @@ use SAAI\Knowledge\Heading_Anchors;
 
 defined( 'ABSPATH' ) || exit;
 
+if ( ! function_exists( 'saai_valid_kb_toc_headings' ) ) {
+	/**
+	 * Filters a heading list down to entries the renderer can actually display.
+	 *
+	 * Applied before the minimum-heading-count check in the main render body,
+	 * so a saai_kb_toc_items callback that returns entries this rejects can't
+	 * inflate the count past the threshold with headings that then render as
+	 * nothing (see that check's docblock for why the count must match what
+	 * actually renders).
+	 *
+	 * @param array<int, array<string, mixed>> $headings Heading list, see Heading_Anchors::extract().
+	 * @return array<int, array<string, mixed>>
+	 */
+	function saai_valid_kb_toc_headings( array $headings ): array {
+		return array_values(
+			array_filter(
+				$headings,
+				static function ( $heading ) {
+					if ( ! is_array( $heading ) ) {
+						// A third-party saai_kb_toc_items callback returned a non-array entry; skip it.
+						return false;
+					}
+
+					$id   = $heading['id'] ?? '';
+					$text = $heading['text'] ?? '';
+
+					// Not empty(): a heading legitimately titled "0" must not be dropped.
+					return is_scalar( $id ) && '' !== (string) $id && is_scalar( $text ) && '' !== (string) $text;
+				}
+			)
+		);
+	}
+}
+
 if ( ! function_exists( 'saai_render_kb_toc_items' ) ) {
 	/**
 	 * Renders the table-of-contents list items.
 	 *
-	 * @param array<int, array<string, mixed>> $headings Heading list, see Heading_Anchors::extract().
+	 * @param array<int, array<string, mixed>> $headings Heading list, already filtered by saai_valid_kb_toc_headings().
 	 * @return string
 	 */
 	function saai_render_kb_toc_items( array $headings ): string {
 		$items = '';
 
 		foreach ( $headings as $heading ) {
-			if ( ! is_array( $heading ) ) {
-				// A third-party saai_kb_toc_items callback returned a non-array entry; skip it.
-				continue;
-			}
-
-			$id   = $heading['id'] ?? '';
-			$text = $heading['text'] ?? '';
-
-			// Not empty(): a heading legitimately titled "0" must not be dropped.
-			if ( ! is_scalar( $id ) || '' === (string) $id || ! is_scalar( $text ) || '' === (string) $text ) {
-				// A third-party saai_kb_toc_items callback returned a malformed entry; skip it.
-				continue;
-			}
-
-			$id          = (string) $id;
+			$id          = (string) $heading['id'];
 			$level_class = 3 === (int) ( $heading['level'] ?? 2 ) ? ' saai-kb-toc__item--h3' : '';
 
 			$items .= sprintf(
@@ -48,7 +68,7 @@ if ( ! function_exists( 'saai_render_kb_toc_items' ) ) {
 				esc_attr( $level_class ),
 				esc_attr( wp_json_encode( array( 'id' => $id ) ) ),
 				esc_attr( $id ),
-				esc_html( (string) $text )
+				esc_html( (string) $heading['text'] )
 			);
 		}
 
@@ -73,9 +93,25 @@ if ( ! $saai_post instanceof WP_Post || 'saai_kb' !== $saai_post->post_type ) {
 	return;
 }
 
-$saai_headings = ( new Heading_Anchors() )->for_display( $saai_post );
+// Heading_Anchors::extract() reads $post->post_content directly, bypassing
+// the the_content filter chain that normally swaps in WordPress's password
+// form for a protected post; without this, the TOC would expose section
+// headings before the visitor supplies the password.
+if ( post_password_required( $saai_post ) ) {
+	return;
+}
 
-if ( $saai_headings ) {
+$saai_headings = saai_valid_kb_toc_headings( ( new Heading_Anchors() )->for_display( $saai_post ) );
+
+// A single heading gives a table of contents nothing to navigate between,
+// so kb-layout.css's :not(:has(.saai-kb-toc)) rule (which hides the whole
+// panel and collapses its grid column) relies on this block rendering
+// nothing below that count. Counted after saai_valid_kb_toc_headings()
+// filters out malformed entries, so a saai_kb_toc_items callback that
+// returns e.g. two entries where only one validates can't pass this check
+// and then render just that one heading (or none) inside a still-visible
+// .saai-kb-toc wrapper.
+if ( count( $saai_headings ) > 1 ) {
 	$saai_context     = array( 'post_id' => $saai_post->ID );
 	$saai_heading_ids = wp_list_pluck( $saai_headings, 'id' );
 
