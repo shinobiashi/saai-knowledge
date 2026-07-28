@@ -14,7 +14,7 @@
         "env:stop": "wp-env stop",
         "lint:js": "npm run lint:js --workspaces --if-present",
         "lint:css": "npm run lint:css --workspaces --if-present",
-        "pretest:e2e": "npm run build && playwright install chromium && bash bin/wp-env-configure-permalinks.sh",
+        "pretest:e2e": "npm run build && playwright install --with-deps chromium && bash bin/wp-env-configure-permalinks.sh",
         "test:e2e": "playwright test"
     },
     "devDependencies": {
