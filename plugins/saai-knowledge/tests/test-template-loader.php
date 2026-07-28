@@ -1499,4 +1499,95 @@ class Test_Template_Loader extends WP_UnitTestCase {
 
 		$this->assertTrue( $fired, 'post_content_render_depth must not have leaked from the short-circuited block' );
 	}
+
+	/**
+	 * An interrupted article render (e.g. a saai_kb_before_article callback
+	 * that throws, leaving fire_before_article_hook()'s depth increment with
+	 * no matching decrement from wrap_kb_article_content()) must not suppress
+	 * article hooks for the next article in the same PHP process.
+	 * reset_article_content_hooks_state() must clear depth and buffers
+	 * alongside the boolean flags on each new main query.
+	 */
+	public function test_reset_article_content_hooks_state_clears_depth_and_buffers() {
+		$loader = new \SAAI\Knowledge\Template_Loader();
+
+		// Corrupt state via reflection to simulate an interrupted render.
+		$depth_prop = new \ReflectionProperty( \SAAI\Knowledge\Template_Loader::class, 'post_content_render_depth' );
+		$depth_prop->setAccessible( true );
+		$depth_prop->setValue( $loader, 1 );
+
+		$before_prop = new \ReflectionProperty( \SAAI\Knowledge\Template_Loader::class, 'before_article_output' );
+		$before_prop->setAccessible( true );
+		$before_prop->setValue( $loader, '<stale/>' );
+
+		$classic_before_prop = new \ReflectionProperty( \SAAI\Knowledge\Template_Loader::class, 'classic_before_article_output' );
+		$classic_before_prop->setAccessible( true );
+		$classic_before_prop->setValue( $loader, '<stale/>' );
+
+		// Simulate the new main query arriving (pre_get_posts for the next article).
+		global $wp_query;
+		$loader->reset_article_content_hooks_state( $wp_query );
+
+		$this->assertSame( 0, $depth_prop->getValue( $loader ), 'post_content_render_depth must be reset for the next article' );
+		$this->assertNull( $before_prop->getValue( $loader ), 'before_article_output must be cleared for the next article' );
+		$this->assertNull( $classic_before_prop->getValue( $loader ), 'classic_before_article_output must be cleared for the next article' );
+	}
+
+	/**
+	 * When a theme provides its own block template for taxonomy-saai_category
+	 * — an override that must suppress the post_type restriction —
+	 * plugin_taxonomy_template_wins() must return false consistently,
+	 * regardless of what order get_block_templates() happens to return the
+	 * two same-slug templates in. A sort comparator that returns 0 for
+	 * equal-priority slugs leaves the winner to PHP's unstable usort, which
+	 * depends on input order and can flip between requests; the tiebreaker
+	 * added in the comparator ensures the non-plugin (theme) template always
+	 * wins when both resolve to the same slug-hierarchy priority.
+	 */
+	public function test_plugin_taxonomy_template_wins_sort_is_deterministic_with_same_slug_tiebreaker() {
+		// Build two WP_Block_Template objects that both have the same
+		// taxonomy-saai_category slug: one from the plugin, one from a
+		// hypothetical theme that registered the same slug.
+		$plugin_tpl        = new \WP_Block_Template();
+		$plugin_tpl->slug  = 'taxonomy-saai_category';
+		$plugin_tpl->plugin = 'saai-knowledge';
+
+		$theme_tpl        = new \WP_Block_Template();
+		$theme_tpl->slug  = 'taxonomy-saai_category';
+		$theme_tpl->plugin = '';
+
+		$loader = new \SAAI\Knowledge\Template_Loader();
+		$method = new \ReflectionMethod( \SAAI\Knowledge\Template_Loader::class, 'plugin_taxonomy_template_wins' );
+		$method->setAccessible( true );
+
+		// Intercept get_block_templates() to return our two fixtures in each
+		// possible order — the tiebreaker must produce the same result for both.
+		$plugin_first = array( $plugin_tpl, $theme_tpl );
+		$theme_first  = array( $theme_tpl, $plugin_tpl );
+
+		// Use the term passed to plugin_taxonomy_template_wins() only as the
+		// source of the slug candidates; we override the template list via the
+		// get_block_templates filter to bypass the real registry.
+		$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+		$term    = get_term( $term_id, 'saai_category' );
+
+		foreach ( array( $plugin_first, $theme_first ) as $order ) {
+			$override = static function () use ( $order ) {
+				return $order;
+			};
+			add_filter( 'get_block_templates', $override );
+
+			$result = $method->invoke( $loader, $term );
+
+			remove_filter( 'get_block_templates', $override );
+
+			$this->assertFalse(
+				$result,
+				sprintf(
+					'plugin_taxonomy_template_wins() must return false when a theme template exists for the same slug (tested with templates in order: %s)',
+					implode( ', ', array_map( static fn( $t ) => "plugin={$t->plugin}", $order ) )
+				)
+			);
+		}
+	}
 }

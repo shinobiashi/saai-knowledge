@@ -578,11 +578,19 @@ final class Template_Loader {
 	}
 
 	/**
-	 * Resets $article_content_hooks_fired/$classic_article_hooks_fired for
-	 * each new main query — see register()'s docblock for why this can't
-	 * just be folded into restrict_category_archive_to_kb() (which only
-	 * concerns saai_category archives specifically, and returns early for
-	 * any other request type before reaching logic like this).
+	 * Resets all per-article rendering state for each new main query —
+	 * see register()'s docblock for why this can't just be folded into
+	 * restrict_category_archive_to_kb() (which only concerns saai_category
+	 * archives specifically, and returns early for any other request type
+	 * before reaching logic like this).
+	 *
+	 * Resets depth and buffers alongside the boolean flags so that a
+	 * depth leak from an interrupted render (e.g. a saai_kb_before_article
+	 * callback that throws, leaving fire_before_article_hook()'s increment
+	 * without a matching decrement by wrap_kb_article_content()) doesn't
+	 * suppress hooks for every article rendered by that same process after
+	 * the interruption — a real risk in WP-CLI export loops and this test
+	 * suite itself, where multiple articles render in the same PHP process.
 	 *
 	 * @param \WP_Query $query The query WordPress is about to run.
 	 */
@@ -591,8 +599,11 @@ final class Template_Loader {
 			return;
 		}
 
-		$this->article_content_hooks_fired = false;
-		$this->classic_article_hooks_fired = false;
+		$this->article_content_hooks_fired   = false;
+		$this->classic_article_hooks_fired   = false;
+		$this->post_content_render_depth     = 0;
+		$this->before_article_output         = null;
+		$this->classic_before_article_output = null;
 	}
 
 	/**
@@ -642,7 +653,24 @@ final class Template_Loader {
 		usort(
 			$templates,
 			static function ( \WP_Block_Template $a, \WP_Block_Template $b ) use ( $priorities ) {
-				return $priorities[ $a->slug ] - $priorities[ $b->slug ];
+				$slug_diff = $priorities[ $a->slug ] - $priorities[ $b->slug ];
+
+				if ( 0 !== $slug_diff ) {
+					return $slug_diff;
+				}
+
+				// Same slug-hierarchy priority: a theme or custom-source template
+				// beats the plugin's own, mirroring WordPress's own resolution
+				// where a theme always overrides a plugin at the same slug. Without
+				// this tiebreaker, two templates with the same slug (the plugin's
+				// and the theme's) get 0 from the comparator, and PHP's unstable
+				// usort leaves them in an undefined order — flipping which one
+				// lands at [0] between requests and making plugin_taxonomy_template_wins()
+				// return opposite values for the same site configuration.
+				$a_is_plugin = self::PLUGIN_SLUG === $a->plugin ? 1 : 0;
+				$b_is_plugin = self::PLUGIN_SLUG === $b->plugin ? 1 : 0;
+
+				return $a_is_plugin - $b_is_plugin;
 			}
 		);
 
