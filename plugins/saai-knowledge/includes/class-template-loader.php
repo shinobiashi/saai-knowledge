@@ -118,6 +118,39 @@ final class Template_Loader {
 	private $post_content_render_depth = 0;
 
 	/**
+	 * How many core/post-template blocks (the Query Loop item-list renderer)
+	 * are currently mid-render, tracked from pre_render_block
+	 * (track_post_template_render_start()) to render_block_core/post-template
+	 * (track_post_template_render_end()).
+	 *
+	 * Checked as 0 by fire_before_article_hook() before it latches its
+	 * one-shot flag: a customized single-saai_kb.html can place a Query Loop
+	 * (e.g. "related articles") anywhere relative to the primary
+	 * core/post-content — including BEFORE it — and if that loop's query
+	 * happens to include the very post being viewed, its per-item
+	 * core/post-content satisfies every other check there (outermost by
+	 * $post_content_render_depth, matching post ID) just as well as the
+	 * primary does. Unlike that depth-and-flag pair, this one directly marks
+	 * the region where per-item content renders, independent of iteration
+	 * order or which of possibly several matching items comes first — a
+	 * post-template item's core/post-content is only ever nested via this
+	 * block, and the region built around render_block_core_post_template()'s
+	 * own while() loop (wp-includes/blocks/post-template.php) spans every one
+	 * of its items, before or after the position a caller might expect.
+	 *
+	 * core/post-content's own resolved block context can't substitute for
+	 * this: render_block_core_post_template() injects postId/postType via
+	 * the render_block_context filter, but only when WP_Block::render()
+	 * applies it to each inner block — which happens after pre_render_block
+	 * already ran for that same inner block (wp-includes/class-wp-block.php),
+	 * so it isn't available yet at the point fire_before_article_hook() needs
+	 * to check it.
+	 *
+	 * @var int
+	 */
+	private $post_template_render_depth = 0;
+
+	/**
 	 * Output buffered from the saai_kb_before_article action for a classic
 	 * theme's rendering, captured in buffer_before_article_hook_classic()
 	 * and consumed by wrap_kb_article_content_classic() — the the_content
@@ -178,6 +211,11 @@ final class Template_Loader {
 		// short-circuits this same block (registered at a lower priority)
 		// has already set $pre_render — see fire_before_article_hook()'s
 		// docblock for why that must be checked before tracking depth.
+		// Registered at the same late priority, and for the same reason, as
+		// fire_before_article_hook() below — see that method's docblock and
+		// $post_template_render_depth's.
+		add_filter( 'pre_render_block', array( $this, 'track_post_template_render_start' ), PHP_INT_MAX, 2 );
+		add_filter( 'render_block_core/post-template', array( $this, 'track_post_template_render_end' ) );
 		add_filter( 'pre_render_block', array( $this, 'fire_before_article_hook' ), PHP_INT_MAX, 2 );
 		add_filter( 'render_block_core/post-content', array( $this, 'wrap_kb_article_content' ), 10, 3 );
 
@@ -623,6 +661,16 @@ final class Template_Loader {
 	 * taxonomy-saai_category or a generic taxonomy template), and that must
 	 * be treated as a site override too, not mistaken for this plugin's own.
 	 *
+	 * Called from restrict_category_archive_to_kb() on pre_get_posts, before
+	 * that method has decided whether to set the main query's post_type to
+	 * saai_kb — so exclude_kb_template_for_non_kb_query() (registered on the
+	 * same get_block_templates this calls) would otherwise see an
+	 * as-yet-undecided empty post_type as an explicit non-KB scope and strip
+	 * the plugin's own candidate from the list this method is about to judge,
+	 * mistaking a not-yet-restricted query for a genuinely non-KB one and
+	 * wrongly declaring a lower-priority theme template the winner. Removed
+	 * for the duration of this call for that reason.
+	 *
 	 * @param \WP_Term $term The queried term.
 	 * @return bool Whether the plugin's own template is the one that wins.
 	 */
@@ -639,7 +687,9 @@ final class Template_Loader {
 		$slugs[] = "taxonomy-{$term->taxonomy}";
 		$slugs[] = 'taxonomy';
 
+		remove_filter( 'get_block_templates', array( $this, 'exclude_kb_template_for_non_kb_query' ), 10 );
 		$templates = get_block_templates( array( 'slug__in' => $slugs ) );
+		add_filter( 'get_block_templates', array( $this, 'exclude_kb_template_for_non_kb_query' ), 10, 3 );
 
 		if ( ! $templates ) {
 			// No registered template matches any hierarchy candidate at all —
@@ -740,6 +790,51 @@ final class Template_Loader {
 	}
 
 	/**
+	 * Marks the start of a core/post-template render — see
+	 * $post_template_render_depth's docblock for why fire_before_article_hook()
+	 * needs this.
+	 *
+	 * Only increments if $pre_render is still null, for the same reason
+	 * fire_before_article_hook() only increments $post_content_render_depth
+	 * then: a callback registered at a lower priority than this one (see
+	 * register(), which hooks this at PHP_INT_MAX) may have already
+	 * short-circuited this same block, in which case
+	 * render_block_core_post_template() — and with it,
+	 * track_post_template_render_end(), the filter that decrements this —
+	 * never runs, so counting it here would leak the depth upward with no
+	 * matching decrement.
+	 *
+	 * @param string|null          $pre_render   Pass-through; never short-circuits.
+	 * @param array<string, mixed> $parsed_block The block about to render.
+	 * @return string|null
+	 */
+	public function track_post_template_render_start( $pre_render, array $parsed_block ) {
+		if ( null === $pre_render && 'core/post-template' === ( $parsed_block['blockName'] ?? null ) ) {
+			++$this->post_template_render_depth;
+		}
+
+		return $pre_render;
+	}
+
+	/**
+	 * Marks the end of a core/post-template render — the
+	 * render_block_core/post-template counterpart to
+	 * track_post_template_render_start().
+	 *
+	 * This filter only ever fires for core/post-template (its dynamic hook
+	 * name), so every call here is one such block finishing its render — see
+	 * $post_template_render_depth.
+	 *
+	 * @param string $block_content The rendered post-template block.
+	 * @return string
+	 */
+	public function track_post_template_render_end( string $block_content ): string {
+		--$this->post_template_render_depth;
+
+		return $block_content;
+	}
+
+	/**
 	 * Whether a query's post_type scope is limited to saai_kb only, in either
 	 * WordPress's supported scalar ('saai_kb') or array (['saai_kb']) form.
 	 *
@@ -793,32 +888,37 @@ final class Template_Loader {
 	 * post being viewed (an unusual "related articles" configuration, but
 	 * not an impossible one), that nested core/post-content's the_post()
 	 * call sets get_the_ID() to the SAME post, and would otherwise be
-	 * mistaken for the primary article body. $post_content_render_depth
-	 * doubles as the guard for this: it's tracked for every core/post-content
-	 * block regardless of which post it's for (see that property's
-	 * docblock), so checking it's exactly 1 — no other core/post-content is
-	 * currently mid-render above this one — confirms this is the outermost
-	 * such block, not a nested one, independent of which post it happens to
-	 * match. It's only incremented here if $pre_render is still null:
-	 * render_block() returns any non-null pre_render_block result
-	 * immediately, skipping WP_Block::render() (and with it,
-	 * render_block_core/post-content, the filter that decrements this)
-	 * entirely, so an already-short-circuited block (by another callback
-	 * registered at a lower priority than this one — see register(), which
-	 * hooks this one late for exactly this reason) must not be counted, or
-	 * the depth would leak upward with no matching decrement and wrongly
-	 * suppress wrap_kb_article_content_classic() for the rest of the
-	 * request. A callback registered at a higher priority still than this
-	 * one that later short-circuits the same block is a residual,
-	 * unavoidable gap — nothing currently in this filter chain can look
-	 * ahead to a callback that hasn't run yet.
+	 * mistaken for the primary article body. $post_template_render_depth
+	 * rejects any core/post-content encountered while a core/post-template
+	 * is mid-render, regardless of whether that Query Loop sits before or
+	 * after the primary block in the template — see that property's own
+	 * docblock for why it, not $post_content_render_depth, is what's needed
+	 * here. $post_content_render_depth still separately confirms this
+	 * specific core/post-content is the outermost one currently mid-render
+	 * (checking it's exactly 1) — needed for a DIFFERENT, Query-Loop-free
+	 * case: a template that (unusually) places the Post Content block twice
+	 * directly, with neither copy nested in a Query Loop, where
+	 * $post_template_render_depth would stay 0 for both. It's only
+	 * incremented here if $pre_render is still null: render_block() returns
+	 * any non-null pre_render_block result immediately, skipping
+	 * WP_Block::render() (and with it, render_block_core/post-content, the
+	 * filter that decrements this) entirely, so an already-short-circuited
+	 * block (by another callback registered at a lower priority than this
+	 * one — see register(), which hooks this one late for exactly this
+	 * reason) must not be counted, or the depth would leak upward with no
+	 * matching decrement and wrongly suppress
+	 * wrap_kb_article_content_classic() for the rest of the request. A
+	 * callback registered at a higher priority still than this one that
+	 * later short-circuits the same block is a residual, unavoidable gap —
+	 * nothing currently in this filter chain can look ahead to a callback
+	 * that hasn't run yet.
 	 *
-	 * Depth alone still doesn't catch a SIBLING core/post-content that also
-	 * renders the viewed post (e.g. a "related articles" Query Loop placed
-	 * after the primary block): by the time it starts, the primary has
-	 * already unwound the depth back to 0, so it looks just as "outermost"
-	 * as the primary was. $article_content_hooks_fired is what rejects that
-	 * — see its own docblock.
+	 * For that same Query-Loop-free double-Post-Content-block case,
+	 * $post_content_render_depth alone still can't catch the SECOND copy:
+	 * by the time it starts, the first has already unwound the depth back to
+	 * 0, so it looks just as "outermost" as the first was.
+	 * $article_content_hooks_fired is what rejects that — see its own
+	 * docblock.
 	 *
 	 * @param string|null          $pre_render   Pass-through; never short-circuits.
 	 * @param array<string, mixed> $parsed_block The block about to render.
@@ -833,11 +933,12 @@ final class Template_Loader {
 		// $post_content_render_depth.
 		++$this->post_content_render_depth;
 
-		if ( 1 !== $this->post_content_render_depth || $this->article_content_hooks_fired ) {
-			// Nested inside another core/post-content's own render, or a
-			// sibling of one that already fired — can't be the primary
-			// article body even if it happens to match the checks below
-			// (see this method's docblock).
+		if ( 0 !== $this->post_template_render_depth || 1 !== $this->post_content_render_depth || $this->article_content_hooks_fired ) {
+			// Inside a Query Loop's post-template (before or after the
+			// primary block), nested inside another core/post-content's own
+			// render, or a sibling of one that already fired — can't be the
+			// primary article body even if it happens to match the checks
+			// below (see this method's docblock).
 			return $pre_render;
 		}
 
@@ -963,10 +1064,6 @@ final class Template_Loader {
 	 * visible template pass, permanently latching
 	 * $classic_article_hooks_fired onto its own throwaway derived string and
 	 * leaving the actual rendered output without the hooks at all.
-	 * in_the_loop() reflects the global (main) $wp_query specifically, so a
-	 * theme's own secondary WP_Query (e.g. a "related articles" loop using
-	 * its own the_post() calls) doesn't set it — only the main query's Loop
-	 * does, which is exactly the one call this needs to match.
 	 * $classic_article_hooks_fired still guards against a second the_content()
 	 * call for the same post later within that same Loop pass. Otherwise,
 	 * scoped to the queried post itself, not just any the_content call on a
@@ -974,6 +1071,27 @@ final class Template_Loader {
 	 * Loop rendering other posts' content through the very same filter, and
 	 * is_singular( 'saai_kb' ) alone can't tell those apart from the article
 	 * being viewed — same reasoning as fire_before_article_hook()'s docblock.
+	 *
+	 * Known accepted gap, unlike the equivalent block-theme case
+	 * fire_before_article_hook() solves via $post_template_render_depth:
+	 * in_the_loop() reflects only whether the main query's Loop is still
+	 * running, not which the_content() call is currently active. A
+	 * customized single-saai_kb.php that renders a secondary WP_Query (its
+	 * own "related articles" section) with its own the_post()/the_content()
+	 * calls BEFORE the primary the_content() — while still inside the main
+	 * Loop's single iteration for this post — leaves in_the_loop() true
+	 * throughout, so if that secondary query's results include the viewed
+	 * article itself, its the_content() call satisfies every check here
+	 * first and consumes the hooks, leaving the primary the_content() call
+	 * without them. No hookable signal distinguishes the two calls in that
+	 * case: WordPress's the_post action fires per query (secondary queries
+	 * included), but wp_reset_postdata() — the standard, expected way a
+	 * secondary loop hands control back — doesn't re-fire it, so tracking
+	 * "was the last the_post from the main query" would, by the time the
+	 * primary the_content() call is reached, still read false from the
+	 * secondary loop's own the_post() and wrongly reject the primary too.
+	 * This requires a site's own single-saai_kb.php override deliberately
+	 * built this way — the bundled classic template never does.
 	 *
 	 * @return \WP_Post|null
 	 */

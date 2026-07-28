@@ -1053,6 +1053,79 @@ class Test_Template_Loader extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The same scenario as the sibling-after test above, but with the "related
+	 * articles" Query Loop placed BEFORE the primary core/post-content block
+	 * instead. $post_content_render_depth alone can't reject this either: at
+	 * the point the loop's item renders, the primary hasn't started yet, so
+	 * the loop's copy looks exactly as "outermost, first, and matching" as
+	 * the primary itself would. Checking only which post ID fired the action
+	 * (as the sibling-after test does) wouldn't actually catch a regression
+	 * here — the action fires exactly once with the right post ID either way;
+	 * what breaks is WHICH copy the before/after output wraps. This asserts
+	 * the marker lands directly against the primary's own rendered content,
+	 * not the preceding sibling Query Loop item's.
+	 */
+	public function test_before_article_hook_wraps_the_primary_block_when_a_sibling_query_loop_precedes_it() {
+		$viewed_post_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_content' => 'Viewed article body.',
+			)
+		);
+		$this->go_to( get_permalink( $viewed_post_id ) );
+		the_post();
+
+		$before = static function () {
+			echo '[[BEFORE]]';
+		};
+		add_action( 'saai_kb_before_article', $before );
+
+		$query_attrs = wp_json_encode(
+			array(
+				'query' => array(
+					'postType' => 'saai_kb',
+					'perPage'  => 10,
+					'inherit'  => false,
+				),
+			)
+		);
+
+		$output = do_blocks(
+			"<!-- wp:query {$query_attrs} -->" .
+			'<div class="wp-block-query">' .
+			'<!-- wp:post-template -->' .
+			'<!-- wp:post-content /-->' .
+			'<!-- /wp:post-template -->' .
+			'</div>' .
+			'<!-- /wp:query -->' .
+			'<!-- wp:post-content /-->'
+		);
+
+		remove_action( 'saai_kb_before_article', $before );
+
+		$li_close   = strpos( $output, '</li>' );
+		$marker_pos = strpos( $output, '[[BEFORE]]' );
+
+		$this->assertNotFalse( $li_close, 'test setup: the sibling Query Loop item should render inside an <li>' );
+		$this->assertNotFalse( $marker_pos, 'saai_kb_before_article should have fired' );
+		$this->assertGreaterThan(
+			$li_close,
+			$marker_pos,
+			'the before-hook marker must not land inside the preceding sibling Query Loop item'
+		);
+		$this->assertStringContainsString(
+			'Viewed article body.',
+			// core/post-content wraps its rendered content in its own markup
+			// (e.g. an entry-content div), so the marker sits directly ahead
+			// of that wrapper, not the bare text — a short window after it
+			// is enough to confirm it's the primary's copy, not the
+			// sibling's (already ruled out by the $li_close check above).
+			substr( $output, $marker_pos, 200 ),
+			'the before-hook marker should sit directly ahead of the primary article body'
+		);
+	}
+
+	/**
 	 * A KB article that itself embeds a Query Loop (e.g. a "related
 	 * articles" section written into its own body) renders that loop's
 	 * nested core/post-content blocks *during* the outer article's own
