@@ -310,19 +310,137 @@ class Test_Kb_Sidebar extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Renders src/kb-sidebar/render.php directly with the given postId block
-	 * context, replicating the variable contract WordPress core sets up for a
-	 * block.json "render" callback — see test-kb-toc.php's render_kb_toc()
-	 * for the same pattern and its docblock for why this doesn't need the
-	 * block actually registered or built.
+	 * On a non-empty saai_category term archive, WordPress's own
+	 * WP::register_globals() primes the global $post (and with it, this
+	 * root-level block's default postId context, since it sits outside the
+	 * Query Loop) to the archive's first result — even though no Query Loop
+	 * has actually iterated yet. The sidebar must still expand based on the
+	 * archived term itself, not mistake that seeded postId for a viewed
+	 * article (see breadcrumbs/render.php's equivalent test/docblock).
+	 */
+	public function test_render_prioritizes_archive_context_over_first_result_postid_on_a_category_archive() {
+		$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+		$post_id = self::factory()->post->create( array( 'post_type' => 'saai_kb' ) );
+		wp_set_object_terms( $post_id, array( $term_id ), 'saai_category' );
+
+		$this->go_to( get_term_link( $term_id, 'saai_category' ) );
+
+		$this->assertSame(
+			$post_id,
+			get_the_ID(),
+			'test setup should have primed the global $post to the archive\'s first result'
+		);
+
+		$captured_context = $this->capture_sidebar_context(
+			// Simulates the postId context a root-level usesContext:['postId']
+			// block actually receives on this archive, per render_block()'s
+			// own default-context resolution from the primed global $post.
+			static fn( self $test ) => $test->render_kb_sidebar( get_the_ID() )
+		);
+
+		$this->assertNull( $captured_context['current_post_id'], 'the seeded postId must not be mistaken for a viewed article' );
+		$this->assertSame( $term_id, $captured_context['current_term_id'] );
+	}
+
+	/**
+	 * The KB hub archive (archive-saai_kb) equivalent of the test above —
+	 * WordPress seeds the same default postId context there too.
+	 */
+	public function test_render_ignores_archive_seeded_post_id_on_the_kb_hub_archive() {
+		$post_id = self::factory()->post->create( array( 'post_type' => 'saai_kb' ) );
+
+		$this->go_to( get_post_type_archive_link( 'saai_kb' ) );
+
+		$this->assertSame(
+			$post_id,
+			get_the_ID(),
+			'test setup should have primed the global $post to the archive\'s first result'
+		);
+
+		$captured_context = $this->capture_sidebar_context(
+			static fn( self $test ) => $test->render_kb_sidebar( get_the_ID() )
+		);
+
+		$this->assertNull( $captured_context['current_post_id'], 'the seeded postId must not be mistaken for a viewed article on the KB hub archive' );
+		$this->assertNull( $captured_context['current_term_id'] );
+	}
+
+	/**
+	 * A site-customized taxonomy-saai_category template can place this block
+	 * inside a Query Loop instead of at the root level. There, unlike the
+	 * bundled root-level block, postId is the Query Loop's own genuine
+	 * per-item context — not the archive's default-seeded first result —
+	 * and must win over the archived term even though is_tax( 'saai_category' )
+	 * is true.
+	 */
+	public function test_render_honors_query_loop_postid_on_a_category_archive() {
+		$archived_term = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+		$archive_post  = self::factory()->post->create( array( 'post_type' => 'saai_kb' ) );
+		wp_set_object_terms( $archive_post, array( $archived_term ), 'saai_category' );
+
+		// Deliberately not a member of the archived term: stands in for a
+		// Query Loop item that could list posts from anywhere, unrelated to
+		// the term being archived.
+		$looped_term = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+		$looped_post = self::factory()->post->create( array( 'post_type' => 'saai_kb' ) );
+		wp_set_object_terms( $looped_post, array( $looped_term ), 'saai_category' );
+
+		$this->go_to( get_term_link( $archived_term, 'saai_category' ) );
+
+		// queryId marks this as a genuine Query Loop item render, not the
+		// archive's default seed.
+		$captured_context = $this->capture_sidebar_context(
+			static fn( self $test ) => $test->render_kb_sidebar( $looped_post, 1 )
+		);
+
+		$this->assertSame( $looped_post, $captured_context['current_post_id'] );
+		$this->assertNull( $captured_context['current_term_id'] );
+	}
+
+	/**
+	 * Renders the given render.php call while capturing the $saai_context
+	 * passed to the saai_kb_sidebar_top action — the most direct way to
+	 * observe render.php's internal current_post_id/current_term_id
+	 * resolution without relying on incidental HTML shape.
 	 *
-	 * @param int $post_id Post to set as the block's postId context.
+	 * @param callable(self): void $render Invokes render_kb_sidebar() with this test instance.
+	 * @return array<string, mixed>
+	 */
+	private function capture_sidebar_context( callable $render ): array {
+		$captured_context = null;
+		$capture          = static function ( $context ) use ( &$captured_context ) {
+			$captured_context = $context;
+		};
+
+		add_action( 'saai_kb_sidebar_top', $capture );
+		$render( $this );
+		remove_action( 'saai_kb_sidebar_top', $capture );
+
+		return $captured_context;
+	}
+
+	/**
+	 * Renders src/kb-sidebar/render.php directly with the given postId (and,
+	 * optionally, queryId) block context, replicating the variable contract
+	 * WordPress core sets up for a block.json "render" callback — see
+	 * test-kb-toc.php's render_kb_toc() for the same pattern and its
+	 * docblock for why this doesn't need the block actually registered or
+	 * built.
+	 *
+	 * @param int      $post_id  A postId to simulate in the block's context, or 0 for none.
+	 * @param int|null $query_id A queryId to simulate (a Query Loop ancestor providing it), or null for none.
 	 * @return string
 	 */
-	private function render_kb_sidebar( int $post_id ): string {
+	private function render_kb_sidebar( int $post_id, ?int $query_id = null ): string {
 		$attributes = array();
 		$content    = '';
-		$block      = (object) array( 'context' => array( 'postId' => $post_id ) );
+		$context    = $post_id ? array( 'postId' => $post_id ) : array();
+
+		if ( null !== $query_id ) {
+			$context['queryId'] = $query_id;
+		}
+
+		$block = (object) array( 'context' => $context );
 
 		$previous_block_to_render            = \WP_Block_Supports::$block_to_render;
 		\WP_Block_Supports::$block_to_render = array(
