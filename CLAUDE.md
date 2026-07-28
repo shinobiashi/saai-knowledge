@@ -42,7 +42,7 @@ FAQ / Knowledge Base / 用語集を提供する WordPress プラグインのモ�
 - `@wordpress/scripts`（現行 v30系）で `viewScriptModule`（Interactivity API）を含むブロックをビルドするには `WP_EXPERIMENTAL_MODULES=true` 環境変数が必要。省略してもエラーにならず、該当エントリのビルドが無言でスキップされるだけなので気づきにくい。`start`/`build` スクリプトに `cross-env` 経由で設定する（Windows含むクロスプラットフォーム対応のため）。
 - ブロックのフロントエンド用 `style.scss` は block.json の `style` フィールド指定だけでは自動検出されず、JSエントリ側で `import './style.scss'` する必要がある。生成されるCSSファイル名はインポート元エントリ名に連動するため、block.json の `style` もそれに合わせる（`view.js` からのimportなら `style-view.css`、`view.js` を持たない非インタラクティブブロックで `index.js` からimportするなら `style-index.css`）。エディタ用 `editor.scss` も同様に `index.js` 側でimportする。フロント用スタイルを付け忘れると、`<ol>` が番号付きリストのまま出るなど素の見た目で表示される。
 - Interactivity APIの `data-wp-bind--X` ディレクティブは、ハイドレーション後の状態変化にのみ反応し、初回描画（SSR出力）には適用されない。折りたたみ要素などの初期表示状態は、SSR側で対応する生のHTML属性（例: `hidden`）を出力して一致させる必要がある（さもないと初回クリックで見た目が変わらず2回目で追いつくような壊れた挙動になる）。
-- 「現在の記事」に依存する dynamic block の `render.php` は `is_singular()` だけに頼らず、block.json に `"usesContext": [ "postId" ]` を宣言して `$block->context['postId']` を優先する（`is_singular` はフォールバック）。エディターの ServerSideRender プレビューは REST block-renderer 経由で `is_singular()` が偽だが、post_id パラメータ→グローバル `$post`→`render_block()` の既定コンテキストとして postId が供給されるため、これでプレビューが正しく描画される。
+- 「現在の記事」に依存する dynamic block の `render.php` は `is_singular()` だけに頼らず、block.json に `"usesContext": [ "postId" ]` を宣言して `$block->context['postId']` を優先する（`is_singular` はフォールバック）。エディターの ServerSideRender プレビューは REST block-renderer 経由で `is_singular()` が偽だが、post_id パラメータ→グローバル `$post`→`render_block()` の既定コンテキストとして postId が供給されるため、これでプレビューが正しく描画される。ただし非空のアーカイブ／タクソノミー一覧ページでは、Query Loop が反復する前でも WordPress がその最初の結果へグローバル `$post`（ひいてはルートブロックの既定 postId コンテキスト）を事前にプライムするため、ルートレベルのブロックは `is_archive()`/`is_tax()` 等の判定を postId より先に評価しないと先頭記事を「閲覧中の記事」と誤認する。`queryId` コンテキストの有無で「本物の Query Loop 反復アイテムか」を見分けられるが、`queryId` は「core/query の子孫である」ことしか証明せず、「反復アイテム本体（post-template 内）」であることまでは証明しない。WordPress core に per-item 反復を示す専用 context キーは存在せず、`in_the_loop()` もループ終了後に `true` が残る別の穴があり代替にならない（`core/query` 直下に Post Template と兄弟でブロックを配置する非定型カスタマイズは既知の制約として現状維持）。
 - フロント実行の `view.js` でブラウザグローバル（`document`、`IntersectionObserver` 等）を使うと wp-scripts 同梱の ESLint 設定では `no-undef` になる。`plugins/saai-knowledge/.eslintrc.js` が `src/**/view.js` にのみ browser env を許可済みなので、追加の許可もそこに足す。
 - `esc_url()` / `esc_url_raw()` は許可外プロトコル（`javascript:`、`data:` 等）を空文字に落とすため、URLの有無は**サニタイズ後の値で判定する**。生値で判定して出力時にエスケープすると `href=""` の壊れたリンクや、構造化データへの不正値混入になる。なお `esc_url_raw( '0' )` は `'http://0'` を返す（空にはならない）ので、"0" を空扱いする実装は不要。
 - JSON-LD は `wp_json_encode()` の出力をそのまま `<script type="application/ld+json">` に入れる（`esc_html()` を通すとJSONが壊れる）。`wp_json_encode()` は既定でスラッシュをエスケープするため、値に `</script>` が含まれてもタグを閉じられない。日本語を読める形で出すなら `JSON_UNESCAPED_UNICODE` を付ける。
@@ -53,6 +53,8 @@ FAQ / Knowledge Base / 用語集を提供する WordPress プラグインのモ�
 - `container-type` を設定した要素自身は、その要素に対する `@container` クエリの対象にできない（コンテナは自分自身の子孫のみクエリ可能で、自分自身のスタイルを自分のサイズで条件分岐させることはできない）。`.saai-kb-layout { container-type: inline-size; }` に対して `.saai-kb-layout--article { grid-template-columns: ... }` を同じ要素に書いても、ブラウザは黙って無視する（エラーは出ないが常に不成立）。グリッド化したい要素は、コンテナ要素とは別の子孫要素（例: `.saai-kb-layout__grid`）に分離し、そちらを `@container` の対象にする。
 - ネイティブ `<details>` の折りたたみコンテンツを「デスクトップ幅では常に開いた状態に見せる」目的でCSSから強制表示しようとする場合、`details:not([open]) > *:not(summary) { display: none }` という古典的な想定は最近のChromium（`::details-content` 擬似要素による開閉のアニメーション対応後）ではもう成立しない。子要素に直接 `display: block` を当てても親の `<details>` 自体の高さが0のまま伸びず、実質非表示になる（Playwrightの `toBeVisible()` で「hidden」と判定されて顕在化した）。CSSで開閉状態を上書きしようとせず、`open` 属性をサーバーサイドで最初から出力し（内容は常にSSR済みでJS不要要件も満たす）、デスクトップ幅では `<summary>` トグル自体を非表示にする設計にする。
 - `composer test`（PHPUnit）を wp-env の `tests-cli` に対して実行すると、テストサイトのDBがWP coreのテストブートストラップにより再インストールされ、`saai-knowledge` プラグインの有効化状態と `permalink_structure`（パーマリンク設定）が両方ともリセットされる。同じ `tests-cli`（ポート8889）に対してPlaywright E2E（`npm run test:e2e`）を実行する場合、直前に `composer test` を走らせていたら、`wp plugin activate saai-knowledge` と `bash bin/wp-env-configure-permalinks.sh` を実行し直してからでないとCPT/タクソノミーのREST・pretty permalink URLが404/`rest_no_route`になる。
+- 優先度リストを `array_flip()` して `usort()` で並べ替える際、同一優先度の候補が2つ以上あると比較関数が `0` を返し、PHPの `usort()` は不安定ソートのため勝者がリクエストごとに不定になりうる（`plugin_taxonomy_template_wins()` のタクソノミーテンプレート優先度判定で実際に発生）。同点時のタイブレーカー（例: 自プラグイン由来かどうか）を明示的に用意する。
+- 自身が登録しているフィルターを、内部API呼び出し中の自己干渉回避のため一時的に `remove_filter()` する場合、無条件の remove→add ではなく `has_filter()` で事前登録状態を記録し、元々登録されていた場合のみ `add_filter()` で復元する。`register()` を経由せず直接呼ばれる経路（reflectionを使うテスト等）では、無条件の復元がフィルターをプロセスの残り期間グローバルに登録したままにする副作用を生む。
 
 ## Git 運用（重要）
 
@@ -84,11 +86,9 @@ npx wp-env run tests-cli --env-cwd=saai-monorepo bash -c "composer test"
 
 他プロジェクトの wp-env がポート 8888/8889 を使用中で起動が「port is already allocated」で失敗する場合は、`WP_ENV_PORT=8890 WP_ENV_TESTS_PORT=8892 composer verify` のように環境変数でポートをずらして並行起動する（wp-env インスタンスはディレクトリ単位で独立しており、衝突するのはポートのみ。他プロジェクト側を止める必要はない）。
 
-Playwright E2E（`npm run test:e2e`）は M2 でセットアップ予定、現時点では未整備。
-
 ## CI（GitHub Actions）
 
-- `ci-php.yml`（PHPCS / PHPStan / PHPUnit、PHP 8.2–8.4 × WP 6.9–latest）、`ci-js.yml`、`release.yml`（`v*` タグ push で無料版 ZIP を GitHub Release に添付）。
+- `ci-php.yml`（PHPCS / PHPStan / PHPUnit、PHP 8.2–8.4 × WP 6.9–latest）、`ci-js.yml`（Lint JS/CSS・Build に加え、`wp-env start` → `npm run test:e2e` を実行する E2E ジョブ）、`release.yml`（`v*` タグ push で無料版 ZIP を GitHub Release に添付）。
 - `bin/install-wp-tests.sh` は wp-cli scaffold の移植。改変時は必ず canonical と突き合わせる（ABSPATH sed の末尾スラッシュ欠落で全マトリクスが落ちた実績）。ubuntu-latest ランナーに svn は無い（ワークフロー側で apt install 済み）。
 
 ## Markdown 規約（docs/）
