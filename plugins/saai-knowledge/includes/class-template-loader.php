@@ -39,6 +39,10 @@ final class Template_Loader {
 			'match'  => 'post_type_archive',
 			'target' => 'saai_kb',
 		),
+		'archive-saai_faq'       => array(
+			'match'  => 'post_type_archive',
+			'target' => 'saai_faq',
+		),
 		'taxonomy-saai_category' => array(
 			'match'  => 'taxonomy',
 			'target' => 'saai_category',
@@ -1326,6 +1330,7 @@ final class Template_Loader {
 			'single-saai_faq'        => __( 'Single: FAQ', 'saai-knowledge' ),
 			'single-saai_glossary'   => __( 'Single: Glossary Term', 'saai-knowledge' ),
 			'archive-saai_kb'        => __( 'Knowledge Base Hub', 'saai-knowledge' ),
+			'archive-saai_faq'       => __( 'FAQ Archive', 'saai-knowledge' ),
 			'taxonomy-saai_category' => __( 'Knowledge Base Category Archive', 'saai-knowledge' ),
 		);
 

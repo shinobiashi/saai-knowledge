@@ -60,6 +60,7 @@ final class Plugin {
 		( new Term_Order() )->register();
 		( new Template_Loader() )->register();
 		( new Heading_Anchors() )->register();
+		( new Faq_List() )->register();
 		( new Blocks() )->register();
 		( new Shortcodes() )->register();
 

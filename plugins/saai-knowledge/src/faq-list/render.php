@@ -1,0 +1,146 @@
+<?php
+/**
+ * Server-side render for the saai-knowledge/faq-list block.
+ *
+ * @package SAAI\Knowledge
+ *
+ * @var array<string, mixed> $attributes Block attributes.
+ * @var string               $content    Inner block content (unused, block has no children).
+ * @var WP_Block             $block      Block instance.
+ */
+
+use SAAI\Knowledge\Faq_List;
+
+defined( 'ABSPATH' ) || exit;
+
+if ( ! function_exists( 'saai_render_faq_list_json_ld' ) ) {
+	/**
+	 * Renders the FAQPage JSON-LD script tag.
+	 *
+	 * @param array<string, mixed> $schema Schema, see Faq_List::json_ld().
+	 * @return string
+	 */
+	function saai_render_faq_list_json_ld( array $schema ): string {
+		// wp_json_encode() escapes forward slashes by default, which turns
+		// any "</script>" appearing inside an answer into "<\/script>" and
+		// keeps it from breaking out of this script tag.
+		$encoded = wp_json_encode( $schema, JSON_UNESCAPED_UNICODE );
+
+		if ( ! is_string( $encoded ) ) {
+			return '';
+		}
+
+		return sprintf( '<script type="application/ld+json">%s</script>', $encoded );
+	}
+}
+
+if ( Faq_List::is_rendering() ) {
+	// A faq-list block (or [saai_faq] shortcode) nested inside an FAQ answer
+	// would otherwise recurse forever through the answer rendering.
+	return;
+}
+
+$saai_faq_list = new Faq_List();
+$saai_attrs    = $saai_faq_list->normalize( $attributes );
+
+Faq_List::begin_render();
+
+try {
+	if ( $saai_attrs['groupByCategory'] ) {
+		$saai_groups = $saai_faq_list->grouped_items( $saai_attrs );
+	} else {
+		$saai_items  = $saai_faq_list->items( $saai_attrs );
+		$saai_groups = $saai_items ? array(
+			array(
+				'term'  => null,
+				'title' => '',
+				'items' => $saai_items,
+			),
+		) : array();
+	}
+
+	$saai_sections  = '';
+	$saai_all_items = array();
+
+	foreach ( $saai_groups as $saai_group ) {
+		$saai_group_items = is_array( $saai_group['items'] ?? null ) ? $saai_group['items'] : array();
+		$saai_accordion   = $saai_faq_list->accordion( $saai_group_items );
+
+		if ( '' === $saai_accordion ) {
+			continue;
+		}
+
+		$saai_all_items = array_merge( $saai_all_items, $saai_group_items );
+
+		$saai_group_title = $saai_group['title'] ?? '';
+		$saai_heading     = '';
+
+		// Not empty(): a category legitimately named "0" must keep its heading.
+		if ( is_scalar( $saai_group_title ) && '' !== (string) $saai_group_title ) {
+			$saai_heading = sprintf(
+				'<h2 class="saai-faq-list__group-title">%s</h2>',
+				esc_html( (string) $saai_group_title )
+			);
+		}
+
+		$saai_sections .= sprintf(
+			'<section class="saai-faq-list__group">%1$s%2$s</section>',
+			$saai_heading,
+			$saai_accordion
+		);
+	}
+} finally {
+	Faq_List::finish_render();
+}
+
+$saai_wrapper_attributes = get_block_wrapper_attributes( array( 'class' => 'saai-faq-list' ) );
+
+if ( '' === $saai_sections ) {
+	printf(
+		'<div %1$s><p class="saai-faq-list__empty">%2$s</p></div>',
+		$saai_wrapper_attributes, // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- get_block_wrapper_attributes() already escapes.
+		esc_html__( 'No FAQs found.', 'saai-knowledge' )
+	);
+
+	return;
+}
+
+ob_start();
+
+/**
+ * Fires before the FAQ list.
+ *
+ * @since 0.1.0
+ *
+ * @param array<string, mixed> $saai_attrs The normalized block attributes.
+ */
+do_action( 'saai_faq_before_list', $saai_attrs );
+
+echo $saai_sections; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built from already-escaped fragments and do_blocks() output.
+
+/**
+ * Fires after the FAQ list.
+ *
+ * @since 0.1.0
+ *
+ * @param array<string, mixed> $saai_attrs The normalized block attributes.
+ */
+do_action( 'saai_faq_after_list', $saai_attrs );
+
+$saai_inner = ob_get_clean();
+
+$saai_json_ld = '';
+
+if ( $saai_faq_list->structured_data_enabled() && Faq_List::claim_structured_data_slot() ) {
+	$saai_current_post = get_post();
+	$saai_json_ld      = saai_render_faq_list_json_ld(
+		$saai_faq_list->json_ld( $saai_all_items, $saai_current_post instanceof WP_Post ? $saai_current_post : null )
+	);
+}
+
+printf(
+	'<div %1$s>%2$s%3$s</div>',
+	$saai_wrapper_attributes, // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- get_block_wrapper_attributes() already escapes.
+	$saai_inner, // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built from already-escaped fragments.
+	$saai_json_ld // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built from wp_json_encode(), see saai_render_faq_list_json_ld().
+);

@@ -133,7 +133,7 @@ CPT 登録変更時のみ `flush_rewrite_rules()`（有効化時 + スラッグ�
 | --- | --- |
 | `saai-knowledge/kb-sidebar` | カテゴリー×記事ツリー（dynamic / Interactivity API） |
 | `saai-knowledge/kb-toc` | ページ内目次 + スクロールスパイ |
-| `saai-knowledge/faq-list` | FAQアコーディオン。アコーディオンUIは**コア Accordion ブロック（WP 6.9で追加）のマークアップ/スタイルを内部利用**し自作しない。属性: カテゴリー・件数・並び順。`FAQPage` JSON-LD を自動出力 |
+| `saai-knowledge/faq-list` | FAQアコーディオン。アコーディオンUIは**コア Accordion ブロック（WP 6.9で追加）のマークアップ/スタイルを内部利用**し自作しない。属性: カテゴリー・件数・並び順・カテゴリー別グルーピング（FAQアーカイブテンプレートが使用。各FAQは表示順で最初のカテゴリーに属し、未分類は末尾の「Other」グループへ）。`FAQPage` JSON-LD を自動出力（1リクエストにつき最初のブロックのみ。Google の「FAQPage は1ページ1つ」ガイドラインに従う） |
 | `saai-knowledge/glossary-index` | 五十音 / A–Z 索引 |
 | `saai-knowledge/search` | 横断ライブ検索ボックス（対象タイプを属性で選択） |
 | `saai-knowledge/breadcrumbs` | KB用パンくず（`BreadcrumbList` JSON-LD） |

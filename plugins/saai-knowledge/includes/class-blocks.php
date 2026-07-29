@@ -23,6 +23,7 @@ final class Blocks {
 		'kb-sidebar',
 		'kb-toc',
 		'breadcrumbs',
+		'faq-list',
 	);
 
 	/**
