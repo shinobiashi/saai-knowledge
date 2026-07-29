@@ -171,6 +171,34 @@ class Test_Faq_List extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Shortcodes inside an answer should see the FAQ entry — not the page
+	 * containing the faq-list block — as the current post, and the containing
+	 * page's context should be restored after the render.
+	 */
+	public function test_items_renders_answers_in_the_faq_post_context() {
+		add_shortcode(
+			'saai_test_current_id',
+			static function () {
+				return (string) get_the_ID();
+			}
+		);
+
+		$faq_id  = $this->create_faq( array( 'post_content' => 'Current ID: [saai_test_current_id]' ) );
+		$page_id = self::factory()->post->create( array( 'post_type' => 'page' ) );
+
+		$this->go_to( get_permalink( $page_id ) );
+
+		try {
+			$items = $this->faq_list->items( array() );
+		} finally {
+			remove_shortcode( 'saai_test_current_id' );
+		}
+
+		$this->assertStringContainsString( "Current ID: {$faq_id}", $items[0]['answer'] );
+		$this->assertSame( $page_id, get_the_ID() );
+	}
+
+	/**
 	 * The orderBy/order attributes should control the item order.
 	 */
 	public function test_items_ordering_by_title() {
@@ -349,6 +377,25 @@ class Test_Faq_List extends WP_UnitTestCase {
 	}
 
 	/**
+	 * HTML character references produced by the_title filters (& → &#038;,
+	 * ' → &#8217;) should be decoded to plain text in the question name —
+	 * JSON-LD contents are never HTML-entity-decoded by consumers.
+	 */
+	public function test_json_ld_decodes_html_entities_in_question_names() {
+		$schema = $this->faq_list->json_ld(
+			array(
+				array(
+					'id'       => 1,
+					'question' => 'A &#038; B&#8217;s guide?',
+					'answer'   => '<p>Answer</p>',
+				),
+			)
+		);
+
+		$this->assertSame( 'A & B’s guide?', $schema['mainEntity'][0]['name'] );
+	}
+
+	/**
 	 * The saai_structured_data filter should receive the faq-page type and be
 	 * able to replace the schema; a non-array return should be ignored.
 	 */
@@ -421,5 +468,60 @@ class Test_Faq_List extends WP_UnitTestCase {
 
 		Faq_List::finish_render();
 		$this->assertFalse( Faq_List::is_rendering() );
+	}
+
+	/**
+	 * Renders the faq-list block with a saai_structured_data callback
+	 * capturing the post argument the block passes to the filter.
+	 *
+	 * @return \WP_Post|null|string The captured argument, or 'unset' if the
+	 *                              filter never ran.
+	 */
+	private function render_block_capturing_structured_data_post() {
+		$received = 'unset';
+		$filter   = function ( $schema, $schema_type, $post ) use ( &$received ) {
+			$received = $post;
+
+			return $schema;
+		};
+
+		add_filter( 'saai_structured_data', $filter, 10, 3 );
+
+		try {
+			do_blocks( '<!-- wp:saai-knowledge/faq-list /-->' );
+		} finally {
+			remove_filter( 'saai_structured_data', $filter, 10 );
+		}
+
+		return $received;
+	}
+
+	/**
+	 * On the FAQ archive, WordPress primes the global $post with the first
+	 * main-query result before any block renders — that arbitrary FAQ must
+	 * not reach the saai_structured_data filter as "the current post".
+	 */
+	public function test_faq_archive_json_ld_passes_no_post_to_the_structured_data_filter() {
+		$this->create_faq( array( 'post_title' => 'Archived question' ) );
+
+		$this->go_to( get_post_type_archive_link( 'saai_faq' ) );
+
+		$this->assertNull( $this->render_block_capturing_structured_data_post() );
+	}
+
+	/**
+	 * On a singular view, the post containing the block is the genuine
+	 * current post and should reach the saai_structured_data filter.
+	 */
+	public function test_singular_json_ld_passes_the_containing_post_to_the_structured_data_filter() {
+		$this->create_faq( array( 'post_title' => 'Embedded question' ) );
+		$page_id = self::factory()->post->create( array( 'post_type' => 'page' ) );
+
+		$this->go_to( get_permalink( $page_id ) );
+
+		$received = $this->render_block_capturing_structured_data_post();
+
+		$this->assertInstanceOf( \WP_Post::class, $received );
+		$this->assertSame( $page_id, $received->ID );
 	}
 }

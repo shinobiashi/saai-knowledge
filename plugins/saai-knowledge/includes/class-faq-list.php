@@ -364,7 +364,12 @@ final class Faq_List {
 
 			$questions[] = array(
 				'@type'          => 'Question',
-				'name'           => wp_strip_all_tags( (string) $question ),
+				// The question text arrives via get_the_title(), whose the_title
+				// filters encode characters as HTML references (& → &#038;,
+				// ' → &#8217;). JSON-LD script contents are never HTML-entity-
+				// decoded by consumers, so decode to plain text after stripping
+				// tags.
+				'name'           => html_entity_decode( wp_strip_all_tags( (string) $question ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' ),
 				'acceptedAnswer' => array(
 					'@type' => 'Answer',
 					// Google's FAQPage guidelines allow a limited HTML subset
@@ -417,19 +422,40 @@ final class Faq_List {
 	 * would re-fire every third-party filter attached to it for a different
 	 * post than they expect.
 	 *
+	 * The FAQ entry is made the current post for the duration of the render:
+	 * shortcodes and dynamic blocks inside the answer can read the global
+	 * $post directly (or, for blocks, receive it as render_block()'s default
+	 * postId context), and at this point it still belongs to whatever page
+	 * contains the faq-list block — not this FAQ. The previous context is
+	 * restored afterward so the containing page's own render continues
+	 * unaffected.
+	 *
 	 * @param \WP_Post $post The FAQ entry.
 	 * @return string
 	 */
 	private function render_answer( \WP_Post $post ): string {
-		$content = (string) $post->post_content;
+		$previous_post = $GLOBALS['post'] ?? null;
 
-		if ( has_blocks( $content ) ) {
-			$html = wptexturize( do_blocks( $content ) );
-		} else {
-			$html = wpautop( wptexturize( $content ) );
+		$GLOBALS['post'] = $post; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- deliberately scoping the FAQ as the current post for its own answer render; restored in the finally block.
+		setup_postdata( $post );
+
+		try {
+			$content = (string) $post->post_content;
+
+			if ( has_blocks( $content ) ) {
+				$html = wptexturize( do_blocks( $content ) );
+			} else {
+				$html = wpautop( wptexturize( $content ) );
+			}
+
+			return do_shortcode( shortcode_unautop( $html ) );
+		} finally {
+			$GLOBALS['post'] = $previous_post; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- restoring the exact pre-render value saved above.
+
+			if ( $previous_post instanceof \WP_Post ) {
+				setup_postdata( $previous_post );
+			}
 		}
-
-		return do_shortcode( shortcode_unautop( $html ) );
 	}
 
 	/**

@@ -132,9 +132,36 @@ $saai_inner = ob_get_clean();
 $saai_json_ld = '';
 
 if ( $saai_faq_list->structured_data_enabled() && Faq_List::claim_structured_data_slot() ) {
-	$saai_current_post = get_post();
-	$saai_json_ld      = saai_render_faq_list_json_ld(
-		$saai_faq_list->json_ld( $saai_all_items, $saai_current_post instanceof WP_Post ? $saai_current_post : null )
+	// On a non-empty archive — the bundled FAQ archive template in
+	// particular — WordPress primes the global $post (and with it the
+	// top-level render_block()'s default postId context) to the FIRST
+	// main-query result before any block renders, even though the page is
+	// not that post's singular view (see breadcrumbs/render.php for the
+	// full reasoning). Passing that arbitrary first FAQ to the
+	// saai_structured_data filter would let an add-on attach the wrong
+	// post's metadata to the archive's FAQPage schema, so archive-style
+	// views pass null. A genuine Query Loop item render is the exception:
+	// the queryId context marks it, and there postId is the loop's own
+	// per-item context rather than the default seed.
+	$saai_current_post = null;
+
+	if ( isset( $block->context['queryId'] ) || ! ( is_archive() || is_search() || is_home() ) ) {
+		// The block-renderer REST endpoint (editor ServerSideRender
+		// preview) supplies postId context from its post_id parameter;
+		// the front end's render_block() derives it from the main query
+		// (or the Query Loop item, when nested in one). get_post() is the
+		// fallback for renders without any context, e.g. the [saai_faq]
+		// shortcode on a singular view.
+		$saai_post_id   = isset( $block->context['postId'] ) ? (int) $block->context['postId'] : 0;
+		$saai_candidate = $saai_post_id ? get_post( $saai_post_id ) : get_post();
+
+		if ( $saai_candidate instanceof WP_Post ) {
+			$saai_current_post = $saai_candidate;
+		}
+	}
+
+	$saai_json_ld = saai_render_faq_list_json_ld(
+		$saai_faq_list->json_ld( $saai_all_items, $saai_current_post )
 	);
 }
 
