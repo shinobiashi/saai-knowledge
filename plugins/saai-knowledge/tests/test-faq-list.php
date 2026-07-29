@@ -474,10 +474,36 @@ class Test_Faq_List extends WP_UnitTestCase {
 	 * Renders the faq-list block with a saai_structured_data callback
 	 * capturing the post argument the block passes to the filter.
 	 *
+	 * The real block type is only registered when build/ exists (CI runs
+	 * PHPUnit without a JS build — see test-shortcodes.php for the same
+	 * situation), so this swaps in a registration backed by the same
+	 * render.php straight from src/ and restores the registry afterwards
+	 * (the block registry is not reset between tests).
+	 *
 	 * @return \WP_Post|null|string The captured argument, or 'unset' if the
 	 *                              filter never ran.
 	 */
 	private function render_block_capturing_structured_data_post() {
+		$registry = \WP_Block_Type_Registry::get_instance();
+		$original = $registry->get_registered( 'saai-knowledge/faq-list' );
+
+		if ( $original ) {
+			$registry->unregister( 'saai-knowledge/faq-list' );
+		}
+
+		register_block_type(
+			'saai-knowledge/faq-list',
+			array(
+				'uses_context'    => array( 'postId', 'queryId' ),
+				'render_callback' => static function ( $attributes, $content, $block ) { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed -- all three are consumed by the required render.php via the closure scope, matching the register_block_type_from_metadata() contract.
+					ob_start();
+					require dirname( __DIR__ ) . '/src/faq-list/render.php';
+
+					return ob_get_clean();
+				},
+			)
+		);
+
 		$received = 'unset';
 		$filter   = function ( $schema, $schema_type, $post ) use ( &$received ) {
 			$received = $post;
@@ -491,6 +517,11 @@ class Test_Faq_List extends WP_UnitTestCase {
 			do_blocks( '<!-- wp:saai-knowledge/faq-list /-->' );
 		} finally {
 			remove_filter( 'saai_structured_data', $filter, 10 );
+			$registry->unregister( 'saai-knowledge/faq-list' );
+
+			if ( $original ) {
+				$registry->register( $original );
+			}
 		}
 
 		return $received;
