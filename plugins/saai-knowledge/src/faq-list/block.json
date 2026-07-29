@@ -6,7 +6,7 @@
 	"category": "widgets",
 	"description": "FAQ accordion list with FAQPage structured data, built on the core Accordion block.",
 	"textdomain": "saai-knowledge",
-	"usesContext": [ "postId", "queryId" ],
+	"usesContext": [ "postId" ],
 	"attributes": {
 		"category": {
 			"type": "string",

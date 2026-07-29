@@ -1730,6 +1730,22 @@ class Test_Template_Loader extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The redirect must run late enough on template_redirect for an add-on's
+	 * own template_redirect callback (a documented registration point for the
+	 * saai_template override — see resolved_classic_template_path()) to have
+	 * installed its override first.
+	 */
+	public function test_paged_faq_archive_redirect_is_hooked_after_late_template_overrides() {
+		$loader = new \SAAI\Knowledge\Template_Loader();
+		$loader->register();
+
+		$this->assertSame(
+			PHP_INT_MAX,
+			has_action( 'template_redirect', array( $loader, 'redirect_paged_faq_archive' ) )
+		);
+	}
+
+	/**
 	 * A paged FAQ archive request (/faq/page/2/) should redirect to the
 	 * archive root: the bundled template ignores the paged main query and
 	 * renders the full accordion, so every paged URL would duplicate it.

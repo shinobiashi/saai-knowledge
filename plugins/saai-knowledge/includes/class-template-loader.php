@@ -197,7 +197,14 @@ final class Template_Loader {
 		// enqueue_layout_style()'s docblock for why the Site Editor needs it too.
 		add_action( 'enqueue_block_assets', array( $this, 'enqueue_layout_style' ) );
 		add_action( 'pre_get_posts', array( $this, 'restrict_category_archive_to_kb' ) );
-		add_action( 'template_redirect', array( $this, 'redirect_paged_faq_archive' ) );
+		// Hooked at PHP_INT_MAX: the classic-theme resolver documents
+		// saai_template as registrable as late as a template_redirect
+		// callback (see resolved_classic_template_path()'s docblock), and
+		// this plugin boots earlier than any add-on can register such a
+		// callback — a default-priority hook here would redirect and exit
+		// before the add-on's own template_redirect callback had a chance to
+		// install its override.
+		add_action( 'template_redirect', array( $this, 'redirect_paged_faq_archive' ), PHP_INT_MAX );
 		// Separate from the above (which only concerns saai_category
 		// archives): a real HTTP request is a fresh PHP process, so
 		// $article_content_hooks_fired/$classic_article_hooks_fired start

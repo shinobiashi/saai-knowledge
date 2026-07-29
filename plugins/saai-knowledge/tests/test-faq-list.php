@@ -445,16 +445,19 @@ class Test_Faq_List extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Only the first claim per request should win the JSON-LD slot, and a new
-	 * main query should release it.
+	 * The JSON-LD slot should be claimed per attribute signature: the same
+	 * block may emit again (a visible render after a speculative one whose
+	 * output was discarded), a different block may not, and a new main query
+	 * should release the slot entirely.
 	 */
 	public function test_structured_data_slot_is_claimed_once_per_request() {
-		$this->assertTrue( Faq_List::claim_structured_data_slot() );
-		$this->assertFalse( Faq_List::claim_structured_data_slot() );
+		$this->assertTrue( Faq_List::claim_structured_data_slot( 'sig-a' ) );
+		$this->assertTrue( Faq_List::claim_structured_data_slot( 'sig-a' ) );
+		$this->assertFalse( Faq_List::claim_structured_data_slot( 'sig-b' ) );
 
 		// A new main query resets the slot via the registered pre_get_posts hook.
 		$this->go_to( home_url( '/' ) );
-		$this->assertTrue( Faq_List::claim_structured_data_slot() );
+		$this->assertTrue( Faq_List::claim_structured_data_slot( 'sig-b' ) );
 	}
 
 	/**
@@ -471,19 +474,17 @@ class Test_Faq_List extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Renders the faq-list block with a saai_structured_data callback
-	 * capturing the post argument the block passes to the filter.
+	 * Swaps in a faq-list block registration backed by the same render.php
+	 * straight from src/.
 	 *
 	 * The real block type is only registered when build/ exists (CI runs
 	 * PHPUnit without a JS build — see test-shortcodes.php for the same
-	 * situation), so this swaps in a registration backed by the same
-	 * render.php straight from src/ and restores the registry afterwards
-	 * (the block registry is not reset between tests).
+	 * situation). Callers must pair this with restore_faq_list_block() in a
+	 * finally block (the block registry is not reset between tests).
 	 *
-	 * @return \WP_Post|null|string The captured argument, or 'unset' if the
-	 *                              filter never ran.
+	 * @return \WP_Block_Type|null The previously registered block type, if any.
 	 */
-	private function render_block_capturing_structured_data_post() {
+	private function register_src_faq_list_block(): ?\WP_Block_Type {
 		$registry = \WP_Block_Type_Registry::get_instance();
 		$original = $registry->get_registered( 'saai-knowledge/faq-list' );
 
@@ -494,7 +495,7 @@ class Test_Faq_List extends WP_UnitTestCase {
 		register_block_type(
 			'saai-knowledge/faq-list',
 			array(
-				'uses_context'    => array( 'postId', 'queryId' ),
+				'uses_context'    => array( 'postId' ),
 				'render_callback' => static function ( $attributes, $content, $block ) { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed -- all three are consumed by the required render.php via the closure scope, matching the register_block_type_from_metadata() contract.
 					ob_start();
 					require dirname( __DIR__ ) . '/src/faq-list/render.php';
@@ -503,6 +504,35 @@ class Test_Faq_List extends WP_UnitTestCase {
 				},
 			)
 		);
+
+		return $original;
+	}
+
+	/**
+	 * Restores the block registry after register_src_faq_list_block().
+	 *
+	 * @param \WP_Block_Type|null $original The previously registered block type, if any.
+	 */
+	private function restore_faq_list_block( ?\WP_Block_Type $original ): void {
+		$registry = \WP_Block_Type_Registry::get_instance();
+		$registry->unregister( 'saai-knowledge/faq-list' );
+
+		if ( $original ) {
+			$registry->register( $original );
+		}
+	}
+
+	/**
+	 * Renders the faq-list block with a saai_structured_data callback
+	 * capturing the post argument the block passes to the filter.
+	 *
+	 * @param callable|null $render Custom render routine; defaults to a plain
+	 *                              do_blocks() of the block comment.
+	 * @return \WP_Post|null|string The captured argument, or 'unset' if the
+	 *                              filter never ran.
+	 */
+	private function render_block_capturing_structured_data_post( ?callable $render = null ) {
+		$original = $this->register_src_faq_list_block();
 
 		$received = 'unset';
 		$filter   = function ( $schema, $schema_type, $post ) use ( &$received ) {
@@ -514,14 +544,14 @@ class Test_Faq_List extends WP_UnitTestCase {
 		add_filter( 'saai_structured_data', $filter, 10, 3 );
 
 		try {
-			do_blocks( '<!-- wp:saai-knowledge/faq-list /-->' );
+			if ( $render ) {
+				$render();
+			} else {
+				do_blocks( '<!-- wp:saai-knowledge/faq-list /-->' );
+			}
 		} finally {
 			remove_filter( 'saai_structured_data', $filter, 10 );
-			$registry->unregister( 'saai-knowledge/faq-list' );
-
-			if ( $original ) {
-				$registry->register( $original );
-			}
+			$this->restore_faq_list_block( $original );
 		}
 
 		return $received;
@@ -554,5 +584,128 @@ class Test_Faq_List extends WP_UnitTestCase {
 
 		$this->assertInstanceOf( \WP_Post::class, $received );
 		$this->assertSame( $page_id, $received->ID );
+	}
+
+	/**
+	 * The queryId context only proves "some descendant of core/query" — a block
+	 * placed beside the Post Template inherits it while postId is still the
+	 * archive's seeded first result. On an archive, supplied Query Loop
+	 * context must not smuggle that arbitrary post into the filter.
+	 */
+	public function test_faq_archive_json_ld_ignores_inherited_query_loop_context() {
+		$faq_id = $this->create_faq( array( 'post_title' => 'Archived question' ) );
+
+		$this->go_to( get_post_type_archive_link( 'saai_faq' ) );
+
+		$received = $this->render_block_capturing_structured_data_post(
+			static function () use ( $faq_id ) {
+				$parsed = parse_blocks( '<!-- wp:saai-knowledge/faq-list /-->' );
+
+				( new \WP_Block(
+					$parsed[0],
+					array(
+						'postId'  => $faq_id,
+						'queryId' => 0,
+					)
+				) )->render();
+			}
+		);
+
+		$this->assertNull( $received );
+	}
+
+	/**
+	 * A saai_faq_before_list / saai_faq_after_list callback rendering another
+	 * FAQ list must be rejected by the render guard rather than recursing
+	 * forever through the same insertion hook.
+	 */
+	public function test_insertion_hooks_cannot_recurse_into_a_nested_faq_list() {
+		$this->create_faq( array( 'post_title' => 'Recursion question' ) );
+
+		$original = $this->register_src_faq_list_block();
+
+		$nested   = null;
+		$callback = static function () use ( &$nested ) {
+			$nested = do_blocks( '<!-- wp:saai-knowledge/faq-list /-->' );
+		};
+		add_action( 'saai_faq_before_list', $callback );
+
+		try {
+			$output = do_blocks( '<!-- wp:saai-knowledge/faq-list /-->' );
+		} finally {
+			remove_action( 'saai_faq_before_list', $callback );
+			$this->restore_faq_list_block( $original );
+		}
+
+		$this->assertSame( '', $nested );
+		$this->assertSame( 1, substr_count( $output, 'wp-block-accordion-heading__toggle-title' ) );
+	}
+
+	/**
+	 * A bare oEmbed URL in a classic FAQ answer should become an embed, as it
+	 * would in normal post content.
+	 */
+	public function test_items_embeds_bare_oembed_urls_in_classic_answers() {
+		$filter = static function () {
+			return '<iframe src="https://videos.example.com/embed/123"></iframe>';
+		};
+		add_filter( 'pre_oembed_result', $filter );
+
+		$this->create_faq(
+			array(
+				'post_title'   => 'Embed question',
+				'post_content' => "Watch this:\n\nhttps://videos.example.com/watch?v=123",
+			)
+		);
+
+		try {
+			$items = $this->faq_list->items( array() );
+		} finally {
+			remove_filter( 'pre_oembed_result', $filter );
+		}
+
+		$this->assertStringContainsString( '<iframe src="https://videos.example.com/embed/123">', $items[0]['answer'] );
+	}
+
+	/**
+	 * Images in answers should get the_content's own tag optimizations
+	 * (responsive/loading/decoding attributes via wp_filter_content_tags()).
+	 */
+	public function test_items_applies_content_image_optimizations_to_answers() {
+		$this->create_faq(
+			array(
+				'post_title'   => 'Image question',
+				'post_content' => '<img src="https://example.com/a.png" width="100" height="100" alt="">',
+			)
+		);
+
+		$items = $this->faq_list->items( array() );
+
+		$this->assertStringContainsString( 'decoding="async"', $items[0]['answer'] );
+	}
+
+	/**
+	 * When no global post exists before the render, the complete postdata
+	 * state — not just $GLOBALS['post'] — must be back to its prior values
+	 * afterward, not left describing the last FAQ.
+	 */
+	public function test_items_restores_prior_state_when_no_previous_post_exists() {
+		$author_id = self::factory()->user->create();
+		$this->create_faq(
+			array(
+				'post_title'  => 'Postless question',
+				'post_author' => $author_id,
+			)
+		);
+
+		$GLOBALS['post']       = null; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- arranging the postless pre-render state under test.
+		$GLOBALS['id']         = 0; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- arranging the postless pre-render state under test.
+		$GLOBALS['authordata'] = null; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- arranging the postless pre-render state under test.
+
+		$this->faq_list->items( array() );
+
+		$this->assertNull( $GLOBALS['post'] );
+		$this->assertSame( 0, $GLOBALS['id'] );
+		$this->assertNull( $GLOBALS['authordata'] );
 	}
 }

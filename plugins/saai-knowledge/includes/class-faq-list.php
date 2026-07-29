@@ -33,22 +33,54 @@ final class Faq_List {
 	/**
 	 * Whether a faq-list render is currently in progress — checked by the
 	 * block's render.php so a faq-list block (or [saai_faq] shortcode) nested
-	 * inside an FAQ answer can't recurse forever through the answer-rendering
-	 * do_blocks()/do_shortcode() calls.
+	 * inside an FAQ answer, or rendered from a saai_faq_before_list /
+	 * saai_faq_after_list callback, can't recurse forever through the
+	 * answer-rendering do_blocks()/do_shortcode() calls or the insertion
+	 * hooks themselves.
 	 *
 	 * @var bool
 	 */
 	private static $rendering = false;
 
 	/**
-	 * Whether a faq-list block has already output FAQPage JSON-LD this
-	 * request. Google's guidance is one FAQPage per page, so when several
-	 * faq-list blocks render on the same page only the first one emits the
-	 * structured data.
+	 * The normalized-attribute signature of the faq-list block that has
+	 * claimed this request's single FAQPage JSON-LD slot, or null while
+	 * unclaimed. Google's guidance is one FAQPage per page, so when several
+	 * distinct faq-list blocks render on the same page only the first one
+	 * emits the structured data.
 	 *
-	 * @var bool
+	 * A signature rather than a boolean: a theme or SEO plugin can render
+	 * post content speculatively (excerpt generation, metadata analysis)
+	 * before the visible template pass, and that discarded render must not
+	 * permanently consume the slot — the later, visible render of the same
+	 * block re-presents the same signature and is allowed to emit again. The
+	 * accepted trade-off is that the same-attribute block placed twice on one
+	 * page emits twice (identical schema), which is harmless next to the
+	 * alternative of a page losing its FAQPage data entirely.
+	 *
+	 * @var string|null
 	 */
-	private static $structured_data_rendered = false;
+	private static $structured_data_signature = null;
+
+	/**
+	 * The globals WP_Query::setup_postdata() mutates besides $post —
+	 * snapshotted and restored around each answer render so state from the
+	 * last FAQ can't leak into whatever renders afterward, even when there
+	 * was no prior global post to re-establish via setup_postdata().
+	 *
+	 * @var string[]
+	 */
+	private const POSTDATA_GLOBALS = array(
+		'id',
+		'authordata',
+		'currentday',
+		'currentmonth',
+		'page',
+		'pages',
+		'multipage',
+		'more',
+		'numpages',
+	);
 
 	/**
 	 * Hooks per-request state resets into WordPress.
@@ -82,8 +114,8 @@ final class Faq_List {
 	 * without running a main query.
 	 */
 	public static function reset_state(): void {
-		self::$rendering                = false;
-		self::$structured_data_rendered = false;
+		self::$rendering                 = false;
+		self::$structured_data_signature = null;
 	}
 
 	/**
@@ -113,18 +145,19 @@ final class Faq_List {
 
 	/**
 	 * Claims the request's single FAQPage JSON-LD slot — see
-	 * $structured_data_rendered.
+	 * $structured_data_signature for why a matching signature may reclaim it.
 	 *
+	 * @param string $signature The claiming block's normalized-attribute signature.
 	 * @return bool Whether the caller may emit the structured data.
 	 */
-	public static function claim_structured_data_slot(): bool {
-		if ( self::$structured_data_rendered ) {
-			return false;
+	public static function claim_structured_data_slot( string $signature ): bool {
+		if ( null === self::$structured_data_signature ) {
+			self::$structured_data_signature = $signature;
+
+			return true;
 		}
 
-		self::$structured_data_rendered = true;
-
-		return true;
+		return self::$structured_data_signature === $signature;
 	}
 
 	/**
@@ -426,15 +459,21 @@ final class Faq_List {
 	 * shortcodes and dynamic blocks inside the answer can read the global
 	 * $post directly (or, for blocks, receive it as render_block()'s default
 	 * postId context), and at this point it still belongs to whatever page
-	 * contains the faq-list block — not this FAQ. The previous context is
+	 * contains the faq-list block — not this FAQ. The complete previous
+	 * postdata state (POSTDATA_GLOBALS, not just $post) is snapshotted and
 	 * restored afterward so the containing page's own render continues
-	 * unaffected.
+	 * unaffected — including when there was no prior global post at all.
 	 *
 	 * @param \WP_Post $post The FAQ entry.
 	 * @return string
 	 */
 	private function render_answer( \WP_Post $post ): string {
-		$previous_post = $GLOBALS['post'] ?? null;
+		$previous_post    = $GLOBALS['post'] ?? null;
+		$previous_globals = array();
+
+		foreach ( self::POSTDATA_GLOBALS as $var ) {
+			$previous_globals[ $var ] = $GLOBALS[ $var ] ?? null;
+		}
 
 		$GLOBALS['post'] = $post; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- deliberately scoping the FAQ as the current post for its own answer render; restored in the finally block.
 		setup_postdata( $post );
@@ -445,15 +484,35 @@ final class Faq_List {
 			if ( has_blocks( $content ) ) {
 				$html = wptexturize( do_blocks( $content ) );
 			} else {
+				// Core runs WP_Embed's handlers on classic content ahead of
+				// the standard transforms (priority 8 vs 10 on the_content):
+				// [embed] shortcodes and bare oEmbed URLs on their own line
+				// must become embeds before wpautop wraps them in paragraphs.
+				// Block content needs neither — embeds there are core-embed
+				// blocks, already handled by do_blocks(). The current post is
+				// already this FAQ (see above), so WP_Embed's oEmbed response
+				// caching lands on the FAQ's own meta.
+				$wp_embed = $GLOBALS['wp_embed'] ?? null;
+
+				if ( $wp_embed instanceof \WP_Embed ) {
+					$content = $wp_embed->run_shortcode( $content );
+					$content = $wp_embed->autoembed( $content );
+				}
+
 				$html = wpautop( wptexturize( $content ) );
 			}
 
-			return do_shortcode( shortcode_unautop( $html ) );
+			$html = do_shortcode( shortcode_unautop( $html ) );
+
+			// the_content's own tail end (priority 12, after do_shortcode at
+			// 11): responsive srcset/sizes and loading/decoding attributes
+			// for images in both block and classic answers.
+			return wp_filter_content_tags( $html, 'the_content' );
 		} finally {
 			$GLOBALS['post'] = $previous_post; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- restoring the exact pre-render value saved above.
 
-			if ( $previous_post instanceof \WP_Post ) {
-				setup_postdata( $previous_post );
+			foreach ( $previous_globals as $var => $value ) {
+				$GLOBALS[ $var ] = $value; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited, WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- restoring the exact pre-render values of WordPress's own postdata globals saved above.
 			}
 		}
 	}
