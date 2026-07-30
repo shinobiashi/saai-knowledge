@@ -445,6 +445,28 @@ class Test_Faq_List extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The claim signature should be deterministic for equal attributes,
+	 * distinct for different ones, and never empty — including for values
+	 * wp_json_encode() cannot represent (invalid UTF-8), where the serialize()
+	 * fallback must still keep unrelated blocks apart.
+	 */
+	public function test_structured_data_signature_is_deterministic_distinct_and_never_empty() {
+		$a1 = $this->faq_list->structured_data_signature( array( 'category' => 'setup' ) );
+		$a2 = $this->faq_list->structured_data_signature( array( 'category' => 'setup' ) );
+		$b  = $this->faq_list->structured_data_signature( array( 'category' => 'other' ) );
+
+		$this->assertNotSame( '', $a1 );
+		$this->assertSame( $a1, $a2 );
+		$this->assertNotSame( $a1, $b );
+
+		$bad_1 = $this->faq_list->structured_data_signature( array( 'category' => "bad-\xB1\x31" ) );
+		$bad_2 = $this->faq_list->structured_data_signature( array( 'category' => "bad-\xB1\x32" ) );
+
+		$this->assertNotSame( '', $bad_1 );
+		$this->assertNotSame( $bad_1, $bad_2 );
+	}
+
+	/**
 	 * The JSON-LD slot should be claimed per attribute signature: the same
 	 * block may emit again (a visible render after a speculative one whose
 	 * output was discarded), a different block may not, and a new main query

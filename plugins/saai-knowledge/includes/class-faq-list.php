@@ -144,6 +144,30 @@ final class Faq_List {
 	}
 
 	/**
+	 * A deterministic signature for a block's attributes — the claim key for
+	 * the FAQPage JSON-LD slot (see claim_structured_data_slot()).
+	 *
+	 * Even after its own invalid-UTF-8 sanitization retry, wp_json_encode()
+	 * can still return false; a bare (string) cast of that would collapse
+	 * every failing block to the same empty signature, letting unrelated
+	 * blocks share the slot and all emit JSON-LD. The serialize() fallback is
+	 * binary-safe and deterministic for this fixed scalar attribute set.
+	 *
+	 * @param array<string, mixed> $attrs Block attributes (raw or normalized).
+	 * @return string
+	 */
+	public function structured_data_signature( array $attrs ): string {
+		$attrs   = $this->normalize( $attrs );
+		$encoded = wp_json_encode( $attrs );
+
+		if ( is_string( $encoded ) ) {
+			return $encoded;
+		}
+
+		return serialize( $attrs ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize -- deterministic, binary-safe fallback claim key; never unserialized or output.
+	}
+
+	/**
 	 * Claims the request's single FAQPage JSON-LD slot — see
 	 * $structured_data_signature for why a matching signature may reclaim it.
 	 *

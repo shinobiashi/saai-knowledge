@@ -136,7 +136,7 @@ try {
 	// speculative pre-render whose output is discarded — excerpt generation,
 	// an SEO plugin's metadata pass — can't permanently consume it; see
 	// Faq_List::claim_structured_data_slot().
-	if ( $saai_faq_list->structured_data_enabled() && Faq_List::claim_structured_data_slot( (string) wp_json_encode( $saai_attrs ) ) ) {
+	if ( $saai_faq_list->structured_data_enabled() && Faq_List::claim_structured_data_slot( $saai_faq_list->structured_data_signature( $saai_attrs ) ) ) {
 		// On a non-empty archive (the bundled FAQ archive template in
 		// particular), WordPress primes the global $post — and with it the
 		// top-level render_block()'s default postId context — to the FIRST
