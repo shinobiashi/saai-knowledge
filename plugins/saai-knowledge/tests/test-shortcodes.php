@@ -17,6 +17,50 @@ class Test_Shortcodes extends WP_UnitTestCase {
 		$this->assertTrue( shortcode_exists( 'saai_kb_sidebar' ) );
 		$this->assertTrue( shortcode_exists( 'saai_kb_toc' ) );
 		$this->assertTrue( shortcode_exists( 'saai_breadcrumbs' ) );
+		$this->assertTrue( shortcode_exists( 'saai_faq' ) );
+	}
+
+	/**
+	 * [saai_faq] attributes should be mapped and cast onto the faq-list
+	 * block's attributes; unknown ones should be dropped.
+	 */
+	public function test_faq_shortcode_maps_attributes_to_block() {
+		$registry = WP_Block_Type_Registry::get_instance();
+		$original = $registry->get_registered( 'saai-knowledge/faq-list' );
+
+		if ( $original ) {
+			$registry->unregister( 'saai-knowledge/faq-list' );
+		}
+
+		$received = null;
+
+		register_block_type(
+			'saai-knowledge/faq-list',
+			array(
+				'render_callback' => static function ( $attributes ) use ( &$received ) {
+					$received = $attributes;
+
+					return '';
+				},
+			)
+		);
+
+		try {
+			do_shortcode( '[saai_faq category="setup" count="3" orderby="title" order="asc" group_by_category="true" bogus="x"]' );
+		} finally {
+			$registry->unregister( 'saai-knowledge/faq-list' );
+
+			if ( $original ) {
+				$registry->register( $original );
+			}
+		}
+
+		$this->assertSame( 'setup', $received['category'] );
+		$this->assertSame( 3, $received['count'] );
+		$this->assertSame( 'title', $received['orderBy'] );
+		$this->assertSame( 'asc', $received['order'] );
+		$this->assertTrue( $received['groupByCategory'] );
+		$this->assertArrayNotHasKey( 'bogus', $received );
 	}
 
 	/**

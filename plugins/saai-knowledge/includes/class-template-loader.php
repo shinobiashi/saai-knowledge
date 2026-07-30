@@ -39,6 +39,10 @@ final class Template_Loader {
 			'match'  => 'post_type_archive',
 			'target' => 'saai_kb',
 		),
+		'archive-saai_faq'       => array(
+			'match'  => 'post_type_archive',
+			'target' => 'saai_faq',
+		),
 		'taxonomy-saai_category' => array(
 			'match'  => 'taxonomy',
 			'target' => 'saai_category',
@@ -193,6 +197,14 @@ final class Template_Loader {
 		// enqueue_layout_style()'s docblock for why the Site Editor needs it too.
 		add_action( 'enqueue_block_assets', array( $this, 'enqueue_layout_style' ) );
 		add_action( 'pre_get_posts', array( $this, 'restrict_category_archive_to_kb' ) );
+		// Hooked at PHP_INT_MAX: the classic-theme resolver documents
+		// saai_template as registrable as late as a template_redirect
+		// callback (see resolved_classic_template_path()'s docblock), and
+		// this plugin boots earlier than any add-on can register such a
+		// callback — a default-priority hook here would redirect and exit
+		// before the add-on's own template_redirect callback had a chance to
+		// install its override.
+		add_action( 'template_redirect', array( $this, 'redirect_paged_faq_archive' ), PHP_INT_MAX );
 		// Separate from the above (which only concerns saai_category
 		// archives): a real HTTP request is a fresh PHP process, so
 		// $article_content_hooks_fired/$classic_article_hooks_fired start
@@ -613,6 +625,122 @@ final class Template_Loader {
 		}
 
 		$query->set( 'post_type', 'saai_kb' );
+	}
+
+	/**
+	 * Redirects paged FAQ archive requests back to the archive root.
+	 *
+	 * See paged_faq_archive_redirect_url() for the reasoning and the cases
+	 * that are left alone; this wrapper only performs the actual redirect so
+	 * tests can exercise the decision without hitting exit.
+	 */
+	public function redirect_paged_faq_archive(): void {
+		$target = $this->paged_faq_archive_redirect_url();
+
+		if ( null === $target ) {
+			return;
+		}
+
+		wp_safe_redirect( $target, 301 );
+		exit;
+	}
+
+	/**
+	 * The URL a paged FAQ archive request should permanently redirect to, or
+	 * null to leave the request alone.
+	 *
+	 * The bundled FAQ archive template (block and classic alike) ignores the
+	 * paged main query and renders the full per-category accordion via its own
+	 * faq-list query — the archive is one page by design (DESIGN.md section
+	 * 3.5). WordPress still exposes /faq/page/2/ etc. as valid URLs whenever
+	 * the main query's page size is exceeded, and each would repeat the same
+	 * complete accordion and FAQPage schema as duplicate content. Those
+	 * requests redirect to the archive root instead.
+	 *
+	 * Only applies while the bundled full-list template is actually the one
+	 * rendering: a site override (a theme template, or the saai_template
+	 * filter on classic themes) may paginate the main query for real, and its
+	 * paged URLs must keep working. Out-of-range paged requests never reach
+	 * this — WordPress 404s them first (is_post_type_archive() is false once
+	 * set_404() has reset the query flags).
+	 *
+	 * On classic themes this invokes the public saai_template filter at
+	 * template_redirect, and filter_template_include() invokes it again
+	 * later — the same deliberate per-phase fresh evaluation that
+	 * resolved_classic_template_path() documents for all of its callers.
+	 * Callbacks are expected to resolve deterministically within a request;
+	 * a stateful or self-removing callback that answers differently per
+	 * phase gets inconsistent phases by construction, on this path exactly
+	 * as on the taxonomy one.
+	 *
+	 * @return string|null
+	 */
+	public function paged_faq_archive_redirect_url(): ?string {
+		if ( ! is_post_type_archive( 'saai_faq' ) || ! is_paged() ) {
+			return null;
+		}
+
+		// A paged feed (/faq/feed/) is served by WordPress's own feed
+		// templates and paginates legitimately; a compound search
+		// (?s=…&post_type=saai_faq) renders the search template. Neither
+		// renders the bundled archive template.
+		if ( is_feed() || is_search() ) {
+			return null;
+		}
+
+		if ( wp_is_block_theme() ) {
+			if ( ! $this->plugin_faq_archive_template_wins() ) {
+				return null;
+			}
+		} else {
+			$bundled  = SAAI_KNOWLEDGE_DIR . 'templates/classic/archive-saai_faq.php';
+			$resolved = $this->resolved_classic_template_path( 'archive-saai_faq' );
+
+			if ( $bundled !== $resolved ) {
+				return null;
+			}
+		}
+
+		$link = get_post_type_archive_link( 'saai_faq' );
+
+		return is_string( $link ) && '' !== $link ? $link : null;
+	}
+
+	/**
+	 * Whether the plugin's own archive-saai_faq block template is the one
+	 * WordPress's block-theme template resolution will render.
+	 *
+	 * Simpler than plugin_taxonomy_template_wins(): the post type archive has
+	 * a single specific hierarchy slug (archive-saai_faq), and a theme's
+	 * generic archive/index templates can never outrank it — only another
+	 * template registered at that same slug (a theme file, a Site Editor
+	 * customization, or another plugin's registration) can. The winner is
+	 * identified by WP_Block_Template::$plugin for the same reason as there,
+	 * AND must still be the untouched registration ($source 'plugin'): a
+	 * Site Editor customization of this plugin's own template becomes a
+	 * wp_template post ($source 'custom') that keeps $plugin set, and its
+	 * content may well paginate the main query for real (e.g. the full FAQ
+	 * list replaced with a Query block) — its paged URLs must keep working.
+	 *
+	 * @return bool
+	 */
+	private function plugin_faq_archive_template_wins(): bool {
+		$templates = get_block_templates( array( 'slug__in' => array( 'archive-saai_faq' ) ) );
+
+		if ( ! $templates ) {
+			// Nothing at all is registered for this slug — resolution falls
+			// through to the theme's generic archive/index templates, which
+			// render the paged main query for real. Not this plugin's page.
+			return false;
+		}
+
+		foreach ( $templates as $template ) {
+			if ( self::PLUGIN_SLUG !== $template->plugin || 'plugin' !== $template->source ) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	/**
@@ -1326,6 +1454,7 @@ final class Template_Loader {
 			'single-saai_faq'        => __( 'Single: FAQ', 'saai-knowledge' ),
 			'single-saai_glossary'   => __( 'Single: Glossary Term', 'saai-knowledge' ),
 			'archive-saai_kb'        => __( 'Knowledge Base Hub', 'saai-knowledge' ),
+			'archive-saai_faq'       => __( 'FAQ Archive', 'saai-knowledge' ),
 			'taxonomy-saai_category' => __( 'Knowledge Base Category Archive', 'saai-knowledge' ),
 		);
 

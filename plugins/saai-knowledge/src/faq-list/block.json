@@ -1,0 +1,41 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "saai-knowledge/faq-list",
+	"title": "FAQ List",
+	"category": "widgets",
+	"description": "FAQ accordion list with FAQPage structured data, built on the core Accordion block.",
+	"textdomain": "saai-knowledge",
+	"usesContext": [ "postId" ],
+	"attributes": {
+		"category": {
+			"type": "string",
+			"default": ""
+		},
+		"count": {
+			"type": "number",
+			"default": 0
+		},
+		"orderBy": {
+			"type": "string",
+			"enum": [ "date", "title" ],
+			"default": "date"
+		},
+		"order": {
+			"type": "string",
+			"enum": [ "asc", "desc" ],
+			"default": "desc"
+		},
+		"groupByCategory": {
+			"type": "boolean",
+			"default": false
+		}
+	},
+	"editorScript": "file:./index.js",
+	"editorStyle": "file:./index.css",
+	"render": "file:./render.php",
+	"supports": {
+		"html": false,
+		"align": [ "wide", "full" ]
+	}
+}

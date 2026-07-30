@@ -1728,4 +1728,143 @@ class Test_Template_Loader extends WP_UnitTestCase {
 			'plugin_taxonomy_template_wins() must not leave its own filter registered when it was never there to begin with'
 		);
 	}
+
+	/**
+	 * The redirect must run late enough on template_redirect for an add-on's
+	 * own template_redirect callback (a documented registration point for the
+	 * saai_template override — see resolved_classic_template_path()) to have
+	 * installed its override first.
+	 */
+	public function test_paged_faq_archive_redirect_is_hooked_after_late_template_overrides() {
+		$loader = new \SAAI\Knowledge\Template_Loader();
+		$loader->register();
+
+		$this->assertSame(
+			PHP_INT_MAX,
+			has_action( 'template_redirect', array( $loader, 'redirect_paged_faq_archive' ) )
+		);
+	}
+
+	/**
+	 * A Site Editor customization of the plugin's own archive-saai_faq
+	 * template becomes a wp_template post that keeps $plugin set but has
+	 * $source 'custom' — its content may paginate the main query for real,
+	 * so only the untouched registration ($source 'plugin') may count as
+	 * "the bundled full-list template wins".
+	 */
+	public function test_plugin_faq_archive_template_wins_defers_to_site_editor_customization() {
+		$loader = new \SAAI\Knowledge\Template_Loader();
+		$method = new \ReflectionMethod( \SAAI\Knowledge\Template_Loader::class, 'plugin_faq_archive_template_wins' );
+		$method->setAccessible( true );
+
+		$make_template = static function ( string $source ): \WP_Block_Template {
+			$template          = new \WP_Block_Template();
+			$template->id      = 'saai-knowledge//archive-saai_faq';
+			$template->slug    = 'archive-saai_faq';
+			$template->theme   = 'saai-knowledge';
+			$template->plugin  = 'saai-knowledge';
+			$template->source  = $source;
+			$template->type    = 'wp_template';
+			$template->content = '';
+
+			return $template;
+		};
+
+		$injected = null;
+		$filter   = static function () use ( &$injected ) {
+			return array( $injected );
+		};
+		add_filter( 'get_block_templates', $filter );
+
+		try {
+			$injected = $make_template( 'plugin' );
+			$this->assertTrue( $method->invoke( $loader ), 'the untouched plugin registration must win' );
+
+			$injected = $make_template( 'custom' );
+			$this->assertFalse( $method->invoke( $loader ), 'a Site Editor customization must not count as the bundled template' );
+		} finally {
+			remove_filter( 'get_block_templates', $filter );
+		}
+	}
+
+	/**
+	 * A paged FAQ archive request (/faq/page/2/) should redirect to the
+	 * archive root: the bundled template ignores the paged main query and
+	 * renders the full accordion, so every paged URL would duplicate it.
+	 */
+	public function test_paged_faq_archive_redirects_to_the_archive_root() {
+		update_option( 'posts_per_page', 1 );
+		self::factory()->post->create( array( 'post_type' => 'saai_faq' ) );
+		self::factory()->post->create( array( 'post_type' => 'saai_faq' ) );
+
+		$this->go_to( add_query_arg( 'paged', 2, get_post_type_archive_link( 'saai_faq' ) ) );
+
+		$this->assertTrue( is_post_type_archive( 'saai_faq' ) && is_paged(), 'test setup: the request must be a valid paged FAQ archive' );
+		$this->assertSame(
+			get_post_type_archive_link( 'saai_faq' ),
+			( new \SAAI\Knowledge\Template_Loader() )->paged_faq_archive_redirect_url()
+		);
+	}
+
+	/**
+	 * The unpaged FAQ archive itself, and paged archives of other post
+	 * types, should be left alone.
+	 */
+	public function test_unpaged_faq_archive_and_other_paged_archives_are_not_redirected() {
+		update_option( 'posts_per_page', 1 );
+		self::factory()->post->create( array( 'post_type' => 'saai_faq' ) );
+		self::factory()->post->create( array( 'post_type' => 'saai_kb' ) );
+		self::factory()->post->create( array( 'post_type' => 'saai_kb' ) );
+
+		$loader = new \SAAI\Knowledge\Template_Loader();
+
+		$this->go_to( get_post_type_archive_link( 'saai_faq' ) );
+		$this->assertNull( $loader->paged_faq_archive_redirect_url() );
+
+		$this->go_to( add_query_arg( 'paged', 2, get_post_type_archive_link( 'saai_kb' ) ) );
+		$this->assertTrue( is_post_type_archive( 'saai_kb' ) && is_paged(), 'test setup: the request must be a valid paged KB archive' );
+		$this->assertNull( $loader->paged_faq_archive_redirect_url() );
+	}
+
+	/**
+	 * A paged FAQ feed is served by WordPress's own feed templates and
+	 * paginates legitimately — it must not be redirected.
+	 */
+	public function test_paged_faq_feed_is_not_redirected() {
+		update_option( 'posts_per_rss', 1 );
+		self::factory()->post->create( array( 'post_type' => 'saai_faq' ) );
+		self::factory()->post->create( array( 'post_type' => 'saai_faq' ) );
+
+		$this->go_to( add_query_arg( 'paged', 2, get_post_type_archive_feed_link( 'saai_faq' ) ) );
+
+		$this->assertTrue( is_feed() && is_paged(), 'test setup: the request must be a valid paged FAQ feed' );
+		$this->assertNull( ( new \SAAI\Knowledge\Template_Loader() )->paged_faq_archive_redirect_url() );
+	}
+
+	/**
+	 * A site override via the public saai_template filter may paginate the
+	 * main query for real — its paged URLs must keep working, mirroring
+	 * test_restrict_category_archive_to_kb_defers_to_saai_template_filter_override.
+	 */
+	public function test_paged_faq_archive_redirect_defers_to_saai_template_filter_override() {
+		update_option( 'posts_per_page', 1 );
+		self::factory()->post->create( array( 'post_type' => 'saai_faq' ) );
+		self::factory()->post->create( array( 'post_type' => 'saai_faq' ) );
+
+		$override_path = tempnam( sys_get_temp_dir(), 'saai-template-' );
+
+		$filter = static function () use ( $override_path ) {
+			return $override_path;
+		};
+		add_filter( 'saai_template', $filter );
+
+		$this->go_to( add_query_arg( 'paged', 2, get_post_type_archive_link( 'saai_faq' ) ) );
+
+		$url = ( new \SAAI\Knowledge\Template_Loader() )->paged_faq_archive_redirect_url();
+
+		remove_filter( 'saai_template', $filter );
+		wp_delete_file( $override_path );
+
+		$this->assertNull( $url );
+	}
 }

@@ -24,6 +24,41 @@ final class Shortcodes {
 		'saai_kb_sidebar'  => 'saai-knowledge/kb-sidebar',
 		'saai_kb_toc'      => 'saai-knowledge/kb-toc',
 		'saai_breadcrumbs' => 'saai-knowledge/breadcrumbs',
+		'saai_faq'         => 'saai-knowledge/faq-list',
+	);
+
+	/**
+	 * Per-tag shortcode attributes mapped to the backing block's attributes.
+	 *
+	 * Shortcode attribute names are lowercase (the shortcode parser lowercases
+	 * them); `attr` is the block attribute to map to, `type` how to cast the
+	 * shortcode's string value.
+	 *
+	 * @var array<string, array<string, array{attr: string, type: string}>>
+	 */
+	private const SHORTCODE_ATTRS = array(
+		'saai_faq' => array(
+			'category'          => array(
+				'attr' => 'category',
+				'type' => 'string',
+			),
+			'count'             => array(
+				'attr' => 'count',
+				'type' => 'int',
+			),
+			'orderby'           => array(
+				'attr' => 'orderBy',
+				'type' => 'string',
+			),
+			'order'             => array(
+				'attr' => 'order',
+				'type' => 'string',
+			),
+			'group_by_category' => array(
+				'attr' => 'groupByCategory',
+				'type' => 'bool',
+			),
+		),
 	);
 
 	/**
@@ -49,7 +84,7 @@ final class Shortcodes {
 	 * postType from the global $post) the block gets in post content, and
 	 * enqueues the block's view assets, so the output matches the block.
 	 *
-	 * @param array<string, string>|string $atts    Shortcode attributes. Unused; the wrapped blocks take none.
+	 * @param array<string, string>|string $atts    Shortcode attributes, mapped to block attributes via SHORTCODE_ATTRS.
 	 * @param string|null                  $content Enclosed content. Unused.
 	 * @param string                       $tag     The matched shortcode tag.
 	 * @return string
@@ -64,11 +99,48 @@ final class Shortcodes {
 		return render_block(
 			array(
 				'blockName'    => $block_name,
-				'attrs'        => array(),
+				'attrs'        => $this->block_attrs_from_shortcode_atts( $tag, is_array( $atts ) ? $atts : array() ),
 				'innerBlocks'  => array(),
 				'innerHTML'    => '',
 				'innerContent' => array(),
 			)
 		);
+	}
+
+	/**
+	 * Maps a shortcode's attributes onto its backing block's attributes.
+	 *
+	 * Unknown shortcode attributes are dropped; missing ones are left to the
+	 * block's own defaults.
+	 *
+	 * @param string              $tag  The matched shortcode tag.
+	 * @param array<mixed, mixed> $atts Parsed shortcode attributes.
+	 * @return array<string, mixed>
+	 */
+	private function block_attrs_from_shortcode_atts( string $tag, array $atts ): array {
+		$block_attrs = array();
+
+		foreach ( self::SHORTCODE_ATTRS[ $tag ] ?? array() as $name => $spec ) {
+			if ( ! isset( $atts[ $name ] ) || ! is_scalar( $atts[ $name ] ) ) {
+				continue;
+			}
+
+			$value = $atts[ $name ];
+
+			switch ( $spec['type'] ) {
+				case 'int':
+					$value = (int) $value;
+					break;
+				case 'bool':
+					$value = rest_sanitize_boolean( (string) $value );
+					break;
+				default:
+					$value = (string) $value;
+			}
+
+			$block_attrs[ $spec['attr'] ] = $value;
+		}
+
+		return $block_attrs;
 	}
 }
