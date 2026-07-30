@@ -467,6 +467,27 @@ class Test_Faq_List extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The same attributes rendered for different context posts (e.g. the
+	 * same block on different Query Loop items, where saai_faq_query_args
+	 * can produce context-dependent results) must not share a signature —
+	 * only the first such render may claim the JSON-LD slot.
+	 */
+	public function test_structured_data_signature_distinguishes_context_posts() {
+		$post_a = self::factory()->post->create_and_get( array( 'post_type' => 'page' ) );
+		$post_b = self::factory()->post->create_and_get( array( 'post_type' => 'page' ) );
+		$attrs  = array( 'category' => 'setup' );
+
+		$sig_none = $this->faq_list->structured_data_signature( $attrs );
+		$sig_a1   = $this->faq_list->structured_data_signature( $attrs, $post_a );
+		$sig_a2   = $this->faq_list->structured_data_signature( $attrs, $post_a );
+		$sig_b    = $this->faq_list->structured_data_signature( $attrs, $post_b );
+
+		$this->assertSame( $sig_a1, $sig_a2 );
+		$this->assertNotSame( $sig_a1, $sig_b );
+		$this->assertNotSame( $sig_none, $sig_a1 );
+	}
+
+	/**
 	 * The JSON-LD slot should be claimed per attribute signature: the same
 	 * block may emit again (a visible render after a speculative one whose
 	 * output was discarded), a different block may not, and a new main query

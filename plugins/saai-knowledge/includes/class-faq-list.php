@@ -43,20 +43,23 @@ final class Faq_List {
 	private static $rendering = false;
 
 	/**
-	 * The normalized-attribute signature of the faq-list block that has
-	 * claimed this request's single FAQPage JSON-LD slot, or null while
-	 * unclaimed. Google's guidance is one FAQPage per page, so when several
-	 * distinct faq-list blocks render on the same page only the first one
-	 * emits the structured data.
+	 * The render signature (normalized attributes + context post, see
+	 * structured_data_signature()) of the faq-list block that has claimed
+	 * this request's single FAQPage JSON-LD slot, or null while unclaimed.
+	 * Google's guidance is one FAQPage per page, so when several distinct
+	 * faq-list blocks render on the same page only the first one emits the
+	 * structured data.
 	 *
 	 * A signature rather than a boolean: a theme or SEO plugin can render
 	 * post content speculatively (excerpt generation, metadata analysis)
 	 * before the visible template pass, and that discarded render must not
 	 * permanently consume the slot — the later, visible render of the same
-	 * block re-presents the same signature and is allowed to emit again. The
-	 * accepted trade-off is that the same-attribute block placed twice on one
-	 * page emits twice (identical schema), which is harmless next to the
-	 * alternative of a page losing its FAQPage data entirely.
+	 * block re-presents the same signature and is allowed to emit again.
+	 * WordPress offers no way to tell a speculative render from a visible
+	 * one, so the accepted residual trade-off is that the same block placed
+	 * twice on one page — same attributes AND same context post — emits its
+	 * identical schema twice, which is harmless next to the alternative of a
+	 * page losing its FAQPage data entirely.
 	 *
 	 * @var string|null
 	 */
@@ -144,8 +147,15 @@ final class Faq_List {
 	}
 
 	/**
-	 * A deterministic signature for a block's attributes — the claim key for
-	 * the FAQPage JSON-LD slot (see claim_structured_data_slot()).
+	 * A deterministic signature for a block render — the claim key for the
+	 * FAQPage JSON-LD slot (see claim_structured_data_slot()).
+	 *
+	 * Built from the normalized attributes plus the render's context post:
+	 * a saai_faq_query_args callback can produce context-dependent results
+	 * for otherwise identical attributes (e.g. the same block rendered for
+	 * different Query Loop items), and folding the context post into the
+	 * signature keeps such renders from reclaiming each other's slot and
+	 * emitting conflicting schema — only the first one wins.
 	 *
 	 * Even after its own invalid-UTF-8 sanitization retry, wp_json_encode()
 	 * can still return false; a bare (string) cast of that would collapse
@@ -153,18 +163,20 @@ final class Faq_List {
 	 * blocks share the slot and all emit JSON-LD. The serialize() fallback is
 	 * binary-safe and deterministic for this fixed scalar attribute set.
 	 *
-	 * @param array<string, mixed> $attrs Block attributes (raw or normalized).
+	 * @param array<string, mixed> $attrs        Block attributes (raw or normalized).
+	 * @param \WP_Post|null        $context_post The render's structured-data context post, if any.
 	 * @return string
 	 */
-	public function structured_data_signature( array $attrs ): string {
+	public function structured_data_signature( array $attrs, ?\WP_Post $context_post = null ): string {
 		$attrs   = $this->normalize( $attrs );
+		$suffix  = '|' . ( $context_post instanceof \WP_Post ? $context_post->ID : 0 );
 		$encoded = wp_json_encode( $attrs );
 
 		if ( is_string( $encoded ) ) {
-			return $encoded;
+			return $encoded . $suffix;
 		}
 
-		return serialize( $attrs ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize -- deterministic, binary-safe fallback claim key; never unserialized or output.
+		return serialize( $attrs ) . $suffix; // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize -- deterministic, binary-safe fallback claim key; never unserialized or output.
 	}
 
 	/**

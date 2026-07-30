@@ -1746,6 +1746,48 @@ class Test_Template_Loader extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A Site Editor customization of the plugin's own archive-saai_faq
+	 * template becomes a wp_template post that keeps $plugin set but has
+	 * $source 'custom' — its content may paginate the main query for real,
+	 * so only the untouched registration ($source 'plugin') may count as
+	 * "the bundled full-list template wins".
+	 */
+	public function test_plugin_faq_archive_template_wins_defers_to_site_editor_customization() {
+		$loader = new \SAAI\Knowledge\Template_Loader();
+		$method = new \ReflectionMethod( \SAAI\Knowledge\Template_Loader::class, 'plugin_faq_archive_template_wins' );
+		$method->setAccessible( true );
+
+		$make_template = static function ( string $source ): \WP_Block_Template {
+			$template          = new \WP_Block_Template();
+			$template->id      = 'saai-knowledge//archive-saai_faq';
+			$template->slug    = 'archive-saai_faq';
+			$template->theme   = 'saai-knowledge';
+			$template->plugin  = 'saai-knowledge';
+			$template->source  = $source;
+			$template->type    = 'wp_template';
+			$template->content = '';
+
+			return $template;
+		};
+
+		$injected = null;
+		$filter   = static function () use ( &$injected ) {
+			return array( $injected );
+		};
+		add_filter( 'get_block_templates', $filter );
+
+		try {
+			$injected = $make_template( 'plugin' );
+			$this->assertTrue( $method->invoke( $loader ), 'the untouched plugin registration must win' );
+
+			$injected = $make_template( 'custom' );
+			$this->assertFalse( $method->invoke( $loader ), 'a Site Editor customization must not count as the bundled template' );
+		} finally {
+			remove_filter( 'get_block_templates', $filter );
+		}
+	}
+
+	/**
 	 * A paged FAQ archive request (/faq/page/2/) should redirect to the
 	 * archive root: the bundled template ignores the paged main query and
 	 * renders the full accordion, so every paged URL would duplicate it.

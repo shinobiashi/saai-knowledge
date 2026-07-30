@@ -132,42 +132,43 @@ try {
 
 	$saai_json_ld = '';
 
-	// The slot is claimed by attribute signature (not a plain boolean) so a
-	// speculative pre-render whose output is discarded — excerpt generation,
-	// an SEO plugin's metadata pass — can't permanently consume it; see
-	// Faq_List::claim_structured_data_slot().
-	if ( $saai_faq_list->structured_data_enabled() && Faq_List::claim_structured_data_slot( $saai_faq_list->structured_data_signature( $saai_attrs ) ) ) {
-		// On a non-empty archive (the bundled FAQ archive template in
-		// particular), WordPress primes the global $post — and with it the
-		// top-level render_block()'s default postId context — to the FIRST
-		// main-query result before any block renders, even though the page
-		// is not that post's singular view (see breadcrumbs/render.php).
-		// Passing that arbitrary first FAQ to the saai_structured_data
-		// filter would let an add-on attach the wrong post's metadata to the
-		// archive's FAQPage schema, so archive-style views always pass null.
-		// No Query Loop exception: WordPress core provides no context key
-		// that proves a genuine per-item render (queryId only proves "some
-		// descendant of core/query" — a block placed beside the Post
-		// Template still inherits it while postId is the archive's seeded
-		// first result), and for schema purposes null is the honest value on
-		// any archive.
-		$saai_current_post = null;
+	// On a non-empty archive (the bundled FAQ archive template in
+	// particular), WordPress primes the global $post — and with it the
+	// top-level render_block()'s default postId context — to the FIRST
+	// main-query result before any block renders, even though the page is
+	// not that post's singular view (see breadcrumbs/render.php). Passing
+	// that arbitrary first FAQ to the saai_structured_data filter would let
+	// an add-on attach the wrong post's metadata to the archive's FAQPage
+	// schema, so archive-style views always pass null. No Query Loop
+	// exception: WordPress core provides no context key that proves a
+	// genuine per-item render (queryId only proves "some descendant of
+	// core/query" — a block placed beside the Post Template still inherits
+	// it while postId is the archive's seeded first result), and for schema
+	// purposes null is the honest value on any archive.
+	$saai_current_post = null;
 
-		if ( ! ( is_archive() || is_search() || is_home() ) ) {
-			// The block-renderer REST endpoint (editor ServerSideRender
-			// preview) supplies postId context from its post_id parameter;
-			// the front end's render_block() derives it from the main query
-			// (or the Query Loop item, when nested in one). get_post() is
-			// the fallback for renders without any context, e.g. the
-			// [saai_faq] shortcode on a singular view.
-			$saai_post_id   = isset( $block->context['postId'] ) ? (int) $block->context['postId'] : 0;
-			$saai_candidate = $saai_post_id ? get_post( $saai_post_id ) : get_post();
+	if ( ! ( is_archive() || is_search() || is_home() ) ) {
+		// The block-renderer REST endpoint (editor ServerSideRender
+		// preview) supplies postId context from its post_id parameter;
+		// the front end's render_block() derives it from the main query
+		// (or the Query Loop item, when nested in one). get_post() is
+		// the fallback for renders without any context, e.g. the
+		// [saai_faq] shortcode on a singular view.
+		$saai_post_id   = isset( $block->context['postId'] ) ? (int) $block->context['postId'] : 0;
+		$saai_candidate = $saai_post_id ? get_post( $saai_post_id ) : get_post();
 
-			if ( $saai_candidate instanceof WP_Post ) {
-				$saai_current_post = $saai_candidate;
-			}
+		if ( $saai_candidate instanceof WP_Post ) {
+			$saai_current_post = $saai_candidate;
 		}
+	}
 
+	// The slot is claimed by render signature (normalized attributes plus
+	// the context post, not a plain boolean) so a speculative pre-render
+	// whose output is discarded — excerpt generation, an SEO plugin's
+	// metadata pass — can't permanently consume it, while the same block
+	// rendered for a different Query Loop item can't reclaim it with
+	// conflicting schema; see Faq_List::claim_structured_data_slot().
+	if ( $saai_faq_list->structured_data_enabled() && Faq_List::claim_structured_data_slot( $saai_faq_list->structured_data_signature( $saai_attrs, $saai_current_post ) ) ) {
 		$saai_json_ld = saai_render_faq_list_json_ld(
 			$saai_faq_list->json_ld( $saai_all_items, $saai_current_post )
 		);

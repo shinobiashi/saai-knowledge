@@ -664,6 +664,15 @@ final class Template_Loader {
 	 * this — WordPress 404s them first (is_post_type_archive() is false once
 	 * set_404() has reset the query flags).
 	 *
+	 * On classic themes this invokes the public saai_template filter at
+	 * template_redirect, and filter_template_include() invokes it again
+	 * later — the same deliberate per-phase fresh evaluation that
+	 * resolved_classic_template_path() documents for all of its callers.
+	 * Callbacks are expected to resolve deterministically within a request;
+	 * a stateful or self-removing callback that answers differently per
+	 * phase gets inconsistent phases by construction, on this path exactly
+	 * as on the taxonomy one.
+	 *
 	 * @return string|null
 	 */
 	public function paged_faq_archive_redirect_url(): ?string {
@@ -705,9 +714,13 @@ final class Template_Loader {
 	 * a single specific hierarchy slug (archive-saai_faq), and a theme's
 	 * generic archive/index templates can never outrank it — only another
 	 * template registered at that same slug (a theme file, a Site Editor
-	 * customization of a theme template, or another plugin's registration)
-	 * can. The winner is identified by WP_Block_Template::$plugin for the
-	 * same reason as there.
+	 * customization, or another plugin's registration) can. The winner is
+	 * identified by WP_Block_Template::$plugin for the same reason as there,
+	 * AND must still be the untouched registration ($source 'plugin'): a
+	 * Site Editor customization of this plugin's own template becomes a
+	 * wp_template post ($source 'custom') that keeps $plugin set, and its
+	 * content may well paginate the main query for real (e.g. the full FAQ
+	 * list replaced with a Query block) — its paged URLs must keep working.
 	 *
 	 * @return bool
 	 */
@@ -722,7 +735,7 @@ final class Template_Loader {
 		}
 
 		foreach ( $templates as $template ) {
-			if ( self::PLUGIN_SLUG !== $template->plugin ) {
+			if ( self::PLUGIN_SLUG !== $template->plugin || 'plugin' !== $template->source ) {
 				return false;
 			}
 		}
