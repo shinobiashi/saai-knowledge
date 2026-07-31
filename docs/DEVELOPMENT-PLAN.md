@@ -94,8 +94,8 @@ M1〜M5 の全タスクは GitHub Issues #1〜#27（マイルストーン M1〜M
 - [x] `saai-knowledge/faq-list` ブロック（カテゴリー・件数・並び順属性、コア Accordion ブロック（WP 6.9）を内部利用したアコーディオン、FAQPage JSON-LD）
 - [x] FAQ アーカイブテンプレート（カテゴリー別アコーディオン）
 - [ ] FAQ 個別ページテンプレート（質問=h1・回答が直下・`QAPage` JSON-LD。AI可読性要件: DESIGN.md §7.1）
-- [ ] `saai-knowledge/glossary-index` ブロック（五十音 / A–Z タブ、`saai_reading` ソート）
-- [ ] 用語個別ページテンプレート + DefinedTerm JSON-LD
+- [x] `saai-knowledge/glossary-index` ブロック（五十音 / A–Z タブ、`saai_reading` ソート）
+- [x] 用語個別ページテンプレート + DefinedTerm JSON-LD
 - [ ] 自動リンクエンジン: 辞書キャッシュ（保存時無効化）、`preg_split` ベース軽量トークナイザーによる本文置換（DESIGN-AUTOLINK.md §4）、除外ルール（見出し/a/code/pre/自身のページ）、初出のみ・最大リンク数制御
 - [ ] ツールチップ UI（Interactivity API、excerpt 表示、タップ対応）
 - [ ] `saai_autolink_dictionary` フィルター（有料版の注入ポイント）
