@@ -102,10 +102,17 @@ foreach ( $saai_groups as $saai_position => $saai_group ) {
 	$saai_label     = saai_glossary_index_bucket_label( $saai_bucket );
 	$saai_context   = wp_json_encode( array( 'bucket' => $saai_bucket ) );
 
+	// Roving tabindex (WAI-ARIA Tabs pattern): only the active tab is a Tab-key
+	// stop; actions.onTabKeydown() (view.js) moves both the roving tabindex
+	// and focus with the arrow/Home/End keys, using the plain data-bucket
+	// attribute to read a SIBLING tab's bucket key — getContext() only
+	// exposes the element currently handling the event, not other tabs'.
 	$saai_tabs .= sprintf(
-		'<button type="button" id="%1$s" role="tab" class="saai-glossary-index__tab%2$s" data-wp-context=\'%3$s\' data-wp-on--click="actions.selectBucket" data-wp-class--is-active="state.isActiveBucket" data-wp-bind--aria-selected="state.isActiveBucket" aria-selected="%4$s" aria-controls="%5$s">%6$s</button>',
+		'<button type="button" id="%1$s" role="tab" class="saai-glossary-index__tab%2$s" data-bucket="%3$s" tabindex="%4$s" data-wp-context=\'%5$s\' data-wp-on--click="actions.selectBucket" data-wp-on--keydown="actions.onTabKeydown" data-wp-class--is-active="state.isActiveBucket" data-wp-bind--aria-selected="state.isActiveBucket" data-wp-bind--tabindex="state.tabIndex" aria-selected="%6$s" aria-controls="%7$s">%8$s</button>',
 		esc_attr( $saai_tab_id ),
 		$saai_is_active ? ' is-active' : '',
+		esc_attr( $saai_bucket ),
+		$saai_is_active ? '0' : '-1',
 		esc_attr( is_string( $saai_context ) ? $saai_context : '' ),
 		$saai_is_active ? 'true' : 'false',
 		esc_attr( $saai_panel_id ),
