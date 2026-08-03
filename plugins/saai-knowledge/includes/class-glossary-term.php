@@ -107,6 +107,15 @@ final class Glossary_Term {
 			return $content;
 		}
 
+		// get_the_content() already swapped $content for
+		// get_the_password_form() when the term is protected; an add-on's
+		// saai_glossary_after_definition callback (e.g. echoing linked
+		// products) must not still run and print right after that form for
+		// an unauthenticated visitor.
+		if ( post_password_required( $post ) ) {
+			return $content;
+		}
+
 		self::$hook_fired = true;
 
 		ob_start();
@@ -134,6 +143,15 @@ final class Glossary_Term {
 		$post = get_queried_object();
 
 		if ( ! $post instanceof \WP_Post ) {
+			return;
+		}
+
+		// json_ld()'s description() reads the excerpt/content directly,
+		// bypassing the post_password_required() gate get_the_content()
+		// enforces (it swaps in get_the_password_form() instead) — an
+		// unauthenticated visitor must not be able to read the protected
+		// definition out of the page source via this JSON-LD.
+		if ( post_password_required( $post ) ) {
 			return;
 		}
 
