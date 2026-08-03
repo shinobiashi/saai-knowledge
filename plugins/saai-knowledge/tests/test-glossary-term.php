@@ -208,6 +208,60 @@ class Test_Glossary_Term extends WP_UnitTestCase {
 	}
 
 	/**
+	 * An unauthenticated visitor to a password-protected term must not be
+	 * able to read its definition out of the page source via JSON-LD.
+	 */
+	public function test_output_structured_data_skips_password_protected_terms() {
+		$post = $this->create_term(
+			array(
+				'post_title'    => 'Secret',
+				'post_excerpt'  => 'Secret definition.',
+				'post_password' => 'secret',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+
+		ob_start();
+		$this->glossary_term->output_structured_data();
+		$output = ob_get_clean();
+
+		$this->assertSame( '', $output );
+	}
+
+	/**
+	 * The hook must not fire for a password-protected term either — an
+	 * add-on's callback (e.g. echoing linked products) must not print right
+	 * after the password form for an unauthenticated visitor.
+	 */
+	public function test_append_after_definition_hook_does_not_fire_for_password_protected_terms() {
+		$post = $this->create_term(
+			array(
+				'post_title'    => 'Secret',
+				'post_content'  => 'Definition body.',
+				'post_password' => 'secret',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+
+		$fired    = false;
+		$callback = function () use ( &$fired ) {
+			$fired = true;
+		};
+		add_action( 'saai_glossary_after_definition', $callback );
+
+		try {
+			$content = $this->render_content_in_the_loop();
+		} finally {
+			remove_action( 'saai_glossary_after_definition', $callback );
+		}
+
+		$this->assertFalse( $fired );
+		$this->assertStringNotContainsString( 'Definition body.', $content );
+	}
+
+	/**
 	 * The hook must not fire for singular views of unrelated post types.
 	 */
 	public function test_append_after_definition_hook_does_not_fire_for_other_post_types() {
