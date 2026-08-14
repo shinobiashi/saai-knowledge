@@ -140,7 +140,7 @@ final class Breadcrumbs {
 		 * @since 0.1.0
 		 *
 		 * @param array<string, mixed> $schema      The schema.org data.
-		 * @param string               $schema_type Schema type identifier: faq-page / defined-term / breadcrumbs.
+		 * @param string               $schema_type Schema type identifier: faq-page / qa-page / defined-term / breadcrumbs.
 		 * @param \WP_Post|null        $post        The current post, if any.
 		 */
 		$filtered_schema = apply_filters( 'saai_structured_data', $schema, 'breadcrumbs', $post );
