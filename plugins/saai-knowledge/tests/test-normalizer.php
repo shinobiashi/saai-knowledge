@@ -45,12 +45,28 @@ class Test_Normalizer extends WP_UnitTestCase {
 	 * Normalize_fallback() is directly testable since the extensions it
 	 * substitutes for can't be unloaded at test run time.
 	 */
-	public function test_normalize_fallback_folds_fullwidth_ascii_only() {
+	public function test_normalize_fallback_folds_fullwidth_ascii() {
 		$this->assertSame( 'Apple', \SAAI\Knowledge\Normalizer::normalize_fallback( 'Ａｐｐｌｅ' ) );
 		$this->assertSame( '0123456789', \SAAI\Knowledge\Normalizer::normalize_fallback( '０１２３４５６７８９' ) );
 		$this->assertSame( 'A B', \SAAI\Knowledge\Normalizer::normalize_fallback( 'Ａ　Ｂ' ) );
-		// Halfwidth katakana is out of scope for the fallback; left as-is.
-		$this->assertSame( 'ｶﾞｲﾄﾞ', \SAAI\Knowledge\Normalizer::normalize_fallback( 'ｶﾞｲﾄﾞ' ) );
+	}
+
+	/**
+	 * Without intl or mbstring, normalize_fallback() must still fold
+	 * halfwidth katakana (plain and dakuten/handakuten sequences) to
+	 * fullwidth — the same practical case mb_convert_kana( ..., 'KV', ... )
+	 * covers, so bucket_for() doesn't misclassify a halfwidth-only reading
+	 * into the catch-all bucket in an environment without either extension.
+	 */
+	public function test_normalize_fallback_folds_halfwidth_katakana_to_fullwidth() {
+		$this->assertSame( 'カ', \SAAI\Knowledge\Normalizer::normalize_fallback( 'ｶ' ) );
+		$this->assertSame( 'ガイド', \SAAI\Knowledge\Normalizer::normalize_fallback( 'ｶﾞｲﾄﾞ' ) );
+		$this->assertSame( 'パ', \SAAI\Knowledge\Normalizer::normalize_fallback( 'ﾊﾟ' ) );
+		$this->assertSame( 'ヴ', \SAAI\Knowledge\Normalizer::normalize_fallback( 'ｳﾞ' ) );
+		// A dakuten with no preceding voiceable character (or attached to a
+		// character with no voiced form) passes through untouched, same as
+		// mb_convert_kana()'s own behavior for a stray mark.
+		$this->assertSame( 'ンﾞ', \SAAI\Knowledge\Normalizer::normalize_fallback( 'ﾝﾞ' ) );
 	}
 
 	/**
