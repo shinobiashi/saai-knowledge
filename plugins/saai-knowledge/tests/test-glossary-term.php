@@ -321,4 +321,82 @@ class Test_Glossary_Term extends WP_UnitTestCase {
 
 		$this->assertCount( 1, $received );
 	}
+
+	/**
+	 * A block theme's core/post-content render never calls WP_Query::the_post(),
+	 * so in_the_loop() stays false throughout and append_after_definition_hook()
+	 * alone never fires there — fire_after_definition_hook_for_block_theme()
+	 * must cover it instead.
+	 */
+	public function test_after_definition_hook_fires_for_a_block_theme_rendering_post_content() {
+		$post = $this->create_term(
+			array(
+				'post_title'   => 'Term',
+				'post_content' => 'Definition body.',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+		// render_block()'s postId/postType context comes from the global
+		// $post, which real requests only get from the block template
+		// canvas's the_post() call before it renders the template content;
+		// go_to() alone doesn't set it, so core/post-content would render as
+		// the wrong (or no) post without this — same setup as
+		// Template_Loader's equivalent KB article test.
+		the_post();
+
+		// Glossary_Term::register() is already hooked from the plugin's own
+		// normal bootstrap (it's an active plugin for the whole test suite,
+		// not something instantiated per-test) — adding a second
+		// registration here via a fresh instance would double-fire the
+		// hooks, same reasoning as Template_Loader's equivalent KB test.
+		$received = array();
+		$callback = function ( $hooked_post ) use ( &$received ) {
+			$received[] = $hooked_post;
+		};
+		add_action( 'saai_glossary_after_definition', $callback );
+
+		try {
+			$output = do_blocks( '<!-- wp:post-content /-->' );
+		} finally {
+			remove_action( 'saai_glossary_after_definition', $callback );
+		}
+
+		$this->assertCount( 1, $received );
+		$this->assertSame( $post->ID, $received[0]->ID );
+		$this->assertStringContainsString( 'Definition body.', $output );
+	}
+
+	/**
+	 * The block-theme path must not print an add-on's output right after a
+	 * protected term's rendered password form either — same reasoning as
+	 * test_append_after_definition_hook_does_not_fire_for_password_protected_terms().
+	 */
+	public function test_after_definition_hook_does_not_fire_for_password_protected_terms_in_a_block_theme() {
+		$post = $this->create_term(
+			array(
+				'post_title'    => 'Secret',
+				'post_content'  => 'Definition body.',
+				'post_password' => 'secret',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+		the_post();
+
+		$fired    = false;
+		$callback = function () use ( &$fired ) {
+			$fired = true;
+		};
+		add_action( 'saai_glossary_after_definition', $callback );
+
+		try {
+			$output = do_blocks( '<!-- wp:post-content /-->' );
+		} finally {
+			remove_action( 'saai_glossary_after_definition', $callback );
+		}
+
+		$this->assertFalse( $fired );
+		$this->assertStringNotContainsString( 'Definition body.', $output );
+	}
 }

@@ -33,6 +33,43 @@ final class Glossary_Term {
 	private static $hook_fired = false;
 
 	/**
+	 * Whether fire_after_definition_hook_for_block_theme() has already fired
+	 * for the current main query's pass — separate from $hook_fired because
+	 * the two run on different hooks (the_content vs. render_block_core/post-content)
+	 * and, per append_after_definition_hook()'s $post_content_render_depth
+	 * guard, only one of them ever actually fires the action for a given
+	 * request.
+	 *
+	 * @var bool
+	 */
+	private static $block_hook_fired = false;
+
+	/**
+	 * Tracks nested core/post-content block renders — same purpose and
+	 * reasoning as Template_Loader::$post_content_render_depth: it lets
+	 * fire_after_definition_hook_for_block_theme() (on render_block_core/post-content)
+	 * tell whether the render it's looking at is the outermost core/post-content
+	 * currently unwinding, and lets append_after_definition_hook() (on
+	 * the_content) tell whether it's firing as a side effect of that same
+	 * block's render callback rather than a classic theme's Loop.
+	 *
+	 * @var int
+	 */
+	private $post_content_render_depth = 0;
+
+	/**
+	 * Tracks whether a core/post-template (Query Loop) block is currently
+	 * mid-render — same purpose as Template_Loader::$post_template_render_depth:
+	 * rejects a core/post-content encountered while iterating a Query Loop
+	 * (e.g. a "related terms" section embedding the very term being viewed),
+	 * which post_content_render_depth's outermost-render check alone can't
+	 * distinguish from the primary term body.
+	 *
+	 * @var int
+	 */
+	private $post_template_render_depth = 0;
+
+	/**
 	 * Hooks term-page rendering into WordPress.
 	 */
 	public function register(): void {
@@ -44,6 +81,19 @@ final class Glossary_Term {
 		// or this test suite itself) reuses this instance across each one —
 		// same reasoning as Faq_List::reset_render_state().
 		add_action( 'pre_get_posts', array( $this, 'reset_hook_state' ) );
+		// Block themes render the term body via core/post-content, whose own
+		// render callback applies the_content internally but without ever
+		// calling WP_Query::the_post() — in_the_loop() (append_after_definition_hook()'s
+		// guard) stays false throughout, so that guard alone never fires
+		// there. These mirror Template_Loader::fire_before_article_hook()/
+		// wrap_kb_article_content()'s pre_render_block / render_block_core/post-content
+		// pairing to detect that render directly instead. Not gated on
+		// wp_is_block_theme(): a classic theme can still render this core
+		// block via do_blocks() (e.g. inside a widget or a block-built page).
+		add_filter( 'pre_render_block', array( $this, 'track_post_template_render_start' ), PHP_INT_MAX, 2 );
+		add_filter( 'render_block_core/post-template', array( $this, 'track_post_template_render_end' ) );
+		add_filter( 'pre_render_block', array( $this, 'track_post_content_render_start' ), PHP_INT_MAX, 2 );
+		add_filter( 'render_block_core/post-content', array( $this, 'fire_after_definition_hook_for_block_theme' ), 10, 3 );
 	}
 
 	/**
@@ -55,7 +105,10 @@ final class Glossary_Term {
 	 */
 	public function reset_hook_state( \WP_Query $query ): void {
 		if ( $query->is_main_query() ) {
-			self::$hook_fired = false;
+			self::$hook_fired                 = false;
+			self::$block_hook_fired           = false;
+			$this->post_content_render_depth  = 0;
+			$this->post_template_render_depth = 0;
 		}
 	}
 
@@ -63,20 +116,25 @@ final class Glossary_Term {
 	 * Resets $hook_fired directly — see reset_hook_state().
 	 */
 	public static function reset_state(): void {
-		self::$hook_fired = false;
+		self::$hook_fired       = false;
+		self::$block_hook_fired = false;
 	}
 
 	/**
 	 * Fires saai_glossary_after_definition once, right after the queried
-	 * term's own definition body.
+	 * term's own definition body — the classic-theme Loop path.
 	 *
-	 * The core/post-content render callback applies the_content the same as a
-	 * classic theme's Loop does, so a single filter covers both theme types —
-	 * unlike the KB article's before/after wrap (Template_Loader), this hook
-	 * only appends, so it needs none of that class's pre_render_block
-	 * depth-tracking to intercept the block's render ahead of the_content.
+	 * The core/post-content render callback applies the_content internally
+	 * too, but without ever calling WP_Query::the_post(), so in_the_loop()
+	 * stays false throughout a block theme's render of it —
+	 * fire_after_definition_hook_for_block_theme() covers that case instead,
+	 * via pre_render_block/render_block_core/post-content, the same as
+	 * Template_Loader's KB article hooks. $post_content_render_depth being
+	 * nonzero here means this the_content call is firing as a side effect of
+	 * that same core/post-content render (the block theme case, already
+	 * covered there), so it defers rather than firing a second time.
 	 *
-	 * Guards mirror Template_Loader::queried_kb_article_for_classic_content_hooks():
+	 * The remaining guards mirror Template_Loader::queried_kb_article_for_classic_content_hooks():
 	 * in_the_loop() rejects a the_content() call made ahead of the main
 	 * query's Loop (e.g. an SEO plugin deriving a meta description during
 	 * wp_head), get_queried_object_id() === get_the_ID() scopes this to the
@@ -93,6 +151,10 @@ final class Glossary_Term {
 	 * @return string
 	 */
 	public function append_after_definition_hook( string $content ): string {
+		if ( $this->post_content_render_depth > 0 ) {
+			return $content;
+		}
+
 		if ( self::$hook_fired || ! in_the_loop() || ! is_singular( 'saai_glossary' ) ) {
 			return $content;
 		}
@@ -130,6 +192,123 @@ final class Glossary_Term {
 		do_action( 'saai_glossary_after_definition', $post );
 
 		return $content . ob_get_clean();
+	}
+
+	/**
+	 * Marks the start of a core/post-template (Query Loop) render — see
+	 * $post_template_render_depth's docblock. Identical to
+	 * Template_Loader::track_post_template_render_start(): only increments if
+	 * $pre_render is still null, since a lower-priority pre_render_block
+	 * callback may have already short-circuited this same block, in which
+	 * case render_block_core_post_template() (and with it,
+	 * track_post_template_render_end(), the filter that decrements this)
+	 * never runs.
+	 *
+	 * @param string|null          $pre_render   Pass-through; never short-circuits.
+	 * @param array<string, mixed> $parsed_block The block about to render.
+	 * @return string|null
+	 */
+	public function track_post_template_render_start( $pre_render, array $parsed_block ) {
+		if ( null === $pre_render && 'core/post-template' === ( $parsed_block['blockName'] ?? null ) ) {
+			++$this->post_template_render_depth;
+		}
+
+		return $pre_render;
+	}
+
+	/**
+	 * Marks the end of a core/post-template render — the
+	 * render_block_core/post-template counterpart to
+	 * track_post_template_render_start(). This filter only ever fires for
+	 * core/post-template (its dynamic hook name), so every call here is one
+	 * such block finishing its render.
+	 *
+	 * @param string $block_content The rendered post-template block.
+	 * @return string
+	 */
+	public function track_post_template_render_end( string $block_content ): string {
+		--$this->post_template_render_depth;
+
+		return $block_content;
+	}
+
+	/**
+	 * Marks the start of a core/post-content block render — see
+	 * $post_content_render_depth's docblock. Identical reasoning to
+	 * track_post_template_render_start(): only increments if $pre_render is
+	 * still null.
+	 *
+	 * @param string|null          $pre_render   Pass-through; never short-circuits.
+	 * @param array<string, mixed> $parsed_block The block about to render.
+	 * @return string|null
+	 */
+	public function track_post_content_render_start( $pre_render, array $parsed_block ) {
+		if ( null === $pre_render && 'core/post-content' === ( $parsed_block['blockName'] ?? null ) ) {
+			++$this->post_content_render_depth;
+		}
+
+		return $pre_render;
+	}
+
+	/**
+	 * Fires saai_glossary_after_definition once, right after a block theme's
+	 * rendered term body — the block-theme counterpart to
+	 * append_after_definition_hook(); see that method's docblock for why
+	 * in_the_loop() alone can't detect this case.
+	 *
+	 * Mirrors Template_Loader::wrap_kb_article_content(): $was_outermost
+	 * (captured from $post_content_render_depth before decrementing) rejects
+	 * a core/post-content nested inside the one actually being appended to —
+	 * a Query Loop the term body itself embeds, rendering some other,
+	 * unrelated term through the same filter. $post_template_render_depth
+	 * separately rejects a core/post-content encountered while iterating a
+	 * Query Loop that includes the viewed term (e.g. a "related terms"
+	 * section) — a case $was_outermost can't catch on its own, since each
+	 * iteration's core/post-content sits at the same, non-nested depth.
+	 * $block_hook_fired then rejects a second, non-nested core/post-content
+	 * for the same post elsewhere in the template. get_queried_object_id() ===
+	 * get_the_ID() scopes this to the viewed term itself, relying on
+	 * core/post-template's the_post() call (or, for the primary render, the
+	 * block template canvas's own) having set the global $post to it.
+	 *
+	 * @param string               $block_content The rendered post-content block.
+	 * @param array<string, mixed> $parsed_block Parsed block data (unused).
+	 * @param \WP_Block            $block Unused.
+	 * @return string
+	 */
+	public function fire_after_definition_hook_for_block_theme( string $block_content, array $parsed_block, \WP_Block $block ): string { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed -- kept to match the render_block_core/post-content filter signature.
+		$was_outermost = 1 === $this->post_content_render_depth;
+		--$this->post_content_render_depth;
+
+		if ( ! $was_outermost || 0 !== $this->post_template_render_depth || self::$block_hook_fired ) {
+			return $block_content;
+		}
+
+		if ( ! is_singular( 'saai_glossary' ) || get_queried_object_id() !== get_the_ID() ) {
+			return $block_content;
+		}
+
+		$post = get_post( get_the_ID() );
+
+		if ( ! $post instanceof \WP_Post ) {
+			return $block_content;
+		}
+
+		// Same reasoning as append_after_definition_hook()'s equivalent
+		// guard: an add-on's saai_glossary_after_definition callback must not
+		// print right after a protected term's rendered password form.
+		if ( post_password_required( $post ) ) {
+			return $block_content;
+		}
+
+		self::$block_hook_fired = true;
+
+		ob_start();
+
+		/** This action is documented in append_after_definition_hook(). */
+		do_action( 'saai_glossary_after_definition', $post );
+
+		return $block_content . ob_get_clean();
 	}
 
 	/**
