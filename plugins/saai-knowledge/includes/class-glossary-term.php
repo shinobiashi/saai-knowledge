@@ -33,16 +33,17 @@ final class Glossary_Term {
 	private static $hook_fired = false;
 
 	/**
-	 * Whether fire_after_definition_hook_for_block_theme() has already fired
-	 * for the current main query's pass — separate from $hook_fired because
-	 * the two run on different hooks (the_content vs. render_block_core/post-content)
-	 * and, per append_after_definition_hook()'s $post_content_render_depth
-	 * guard, only one of them ever actually fires the action for a given
-	 * request.
+	 * The post ID of the glossary term that has claimed this request's
+	 * saai_glossary_after_definition emission from the block-theme render
+	 * path — see claim_block_definition_slot() — or null while unclaimed.
+	 * Separate from $hook_fired because the two run on different hooks
+	 * (the_content vs. render_block_core/post-content) and, per
+	 * append_after_definition_hook()'s $post_content_render_depth guard,
+	 * only one of them ever actually fires the action for a given request.
 	 *
-	 * @var bool
+	 * @var int|null
 	 */
-	private static $block_hook_fired = false;
+	private static $block_hook_claimed_post_id = null;
 
 	/**
 	 * Tracks nested core/post-content block renders — same purpose and
@@ -106,7 +107,7 @@ final class Glossary_Term {
 	public function reset_hook_state( \WP_Query $query ): void {
 		if ( $query->is_main_query() ) {
 			self::$hook_fired                 = false;
-			self::$block_hook_fired           = false;
+			self::$block_hook_claimed_post_id = null;
 			$this->post_content_render_depth  = 0;
 			$this->post_template_render_depth = 0;
 		}
@@ -116,8 +117,43 @@ final class Glossary_Term {
 	 * Resets $hook_fired directly — see reset_hook_state().
 	 */
 	public static function reset_state(): void {
-		self::$hook_fired       = false;
-		self::$block_hook_fired = false;
+		self::$hook_fired                 = false;
+		self::$block_hook_claimed_post_id = null;
+	}
+
+	/**
+	 * Claims this request's saai_glossary_after_definition emission for the
+	 * block-theme render path — the fire_after_definition_hook_for_block_theme()
+	 * counterpart to Faq_List::claim_structured_data_slot().
+	 *
+	 * A post ID rather than a boolean: a theme or SEO plugin can render a
+	 * glossary term's core/post-content speculatively (excerpt generation,
+	 * metadata analysis) ahead of the visible template pass — the very
+	 * reason this block-theme path exists instead of relying on
+	 * in_the_loop() at all (see fire_after_definition_hook_for_block_theme()'s
+	 * docblock — that guard is what protects append_after_definition_hook()'s
+	 * classic-theme $hook_fired from this same problem, and it isn't
+	 * available here). A plain boolean latch, once consumed by that
+	 * discarded speculative render, would permanently suppress the action
+	 * for the actual visible page. Reclaiming by post ID lets the later,
+	 * visible render of the SAME term fire again.
+	 *
+	 * Known accepted trade-off, same as Faq_List's: the rare case of the
+	 * same term's body genuinely placed twice, non-nested, in one visible
+	 * template fires the action twice — harmless next to the alternative of
+	 * losing it from the real render entirely.
+	 *
+	 * @param int $post_id The queried term's post ID.
+	 * @return bool Whether the caller may fire the action.
+	 */
+	private static function claim_block_definition_slot( int $post_id ): bool {
+		if ( null === self::$block_hook_claimed_post_id ) {
+			self::$block_hook_claimed_post_id = $post_id;
+
+			return true;
+		}
+
+		return self::$block_hook_claimed_post_id === $post_id;
 	}
 
 	/**
@@ -265,11 +301,13 @@ final class Glossary_Term {
 	 * Query Loop that includes the viewed term (e.g. a "related terms"
 	 * section) — a case $was_outermost can't catch on its own, since each
 	 * iteration's core/post-content sits at the same, non-nested depth.
-	 * $block_hook_fired then rejects a second, non-nested core/post-content
-	 * for the same post elsewhere in the template. get_queried_object_id() ===
-	 * get_the_ID() scopes this to the viewed term itself, relying on
-	 * core/post-template's the_post() call (or, for the primary render, the
-	 * block template canvas's own) having set the global $post to it.
+	 * claim_block_definition_slot() then rejects a second, non-nested
+	 * core/post-content for the same post elsewhere in the template — see
+	 * its own docblock for why it's keyed by post ID rather than a plain
+	 * boolean. get_queried_object_id() === get_the_ID() scopes this to the
+	 * viewed term itself, relying on core/post-template's the_post() call
+	 * (or, for the primary render, the block template canvas's own) having
+	 * set the global $post to it.
 	 *
 	 * @param string               $block_content The rendered post-content block.
 	 * @param array<string, mixed> $parsed_block Parsed block data (unused).
@@ -280,7 +318,7 @@ final class Glossary_Term {
 		$was_outermost = 1 === $this->post_content_render_depth;
 		--$this->post_content_render_depth;
 
-		if ( ! $was_outermost || 0 !== $this->post_template_render_depth || self::$block_hook_fired ) {
+		if ( ! $was_outermost || 0 !== $this->post_template_render_depth ) {
 			return $block_content;
 		}
 
@@ -301,7 +339,9 @@ final class Glossary_Term {
 			return $block_content;
 		}
 
-		self::$block_hook_fired = true;
+		if ( ! self::claim_block_definition_slot( $post->ID ) ) {
+			return $block_content;
+		}
 
 		ob_start();
 

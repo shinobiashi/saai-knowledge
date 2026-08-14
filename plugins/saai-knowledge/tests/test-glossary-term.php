@@ -399,4 +399,46 @@ class Test_Glossary_Term extends WP_UnitTestCase {
 		$this->assertFalse( $fired );
 		$this->assertStringNotContainsString( 'Definition body.', $output );
 	}
+
+	/**
+	 * A theme or SEO plugin can render a term's core/post-content
+	 * speculatively (excerpt generation, metadata analysis) ahead of the
+	 * real, visible template pass, and WordPress offers no way to tell the
+	 * two apart. That discarded speculative render must not permanently
+	 * consume claim_block_definition_slot() and suppress the action for the
+	 * actual, visible render that follows — see that method's docblock.
+	 */
+	public function test_after_definition_hook_for_block_theme_fires_again_after_a_speculative_render() {
+		$post = $this->create_term(
+			array(
+				'post_title'   => 'Term',
+				'post_content' => 'Definition body.',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+		the_post();
+
+		$received = array();
+		$callback = function ( $hooked_post ) use ( &$received ) {
+			$received[] = $hooked_post;
+		};
+		add_action( 'saai_glossary_after_definition', $callback );
+
+		try {
+			// Simulates a discarded speculative render of the same term
+			// (e.g. an SEO plugin deriving an excerpt) ahead of the real,
+			// visible template pass.
+			do_blocks( '<!-- wp:post-content /-->' );
+
+			$output = do_blocks( '<!-- wp:post-content /-->' );
+		} finally {
+			remove_action( 'saai_glossary_after_definition', $callback );
+		}
+
+		$this->assertCount( 2, $received );
+		$this->assertSame( $post->ID, $received[0]->ID );
+		$this->assertSame( $post->ID, $received[1]->ID );
+		$this->assertStringContainsString( 'Definition body.', $output );
+	}
 }
