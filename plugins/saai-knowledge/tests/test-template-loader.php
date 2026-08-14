@@ -1867,4 +1867,139 @@ class Test_Template_Loader extends WP_UnitTestCase {
 
 		$this->assertNull( $url );
 	}
+
+	/**
+	 * Same reasoning as test_paged_faq_archive_redirect_is_hooked_after_late_template_overrides(),
+	 * for the glossary archive's own full-list template.
+	 */
+	public function test_paged_glossary_archive_redirect_is_hooked_after_late_template_overrides() {
+		$loader = new \SAAI\Knowledge\Template_Loader();
+		$loader->register();
+
+		$this->assertSame(
+			PHP_INT_MAX,
+			has_action( 'template_redirect', array( $loader, 'redirect_paged_glossary_archive' ) )
+		);
+	}
+
+	/**
+	 * Same reasoning as test_plugin_faq_archive_template_wins_defers_to_site_editor_customization(),
+	 * for archive-saai_glossary.
+	 */
+	public function test_plugin_glossary_archive_template_wins_defers_to_site_editor_customization() {
+		$loader = new \SAAI\Knowledge\Template_Loader();
+		$method = new \ReflectionMethod( \SAAI\Knowledge\Template_Loader::class, 'plugin_glossary_archive_template_wins' );
+		$method->setAccessible( true );
+
+		$make_template = static function ( string $source ): \WP_Block_Template {
+			$template          = new \WP_Block_Template();
+			$template->id      = 'saai-knowledge//archive-saai_glossary';
+			$template->slug    = 'archive-saai_glossary';
+			$template->theme   = 'saai-knowledge';
+			$template->plugin  = 'saai-knowledge';
+			$template->source  = $source;
+			$template->type    = 'wp_template';
+			$template->content = '';
+
+			return $template;
+		};
+
+		$injected = null;
+		$filter   = static function () use ( &$injected ) {
+			return array( $injected );
+		};
+		add_filter( 'get_block_templates', $filter );
+
+		try {
+			$injected = $make_template( 'plugin' );
+			$this->assertTrue( $method->invoke( $loader ), 'the untouched plugin registration must win' );
+
+			$injected = $make_template( 'custom' );
+			$this->assertFalse( $method->invoke( $loader ), 'a Site Editor customization must not count as the bundled template' );
+		} finally {
+			remove_filter( 'get_block_templates', $filter );
+		}
+	}
+
+	/**
+	 * A paged glossary archive request (/glossary/page/2/) should redirect to
+	 * the archive root: the bundled template ignores the paged main query and
+	 * renders the full 五十音/A–Z index via Glossary_Index::items()
+	 * (posts_per_page => -1), so every paged URL would duplicate it.
+	 */
+	public function test_paged_glossary_archive_redirects_to_the_archive_root() {
+		update_option( 'posts_per_page', 1 );
+		self::factory()->post->create( array( 'post_type' => 'saai_glossary' ) );
+		self::factory()->post->create( array( 'post_type' => 'saai_glossary' ) );
+
+		$this->go_to( add_query_arg( 'paged', 2, get_post_type_archive_link( 'saai_glossary' ) ) );
+
+		$this->assertTrue( is_post_type_archive( 'saai_glossary' ) && is_paged(), 'test setup: the request must be a valid paged glossary archive' );
+		$this->assertSame(
+			get_post_type_archive_link( 'saai_glossary' ),
+			( new \SAAI\Knowledge\Template_Loader() )->paged_glossary_archive_redirect_url()
+		);
+	}
+
+	/**
+	 * The unpaged glossary archive itself, and paged archives of other post
+	 * types, should be left alone.
+	 */
+	public function test_unpaged_glossary_archive_and_other_paged_archives_are_not_redirected() {
+		update_option( 'posts_per_page', 1 );
+		self::factory()->post->create( array( 'post_type' => 'saai_glossary' ) );
+		self::factory()->post->create( array( 'post_type' => 'saai_kb' ) );
+		self::factory()->post->create( array( 'post_type' => 'saai_kb' ) );
+
+		$loader = new \SAAI\Knowledge\Template_Loader();
+
+		$this->go_to( get_post_type_archive_link( 'saai_glossary' ) );
+		$this->assertNull( $loader->paged_glossary_archive_redirect_url() );
+
+		$this->go_to( add_query_arg( 'paged', 2, get_post_type_archive_link( 'saai_kb' ) ) );
+		$this->assertTrue( is_post_type_archive( 'saai_kb' ) && is_paged(), 'test setup: the request must be a valid paged KB archive' );
+		$this->assertNull( $loader->paged_glossary_archive_redirect_url() );
+	}
+
+	/**
+	 * A paged glossary feed is served by WordPress's own feed templates and
+	 * paginates legitimately — it must not be redirected.
+	 */
+	public function test_paged_glossary_feed_is_not_redirected() {
+		update_option( 'posts_per_rss', 1 );
+		self::factory()->post->create( array( 'post_type' => 'saai_glossary' ) );
+		self::factory()->post->create( array( 'post_type' => 'saai_glossary' ) );
+
+		$this->go_to( add_query_arg( 'paged', 2, get_post_type_archive_feed_link( 'saai_glossary' ) ) );
+
+		$this->assertTrue( is_feed() && is_paged(), 'test setup: the request must be a valid paged glossary feed' );
+		$this->assertNull( ( new \SAAI\Knowledge\Template_Loader() )->paged_glossary_archive_redirect_url() );
+	}
+
+	/**
+	 * A site override via the public saai_template filter may paginate the
+	 * main query for real — its paged URLs must keep working, mirroring
+	 * test_paged_faq_archive_redirect_defers_to_saai_template_filter_override.
+	 */
+	public function test_paged_glossary_archive_redirect_defers_to_saai_template_filter_override() {
+		update_option( 'posts_per_page', 1 );
+		self::factory()->post->create( array( 'post_type' => 'saai_glossary' ) );
+		self::factory()->post->create( array( 'post_type' => 'saai_glossary' ) );
+
+		$override_path = tempnam( sys_get_temp_dir(), 'saai-template-' );
+
+		$filter = static function () use ( $override_path ) {
+			return $override_path;
+		};
+		add_filter( 'saai_template', $filter );
+
+		$this->go_to( add_query_arg( 'paged', 2, get_post_type_archive_link( 'saai_glossary' ) ) );
+
+		$url = ( new \SAAI\Knowledge\Template_Loader() )->paged_glossary_archive_redirect_url();
+
+		remove_filter( 'saai_template', $filter );
+		wp_delete_file( $override_path );
+
+		$this->assertNull( $url );
+	}
 }

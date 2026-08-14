@@ -209,6 +209,9 @@ final class Template_Loader {
 		// before the add-on's own template_redirect callback had a chance to
 		// install its override.
 		add_action( 'template_redirect', array( $this, 'redirect_paged_faq_archive' ), PHP_INT_MAX );
+		// Same reasoning as redirect_paged_faq_archive() above, for the
+		// glossary archive's own full-list template.
+		add_action( 'template_redirect', array( $this, 'redirect_paged_glossary_archive' ), PHP_INT_MAX );
 		// Separate from the above (which only concerns saai_category
 		// archives): a real HTTP request is a fresh PHP process, so
 		// $article_content_hooks_fired/$classic_article_hooks_fired start
@@ -735,6 +738,91 @@ final class Template_Loader {
 			// Nothing at all is registered for this slug — resolution falls
 			// through to the theme's generic archive/index templates, which
 			// render the paged main query for real. Not this plugin's page.
+			return false;
+		}
+
+		foreach ( $templates as $template ) {
+			if ( self::PLUGIN_SLUG !== $template->plugin || 'plugin' !== $template->source ) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * Redirects paged glossary archive requests back to the archive root.
+	 *
+	 * See paged_glossary_archive_redirect_url() for the reasoning and the
+	 * cases that are left alone; this wrapper only performs the actual
+	 * redirect so tests can exercise the decision without hitting exit.
+	 */
+	public function redirect_paged_glossary_archive(): void {
+		$target = $this->paged_glossary_archive_redirect_url();
+
+		if ( null === $target ) {
+			return;
+		}
+
+		wp_safe_redirect( $target, 301 );
+		exit;
+	}
+
+	/**
+	 * The URL a paged glossary archive request should permanently redirect
+	 * to, or null to leave the request alone.
+	 *
+	 * Same reasoning as paged_faq_archive_redirect_url(): the bundled
+	 * glossary archive template (block and classic alike) ignores the paged
+	 * main query and renders the full 五十音/A–Z index via
+	 * Glossary_Index::items() (posts_per_page => -1) — the archive is one
+	 * page by design (DESIGN.md section 3.5). WordPress still exposes
+	 * /glossary/page/2/ etc. as valid URLs whenever the main query's page
+	 * size is exceeded, and each would repeat the same complete index as
+	 * duplicate content. Those requests redirect to the archive root
+	 * instead, only while the bundled full-list template is actually the
+	 * one rendering.
+	 *
+	 * @return string|null
+	 */
+	public function paged_glossary_archive_redirect_url(): ?string {
+		if ( ! is_post_type_archive( 'saai_glossary' ) || ! is_paged() ) {
+			return null;
+		}
+
+		if ( is_feed() || is_search() ) {
+			return null;
+		}
+
+		if ( wp_is_block_theme() ) {
+			if ( ! $this->plugin_glossary_archive_template_wins() ) {
+				return null;
+			}
+		} else {
+			$bundled  = SAAI_KNOWLEDGE_DIR . 'templates/classic/archive-saai_glossary.php';
+			$resolved = $this->resolved_classic_template_path( 'archive-saai_glossary' );
+
+			if ( $bundled !== $resolved ) {
+				return null;
+			}
+		}
+
+		$link = get_post_type_archive_link( 'saai_glossary' );
+
+		return is_string( $link ) && '' !== $link ? $link : null;
+	}
+
+	/**
+	 * Whether the plugin's own archive-saai_glossary block template is the
+	 * one WordPress's block-theme template resolution will render. Same
+	 * logic as plugin_faq_archive_template_wins().
+	 *
+	 * @return bool
+	 */
+	private function plugin_glossary_archive_template_wins(): bool {
+		$templates = get_block_templates( array( 'slug__in' => array( 'archive-saai_glossary' ) ) );
+
+		if ( ! $templates ) {
 			return false;
 		}
 
