@@ -2,8 +2,11 @@
 /**
  * Classic-theme fallback template for the single saai_glossary view.
  *
- * Placeholder until the glossary term display (M3) replaces it. Themes may
- * override this by providing saai-knowledge/single-saai_glossary.php.
+ * The DefinedTerm JSON-LD and saai_glossary_after_definition insertion point
+ * are wired via Glossary_Term (wp_head / the_content filters), not this
+ * template file, so a theme overriding this via
+ * saai-knowledge/single-saai_glossary.php keeps both as long as it renders
+ * the body through the standard the_content() call below.
  *
  * @package SAAI\Knowledge
  */
@@ -13,7 +16,7 @@ defined( 'ABSPATH' ) || exit;
 get_header();
 ?>
 
-<main class="saai-knowledge-placeholder">
+<main class="saai-glossary-term">
 	<?php
 	while ( have_posts() ) :
 		the_post();

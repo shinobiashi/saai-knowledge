@@ -24,6 +24,7 @@ final class Blocks {
 		'kb-toc',
 		'breadcrumbs',
 		'faq-list',
+		'glossary-index',
 	);
 
 	/**

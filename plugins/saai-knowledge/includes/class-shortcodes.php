@@ -25,6 +25,7 @@ final class Shortcodes {
 		'saai_kb_toc'      => 'saai-knowledge/kb-toc',
 		'saai_breadcrumbs' => 'saai-knowledge/breadcrumbs',
 		'saai_faq'         => 'saai-knowledge/faq-list',
+		'saai_glossary'    => 'saai-knowledge/glossary-index',
 	);
 
 	/**

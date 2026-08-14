@@ -1,0 +1,42 @@
+.saai-glossary-index {
+
+	&__tabs {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.25rem;
+		margin-bottom: 1rem;
+	}
+
+	&__tab {
+		background: none;
+		border: 1px solid #ccc;
+		border-radius: 3px;
+		padding: 0.25rem 0.6rem;
+		font: inherit;
+		cursor: pointer;
+
+		&.is-active {
+			background: #1e1e1e;
+			border-color: #1e1e1e;
+			color: #fff;
+		}
+	}
+
+	&__panel[hidden] {
+		display: none;
+	}
+
+	&__panel-title {
+		margin-top: 0;
+	}
+
+	&__list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+
+	&__item {
+		margin: 0.25rem 0;
+	}
+}
