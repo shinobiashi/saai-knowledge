@@ -210,4 +210,22 @@ class Test_Glossary_Index extends WP_UnitTestCase {
 
 		$this->assertSame( array( 'Public' ), wp_list_pluck( $items, 'title' ) );
 	}
+
+	/**
+	 * The mbstring-independent fallback first_char() uses when mb_substr()
+	 * is unavailable must still return a single, whole multibyte character —
+	 * not the single invalid byte substr() would slice off — so a reading
+	 * beginning with hiragana/katakana still lands in its gojūon bucket
+	 * rather than the catch-all one. Exercised directly via reflection since
+	 * mbstring is normally loaded in the test environment, which would
+	 * otherwise make first_char() never reach this branch.
+	 */
+	public function test_first_char_without_mbstring_reads_a_whole_utf8_character() {
+		$method = new \ReflectionMethod( Glossary_Index::class, 'first_char_without_mbstring' );
+		$method->setAccessible( true );
+
+		$this->assertSame( 'か', $method->invoke( null, 'かいと' ) );
+		$this->assertSame( 'A', $method->invoke( null, 'Apple' ) );
+		$this->assertSame( '', $method->invoke( null, '' ) );
+	}
 }

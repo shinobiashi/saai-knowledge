@@ -272,7 +272,25 @@ final class Glossary_Index {
 			return mb_substr( $text, 0, 1, 'UTF-8' );
 		}
 
-		return substr( $text, 0, 1 );
+		return self::first_char_without_mbstring( $text );
+	}
+
+	/**
+	 * The mbstring-independent fallback for first_char(), split out so tests
+	 * can exercise it directly regardless of whether mbstring happens to be
+	 * loaded in the environment running them.
+	 *
+	 * Mbstring is a recommended, not required, PHP extension (same stance as
+	 * WP_Site_Health::get_test_php_extensions()) — without it,
+	 * substr( $text, 0, 1 ) would slice off a single invalid byte from any
+	 * multibyte UTF-8 character. PCRE's /u modifier decodes UTF-8
+	 * independently of mbstring, so it stays multibyte-safe here.
+	 *
+	 * @param string $text Text to read from; never empty (first_char() short-circuits that case).
+	 * @return string
+	 */
+	private static function first_char_without_mbstring( string $text ): string {
+		return preg_match( '/^./us', $text, $matches ) ? $matches[0] : '';
 	}
 
 	/**
