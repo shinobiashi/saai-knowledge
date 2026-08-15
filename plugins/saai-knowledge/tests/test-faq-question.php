@@ -26,6 +26,7 @@ class Test_Faq_Question extends WP_UnitTestCase {
 		parent::set_up();
 
 		$this->faq_question = new Faq_Question();
+		Faq_Question::reset_state();
 	}
 
 	/**
@@ -47,8 +48,31 @@ class Test_Faq_Question extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Renders the queried FAQ's answer through the real Loop
+	 * (the_post()/the_content()) so capture_answer_content()'s
+	 * in_the_loop()/queried-post guards run exactly as they would on the
+	 * front end, and its capture lands in Faq_Question's static state the
+	 * same way a real page render would.
+	 *
+	 * @return string The rendered content.
+	 */
+	private function render_content_in_the_loop(): string {
+		$content = '';
+
+		while ( have_posts() ) {
+			the_post();
+			$content .= get_the_content();
+			// get_the_content() alone doesn't run the_content filters; apply()
+			// them the same way the_content() would, through the real Loop.
+			$content = apply_filters( 'the_content', $content );
+		}
+
+		return $content;
+	}
+
+	/**
 	 * The QAPage schema should carry the FAQ's title as the question name and
-	 * its content as the accepted answer text.
+	 * the visible page's rendered answer as the accepted answer text.
 	 */
 	public function test_json_ld_builds_qa_page_schema() {
 		$post = $this->create_faq(
@@ -57,6 +81,9 @@ class Test_Faq_Question extends WP_UnitTestCase {
 				'post_content' => 'Open account settings and click Reset password.',
 			)
 		);
+
+		$this->go_to( get_permalink( $post ) );
+		$this->render_content_in_the_loop();
 
 		$schema = $this->faq_question->json_ld( $post );
 
@@ -91,7 +118,10 @@ class Test_Faq_Question extends WP_UnitTestCase {
 			)
 		);
 
+		$this->go_to( get_permalink( $post ) );
+
 		try {
+			$this->render_content_in_the_loop();
 			$schema = $this->faq_question->json_ld( $post );
 		} finally {
 			remove_shortcode( 'saai_test_shortcode' );
@@ -101,6 +131,46 @@ class Test_Faq_Question extends WP_UnitTestCase {
 
 		$this->assertStringContainsString( 'Expanded output', $answer );
 		$this->assertStringNotContainsString( '[saai_test_shortcode]', $answer );
+	}
+
+	/**
+	 * A shortcode with side effects (a view counter, a one-time token) must
+	 * run exactly once for a page view: capturing the visible page's own
+	 * render for the JSON-LD — rather than independently re-rendering the
+	 * answer to build it — must not invoke shortcode callbacks a second
+	 * time.
+	 */
+	public function test_answer_shortcodes_do_not_double_execute() {
+		$call_count = 0;
+
+		add_shortcode(
+			'saai_test_counter',
+			function () use ( &$call_count ) {
+				++$call_count;
+
+				return 'Count: ' . $call_count;
+			}
+		);
+
+		$post = $this->create_faq(
+			array(
+				'post_title'   => 'Counter question',
+				'post_content' => '[saai_test_counter]',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+
+		try {
+			$visible_answer = $this->render_content_in_the_loop();
+			$schema         = $this->faq_question->json_ld( $post );
+		} finally {
+			remove_shortcode( 'saai_test_counter' );
+		}
+
+		$this->assertSame( 1, $call_count );
+		$this->assertStringContainsString( 'Count: 1', $visible_answer );
+		$this->assertStringContainsString( 'Count: 1', $schema['mainEntity']['acceptedAnswer']['text'] );
 	}
 
 	/**
@@ -117,9 +187,34 @@ class Test_Faq_Question extends WP_UnitTestCase {
 			)
 		);
 
+		$this->go_to( get_permalink( $post ) );
+		$this->render_content_in_the_loop();
+
 		$schema = $this->faq_question->json_ld( $post );
 
 		$this->assertSame( $long_answer, $schema['mainEntity']['acceptedAnswer']['text'] );
+	}
+
+	/**
+	 * The captured answer's block/paragraph boundaries must survive as
+	 * plain-text word boundaries: wp_strip_all_tags() deletes tags without
+	 * inserting a separator, so adjacent paragraphs would otherwise
+	 * collapse into one run-together word.
+	 */
+	public function test_json_ld_answer_text_keeps_word_boundaries_across_tags() {
+		$post = $this->create_faq(
+			array(
+				'post_title'   => 'Line breaks',
+				'post_content' => "First\n\nSecond",
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+		$this->render_content_in_the_loop();
+
+		$schema = $this->faq_question->json_ld( $post );
+
+		$this->assertStringNotContainsString( 'FirstSecond', $schema['mainEntity']['acceptedAnswer']['text'] );
 	}
 
 	/**
@@ -200,6 +295,7 @@ class Test_Faq_Question extends WP_UnitTestCase {
 		);
 
 		$this->go_to( get_permalink( $post ) );
+		$this->render_content_in_the_loop();
 
 		ob_start();
 		$this->faq_question->output_structured_data();
@@ -243,10 +339,37 @@ class Test_Faq_Question extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Viewing a published FAQ should output a valid QAPage JSON-LD script
-	 * tag.
+	 * The data model's title = question means an empty title has no question
+	 * text; wp_insert_post_empty_content() only rejects a post whose title,
+	 * content, AND excerpt are all empty, so a saai_faq with a blank title
+	 * but non-empty content is a valid, admin-savable post that must not
+	 * produce a QAPage with an empty required Question.name.
 	 */
-	public function test_output_structured_data_outputs_script_tag_for_a_published_faq() {
+	public function test_output_structured_data_skips_faqs_with_an_empty_title() {
+		$post = $this->create_faq(
+			array(
+				'post_title'   => '',
+				'post_content' => 'Answer without a question title.',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+		$this->render_content_in_the_loop();
+
+		ob_start();
+		$this->faq_question->output_structured_data();
+		$output = ob_get_clean();
+
+		$this->assertSame( '', $output );
+	}
+
+	/**
+	 * When the theme never actually renders the answer body (an unusual
+	 * template override, or a request that reaches wp_footer without the
+	 * Loop having run), there is nothing truthful to report and the QAPage
+	 * must be skipped rather than emitted for content nobody saw.
+	 */
+	public function test_output_structured_data_skips_when_nothing_was_captured() {
 		$post = $this->create_faq(
 			array(
 				'post_title'   => 'Question',
@@ -260,7 +383,64 @@ class Test_Faq_Question extends WP_UnitTestCase {
 		$this->faq_question->output_structured_data();
 		$output = ob_get_clean();
 
+		$this->assertSame( '', $output );
+	}
+
+	/**
+	 * Viewing a published FAQ should output a valid QAPage JSON-LD script
+	 * tag.
+	 */
+	public function test_output_structured_data_outputs_script_tag_for_a_published_faq() {
+		$post = $this->create_faq(
+			array(
+				'post_title'   => 'Question',
+				'post_content' => 'Answer.',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+		$this->render_content_in_the_loop();
+
+		ob_start();
+		$this->faq_question->output_structured_data();
+		$output = ob_get_clean();
+
 		$this->assertStringContainsString( '<script type="application/ld+json">', $output );
 		$this->assertStringContainsString( '"QAPage"', $output );
+	}
+
+	/**
+	 * A block theme's core/post-content render never calls WP_Query::the_post(),
+	 * so in_the_loop() stays false throughout and capture_answer_content()
+	 * alone never captures there — capture_answer_content_for_block_theme()
+	 * must cover it instead.
+	 */
+	public function test_json_ld_answer_uses_captured_content_from_a_block_theme_render() {
+		$post = $this->create_faq(
+			array(
+				'post_title'   => 'Block theme question',
+				'post_content' => 'Block theme answer.',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+		// render_block()'s postId/postType context comes from the global
+		// $post, which real requests only get from the block template
+		// canvas's the_post() call before it renders the template content;
+		// go_to() alone doesn't set it, so core/post-content would render as
+		// the wrong (or no) post without this — same setup as
+		// Glossary_Term's equivalent test.
+		the_post();
+
+		// Faq_Question::register() is already hooked from the plugin's own
+		// normal bootstrap (it's an active plugin for the whole test suite,
+		// not something instantiated per-test) — adding a second
+		// registration here via a fresh instance would double-capture, same
+		// reasoning as Glossary_Term's equivalent test.
+		do_blocks( '<!-- wp:post-content /-->' );
+
+		$schema = $this->faq_question->json_ld( $post );
+
+		$this->assertStringContainsString( 'Block theme answer.', $schema['mainEntity']['acceptedAnswer']['text'] );
 	}
 }
