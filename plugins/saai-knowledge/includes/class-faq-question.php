@@ -25,7 +25,11 @@ final class Faq_Question {
 	 * Hooks the QAPage JSON-LD output into WordPress.
 	 */
 	public function register(): void {
-		add_action( 'wp_head', array( $this, 'output_structured_data' ) );
+		// Priority 1: output_structured_data() renders the answer (do_blocks()/
+		// do_shortcode()), which can enqueue styles as a side effect. Core's
+		// wp_print_styles runs at wp_head priority 8, so the default priority 10
+		// would enqueue too late for those styles to be printed.
+		add_action( 'wp_head', array( $this, 'output_structured_data' ), 1 );
 	}
 
 	/**
@@ -151,19 +155,22 @@ final class Faq_Question {
 	private function render_answer( \WP_Post $post ): string {
 		$content = (string) $post->post_content;
 
+		// Core runs WP_Embed's handlers on the whole content ahead of
+		// do_blocks() (the_content priority 8 vs 9) regardless of whether
+		// the post also contains blocks: a Classic/freeform block can still
+		// hold raw [embed] shortcode syntax or a bare URL, and only
+		// WP_Embed's regex-based processor (not do_shortcode()'s standard
+		// dispatch) expands those correctly.
+		$wp_embed = $GLOBALS['wp_embed'] ?? null;
+
+		if ( $wp_embed instanceof \WP_Embed ) {
+			$content = $wp_embed->run_shortcode( $content );
+			$content = $wp_embed->autoembed( $content );
+		}
+
 		if ( has_blocks( $content ) ) {
 			$html = wptexturize( do_blocks( $content ) );
 		} else {
-			// Same reasoning as Faq_List::render_answer(): WP_Embed's
-			// handlers run ahead of the standard transforms (priority 8 vs
-			// 10 on the_content) for classic content.
-			$wp_embed = $GLOBALS['wp_embed'] ?? null;
-
-			if ( $wp_embed instanceof \WP_Embed ) {
-				$content = $wp_embed->run_shortcode( $content );
-				$content = $wp_embed->autoembed( $content );
-			}
-
 			$html = wpautop( wptexturize( $content ) );
 		}
 
