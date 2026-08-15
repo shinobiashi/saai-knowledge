@@ -172,12 +172,21 @@ final class Faq_Question {
 	 *
 	 * This runs from wp_head, before WP_Query::the_post() runs for the main
 	 * Loop — $GLOBALS['post'] is already the queried FAQ by then, but
-	 * setup_postdata()'s other globals (in_the_loop()'s state, $authordata,
-	 * pagination) are not, so a shortcode/block relying on them here would
-	 * see different state than when the same content renders later inside
-	 * the Loop. POSTDATA_GLOBALS is snapshotted and restored the same way
+	 * setup_postdata()'s other globals ($authordata, pagination) are not,
+	 * so a shortcode/block relying on them here would see different state
+	 * than when the same content renders later inside the Loop.
+	 * POSTDATA_GLOBALS is snapshotted and restored the same way
 	 * Faq_List::render_answer() does, so this early render can't leak state
 	 * into the Loop's later one either.
+	 *
+	 * setup_postdata() doesn't touch in_the_loop — only WP_Query::the_post()
+	 * does. The classic template's Loop (templates/classic/single-saai_faq.php)
+	 * calls the_post(), so its visible the_content() render sees
+	 * in_the_loop() === true; a block theme's core/post-content never calls
+	 * the_post() at all (see Template_Loader's docblock), so in_the_loop()
+	 * stays false there even for the real render. in_the_loop is set to
+	 * match only for a classic (non-block) theme, so this render's state
+	 * agrees with whichever visible render will actually happen.
 	 *
 	 * Unlike Faq_List::render_answer(), the result never reaches the
 	 * visible page (answer_text() strips it back to plain text for the
@@ -203,6 +212,14 @@ final class Faq_Question {
 		$GLOBALS['post'] = $post; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- deliberately scoping the FAQ as the current post for its own answer render; restored in the finally block.
 		setup_postdata( $post );
 
+		$wp_query             = $GLOBALS['wp_query'] ?? null;
+		$previous_in_the_loop = null;
+
+		if ( $wp_query instanceof \WP_Query && ! wp_is_block_theme() ) {
+			$previous_in_the_loop  = $wp_query->in_the_loop;
+			$wp_query->in_the_loop = true;
+		}
+
 		try {
 			$content = (string) $post->post_content;
 
@@ -227,6 +244,10 @@ final class Faq_Question {
 
 			return do_shortcode( shortcode_unautop( $html ) );
 		} finally {
+			if ( null !== $previous_in_the_loop ) {
+				$wp_query->in_the_loop = $previous_in_the_loop;
+			}
+
 			$GLOBALS['post'] = $previous_post; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- restoring the exact pre-render value saved above.
 
 			foreach ( $previous_globals as $var => $value ) {
