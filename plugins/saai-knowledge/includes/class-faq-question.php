@@ -77,6 +77,10 @@ final class Faq_Question {
 				// so decode to plain text after stripping tags. Same reasoning as
 				// Faq_List::json_ld() / Glossary_Term::json_ld().
 				'name'           => html_entity_decode( wp_strip_all_tags( get_the_title( $post ) ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' ),
+				// Required by Google's Q&A structured data guidelines. The data
+				// model is always 1 post = 1 answer (docs/DESIGN.md section 3.1),
+				// so this is never anything but 1.
+				'answerCount'    => 1,
 				'acceptedAnswer' => array(
 					'@type' => 'Answer',
 					'text'  => $this->answer_text( $post ),
@@ -113,17 +117,58 @@ final class Faq_Question {
 	 * answer, not a short summary — unlike Glossary_Term::description()'s
 	 * 55-word trim for DefinedTerm, this is not truncated.
 	 *
-	 * Reads raw post_content rather than get_the_content(): the singular
-	 * template hasn't necessarily run the_post()/setup_postdata() yet at
-	 * wp_head time (global $post isn't reliably the queried FAQ there), and
-	 * wp_trim_words()'s internal wp_strip_all_tags() already discards block
-	 * comment delimiters and markup, same precedent as Glossary_Term's
-	 * fallback description.
+	 * Runs the same do_blocks()/do_shortcode() transforms the visible page
+	 * applies before stripping tags: a raw wp_strip_all_tags() of
+	 * post_content alone would leave an unexpanded "[shortcode]" as literal
+	 * text, or drop a dynamic block's content entirely (its saved form is
+	 * just a self-closing HTML comment with no content between the
+	 * delimiters) — either way the JSON-LD would no longer match what the
+	 * page actually displays.
 	 *
 	 * @param \WP_Post $post The FAQ entry.
 	 * @return string
 	 */
 	private function answer_text( \WP_Post $post ): string {
-		return html_entity_decode( wp_strip_all_tags( $post->post_content ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' );
+		return html_entity_decode( wp_strip_all_tags( $this->render_answer( $post ) ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' );
+	}
+
+	/**
+	 * Renders the FAQ entry's answer body the same way the visible page
+	 * does: do_blocks()/do_shortcode() applied, mirroring
+	 * Faq_List::render_answer()'s content transforms.
+	 *
+	 * Unlike Faq_List::render_answer(), this doesn't need to temporarily
+	 * swap $GLOBALS['post']: that method renders the FAQ's answer while some
+	 * other page's content is the one currently rendering, but this runs
+	 * from wp_head on the FAQ's own singular view — WP_Query::get_posts()
+	 * already sets the global $post to the queried post for is_singular()
+	 * results by the time wp_head fires, so shortcodes/dynamic blocks
+	 * referencing "the current post" already see the right one.
+	 *
+	 * @param \WP_Post $post The FAQ entry.
+	 * @return string
+	 */
+	private function render_answer( \WP_Post $post ): string {
+		$content = (string) $post->post_content;
+
+		if ( has_blocks( $content ) ) {
+			$html = wptexturize( do_blocks( $content ) );
+		} else {
+			// Same reasoning as Faq_List::render_answer(): WP_Embed's
+			// handlers run ahead of the standard transforms (priority 8 vs
+			// 10 on the_content) for classic content.
+			$wp_embed = $GLOBALS['wp_embed'] ?? null;
+
+			if ( $wp_embed instanceof \WP_Embed ) {
+				$content = $wp_embed->run_shortcode( $content );
+				$content = $wp_embed->autoembed( $content );
+			}
+
+			$html = wpautop( wptexturize( $content ) );
+		}
+
+		$html = do_shortcode( shortcode_unautop( $html ) );
+
+		return wp_filter_content_tags( $html, 'the_content' );
 	}
 }

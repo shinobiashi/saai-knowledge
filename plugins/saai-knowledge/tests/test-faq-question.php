@@ -54,7 +54,7 @@ class Test_Faq_Question extends WP_UnitTestCase {
 		$post = $this->create_faq(
 			array(
 				'post_title'   => 'How do I reset my password?',
-				'post_content' => 'Open account settings and click "Reset password".',
+				'post_content' => 'Open account settings and click Reset password.',
 			)
 		);
 
@@ -64,8 +64,43 @@ class Test_Faq_Question extends WP_UnitTestCase {
 		$this->assertSame( 'QAPage', $schema['@type'] );
 		$this->assertSame( 'Question', $schema['mainEntity']['@type'] );
 		$this->assertSame( 'How do I reset my password?', $schema['mainEntity']['name'] );
+		// Google's Q&A structured data guidelines require answerCount; the
+		// data model is always 1 post = 1 answer, so this is always 1.
+		$this->assertSame( 1, $schema['mainEntity']['answerCount'] );
 		$this->assertSame( 'Answer', $schema['mainEntity']['acceptedAnswer']['@type'] );
-		$this->assertSame( 'Open account settings and click "Reset password".', $schema['mainEntity']['acceptedAnswer']['text'] );
+		$this->assertSame( 'Open account settings and click Reset password.', $schema['mainEntity']['acceptedAnswer']['text'] );
+	}
+
+	/**
+	 * The answer text must be the same content the visible page shows: a raw
+	 * strip-tags of post_content alone would leave an unexpanded shortcode
+	 * tag as literal text, no longer matching the rendered page.
+	 */
+	public function test_json_ld_answer_text_expands_shortcodes() {
+		add_shortcode(
+			'saai_test_shortcode',
+			function () {
+				return 'Expanded output';
+			}
+		);
+
+		$post = $this->create_faq(
+			array(
+				'post_title'   => 'Shortcode question',
+				'post_content' => 'Before [saai_test_shortcode] after.',
+			)
+		);
+
+		try {
+			$schema = $this->faq_question->json_ld( $post );
+		} finally {
+			remove_shortcode( 'saai_test_shortcode' );
+		}
+
+		$answer = $schema['mainEntity']['acceptedAnswer']['text'];
+
+		$this->assertStringContainsString( 'Expanded output', $answer );
+		$this->assertStringNotContainsString( '[saai_test_shortcode]', $answer );
 	}
 
 	/**
