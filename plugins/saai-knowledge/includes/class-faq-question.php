@@ -116,7 +116,15 @@ final class Faq_Question {
 		add_filter( 'pre_render_block', array( $this, 'track_post_template_render_start' ), PHP_INT_MAX, 2 );
 		add_filter( 'render_block_core/post-template', array( $this, 'track_post_template_render_end' ) );
 		add_filter( 'pre_render_block', array( $this, 'track_post_content_render_start' ), PHP_INT_MAX, 2 );
-		add_filter( 'render_block_core/post-content', array( $this, 'capture_answer_content_for_block_theme' ), 10, 3 );
+		// PHP_INT_MAX: WP_Block::render() applies this filter via a plain
+		// apply_filters(), so a theme or plugin registered at a later
+		// priority (translation, access control, hiding part of the answer)
+		// still runs after this and changes what the visitor actually sees.
+		// Capturing at the default priority 10 would grab a value that goes
+		// stale the moment such a later callback modifies it — the same
+		// "capture the truly final value" reasoning as capture_answer_content()'s
+		// PHP_INT_MAX priority on the_content.
+		add_filter( 'render_block_core/post-content', array( $this, 'capture_answer_content_for_block_theme' ), PHP_INT_MAX, 3 );
 		// wp_head has already fired by the time either capture hook above
 		// can possibly have run (the answer body renders in <body>), so the
 		// QAPage <script> tag is emitted from wp_footer instead — Google
@@ -198,11 +206,24 @@ final class Faq_Question {
 	 * so it defers rather than capturing a second, possibly differently-scoped
 	 * value.
 	 *
+	 * get_the_excerpt() also applies the_content internally (via
+	 * wp_trim_excerpt(), core's default get_the_excerpt callback) when a
+	 * post has no manual excerpt, to derive one from the content — and that
+	 * nested call satisfies in_the_loop() and the queried-post check below
+	 * just as validly as the real one. A classic theme calling the_excerpt()
+	 * ahead of the_content() (a "related FAQs" teaser list, an archive-style
+	 * summary) would otherwise have this claim the slot first with
+	 * wp_trim_excerpt()'s intermediate value — shortcodes already stripped
+	 * via strip_shortcodes() rather than expanded, dynamic blocks reduced by
+	 * excerpt_remove_blocks() — permanently pre-empting the real capture
+	 * that follows. doing_filter( 'get_the_excerpt' ) reliably detects that
+	 * nested call and defers to it instead.
+	 *
 	 * @param string $content The post content, already run through the_content.
 	 * @return string
 	 */
 	public function capture_answer_content( string $content ): string {
-		if ( $this->post_content_render_depth > 0 ) {
+		if ( $this->post_content_render_depth > 0 || doing_filter( 'get_the_excerpt' ) ) {
 			return $content;
 		}
 
@@ -395,6 +416,15 @@ final class Faq_Question {
 		// empty(): an FAQ legitimately titled "0" must not be dropped —
 		// same check as Faq_List::json_ld().
 		if ( '' === get_the_title( $post ) ) {
+			return;
+		}
+
+		// The same wp_insert_post_empty_content() reasoning allows a
+		// title-only saai_faq whose body is empty or markup-only (e.g. a
+		// single empty paragraph block) — captured_answer_html would then be
+		// '' rather than null, passing the null check above, but the
+		// required acceptedAnswer.text must not be emitted empty either.
+		if ( '' === trim( $this->answer_text() ) ) {
 			return;
 		}
 

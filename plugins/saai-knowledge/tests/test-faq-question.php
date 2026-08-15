@@ -443,4 +443,110 @@ class Test_Faq_Question extends WP_UnitTestCase {
 
 		$this->assertStringContainsString( 'Block theme answer.', $schema['mainEntity']['acceptedAnswer']['text'] );
 	}
+
+	/**
+	 * A theme or plugin can still modify core/post-content's rendered output
+	 * after Faq_Question's own hook runs (translation, access control,
+	 * hiding part of the answer) — capturing at a priority later than any
+	 * such callback is expected to run at must reflect that later value, not
+	 * a stale snapshot taken before it ran.
+	 */
+	public function test_json_ld_answer_reflects_a_later_render_block_core_post_content_filter() {
+		$post = $this->create_faq(
+			array(
+				'post_title'   => 'Late filter question',
+				'post_content' => 'Original answer.',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+		the_post();
+
+		$late_filter = function ( $block_content ) {
+			return str_replace( 'Original answer.', 'Replaced answer.', $block_content );
+		};
+
+		add_filter( 'render_block_core/post-content', $late_filter, 11 );
+
+		try {
+			do_blocks( '<!-- wp:post-content /-->' );
+			$schema = $this->faq_question->json_ld( $post );
+		} finally {
+			remove_filter( 'render_block_core/post-content', $late_filter, 11 );
+		}
+
+		$this->assertStringContainsString( 'Replaced answer.', $schema['mainEntity']['acceptedAnswer']['text'] );
+	}
+
+	/**
+	 * The data model's title = question means a title-only saai_faq with an
+	 * empty (or markup-only) body is a valid, admin-savable post too —
+	 * captured_answer_html would then be '' rather than null, which must
+	 * still suppress the QAPage rather than emit one with an empty required
+	 * acceptedAnswer.text.
+	 */
+	public function test_output_structured_data_skips_faqs_with_an_empty_answer() {
+		$post = $this->create_faq(
+			array(
+				'post_title'   => 'Question with no answer',
+				'post_content' => '',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+		$this->render_content_in_the_loop();
+
+		ob_start();
+		$this->faq_question->output_structured_data();
+		$output = ob_get_clean();
+
+		$this->assertSame( '', $output );
+	}
+
+	/**
+	 * Excerpt generation applies the_content internally (via
+	 * wp_trim_excerpt(), core's default get_the_excerpt callback) when a
+	 * post has no manual excerpt, to derive one from the content. A classic
+	 * theme calling
+	 * the_excerpt() ahead of the_content() (e.g. a "related FAQs" teaser
+	 * list) must not have that nested call permanently claim the capture
+	 * slot with wp_trim_excerpt()'s intermediate value — shortcodes already
+	 * stripped via strip_shortcodes() rather than expanded — pre-empting the
+	 * real the_content() capture that follows.
+	 */
+	public function test_capture_ignores_content_rendered_during_excerpt_generation() {
+		add_shortcode(
+			'saai_test_shortcode',
+			function () {
+				return 'Expanded output';
+			}
+		);
+
+		$post = $this->create_faq(
+			array(
+				'post_title'   => 'Excerpt then content',
+				'post_content' => 'Before [saai_test_shortcode] after.',
+				'post_excerpt' => '',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+
+		try {
+			while ( have_posts() ) {
+				the_post();
+				get_the_excerpt();
+				apply_filters( 'the_content', get_the_content() );
+			}
+
+			$schema = $this->faq_question->json_ld( $post );
+		} finally {
+			remove_shortcode( 'saai_test_shortcode' );
+		}
+
+		$answer = $schema['mainEntity']['acceptedAnswer']['text'];
+
+		$this->assertStringContainsString( 'Expanded output', $answer );
+		$this->assertStringNotContainsString( '[saai_test_shortcode]', $answer );
+	}
 }
