@@ -514,8 +514,11 @@ final class Faq_Question {
 		// question text, so the required Question.name would be empty too;
 		// suppress the whole QAPage rather than emit an invalid one. Not
 		// empty(): an FAQ legitimately titled "0" must not be dropped —
-		// same check as Faq_List::json_ld().
-		if ( '' === get_the_title( $post ) ) {
+		// same check as Faq_List::json_ld(). is_blank() rather than a plain
+		// '' check: a title of pure whitespace passes get_the_title()
+		// unchanged, so it must be decoded/stripped first (same as
+		// json_ld()'s 'name' field below) and then Unicode-blank-checked.
+		if ( self::is_blank( html_entity_decode( wp_strip_all_tags( get_the_title( $post ) ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' ) ) ) {
 			return;
 		}
 
@@ -524,7 +527,9 @@ final class Faq_Question {
 		// single empty paragraph block) — captured_answer_html would then be
 		// '' rather than null, passing the null check above, but the
 		// required acceptedAnswer.text must not be emitted empty either.
-		if ( '' === trim( $this->answer_text() ) ) {
+		// is_blank() rather than trim(): a classic-editor "<p>&nbsp;</p>"
+		// answer decodes to a lone U+00A0, which trim() does not strip.
+		if ( self::is_blank( $this->answer_text() ) ) {
 			return;
 		}
 
@@ -607,5 +612,19 @@ final class Faq_Question {
 		$html = (string) preg_replace( '#</(?:p|div|li|h[1-6]|blockquote|pre|tr|td|th)>|<br\s*/?>#i', '$0' . "\n", self::$captured_answer_html ?? '' );
 
 		return html_entity_decode( wp_strip_all_tags( $html ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' );
+	}
+
+	/**
+	 * Whether $text has no visible content once Unicode whitespace is
+	 * discounted, not just the ASCII space/tab/newline set trim() strips.
+	 * A classic-editor "<p>&nbsp;</p>" answer decodes to a lone U+00A0
+	 * (non-breaking space), and a title of pure regular spaces is equally
+	 * blank; plain trim() treats both as non-empty.
+	 *
+	 * @param string $text Text to test, already tag-stripped/entity-decoded.
+	 * @return bool
+	 */
+	private static function is_blank( string $text ): bool {
+		return '' === preg_replace( '/[\s\x{00A0}]+/u', '', $text );
 	}
 }

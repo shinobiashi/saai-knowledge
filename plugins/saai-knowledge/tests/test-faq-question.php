@@ -364,6 +364,31 @@ class Test_Faq_Question extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A title of pure whitespace is not rejected by
+	 * wp_insert_post_empty_content() (there is non-empty content), so
+	 * get_the_title() would return the whitespace unchanged — a plain ''
+	 * comparison would miss it and emit a QAPage with an effectively
+	 * empty required Question.name.
+	 */
+	public function test_output_structured_data_skips_faqs_with_a_whitespace_only_title() {
+		$post = $this->create_faq(
+			array(
+				'post_title'   => '   ',
+				'post_content' => 'Answer without a real question title.',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+		$this->render_content_in_the_loop();
+
+		ob_start();
+		$this->faq_question->output_structured_data();
+		$output = ob_get_clean();
+
+		$this->assertSame( '', $output );
+	}
+
+	/**
 	 * When the theme never actually renders the answer body (an unusual
 	 * template override, or a request that reaches wp_footer without the
 	 * Loop having run), there is nothing truthful to report and the QAPage
@@ -539,6 +564,31 @@ class Test_Faq_Question extends WP_UnitTestCase {
 			array(
 				'post_title'   => 'Question with no answer',
 				'post_content' => '',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+		$this->render_content_in_the_loop();
+
+		ob_start();
+		$this->faq_question->output_structured_data();
+		$output = ob_get_clean();
+
+		$this->assertSame( '', $output );
+	}
+
+	/**
+	 * A Classic Editor "<p>&nbsp;</p>" answer decodes to a lone U+00A0
+	 * (non-breaking space) after tag-stripping/entity-decoding, which
+	 * PHP's trim() does not treat as whitespace — a plain trim()-based
+	 * empty check would miss it and emit a QAPage with an effectively
+	 * empty required acceptedAnswer.text.
+	 */
+	public function test_output_structured_data_skips_faqs_with_a_non_breaking_space_only_answer() {
+		$post = $this->create_faq(
+			array(
+				'post_title'   => 'Question with a blank answer',
+				'post_content' => '<p>&nbsp;</p>',
 			)
 		);
 
