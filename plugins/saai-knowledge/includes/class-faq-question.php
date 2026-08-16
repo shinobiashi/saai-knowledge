@@ -85,19 +85,30 @@ final class Faq_Question {
 	private static $captured_title = null;
 
 	/**
-	 * Whether a block-theme capture (capture_post_content_if_matching() /
-	 * capture_post_title_if_matching()) has captured a value while still
-	 * nested inside at least one ancestor block whose own filters haven't
-	 * run yet — see verify_capture_survived_to_root()'s docblock for why an
-	 * ancestor can still discard that captured value afterward, and
-	 * track_root_block_render_end() for when this gets checked and cleared.
-	 * False (not pending) when a capture happens with no open ancestor at
-	 * all — nothing further could still modify it in that case, so there is
-	 * nothing to verify.
+	 * Which of 'answer' / 'title' were captured (capture_post_content_if_matching() /
+	 * capture_post_title_if_matching()) while still nested inside at least
+	 * one ancestor block of the CURRENTLY open top-level block, and so
+	 * still need track_root_block_render_end() / verify_capture_survived_to_root()
+	 * to confirm or discard them once that specific ancestor chain finishes
+	 * — see those methods' docblocks for why an ancestor can still discard
+	 * an already-captured value afterward.
 	 *
-	 * @var bool
+	 * Keyed by property name rather than a single flag: a template that
+	 * places the question and answer in separate top-level blocks (e.g. a
+	 * header Group for core/post-title, a different content Group for
+	 * core/post-content) finishes each one at a different, unrelated
+	 * $root_block_render_depth-reaches-0 moment, so a capture must only be
+	 * checked against the specific root it actually belongs to — not
+	 * re-checked against every later, unrelated root's own content, which
+	 * would never contain it and would wrongly look discarded.
+	 *
+	 * Empty when a capture happens with no open ancestor at all — nothing
+	 * further could still modify it in that case, so there is nothing to
+	 * verify.
+	 *
+	 * @var array<string, bool>
 	 */
-	private static $pending_root_verification = false;
+	private static $pending_root_verification = array();
 
 	/**
 	 * Whether verify_capture_survived_to_root() found that an ancestor
@@ -239,7 +250,7 @@ final class Faq_Question {
 		// exists: a Group or custom access-control block can still discard
 		// an already-captured core/post-content or core/post-title after
 		// the fact, from its own, later-running ancestor filters.
-		add_filter( 'render_block', array( $this, 'track_root_block_render_end' ), PHP_INT_MAX );
+		add_filter( 'render_block', array( $this, 'track_root_block_render_end' ), PHP_INT_MAX, 2 );
 		// PHP_INT_MAX: a later-priority render_block_core/post-template
 		// callback on this same apply_filters() call is still mid-render of
 		// that post-template as far as this class's own bookkeeping is
@@ -300,7 +311,7 @@ final class Faq_Question {
 		self::$block_capture_claimed_post_id = null;
 		self::$captured_answer_html          = null;
 		self::$captured_title                = null;
-		self::$pending_root_verification     = false;
+		self::$pending_root_verification     = array();
 		self::$title_verification_failed     = false;
 	}
 
@@ -561,47 +572,101 @@ final class Faq_Question {
 	 * output and have no way to know what an ancestor does to it later.
 	 *
 	 * $root_block_render_depth returning to 0 here means the specific
-	 * top-level block that contains any pending capture — the one
-	 * self::$pending_root_verification was set true for — has now finished
-	 * rendering completely, ancestors included: block rendering is
-	 * depth-first and never interleaved between top-level blocks, so no
-	 * other top-level block could have started yet, making $block_content
-	 * here unambiguously that one top-level block's own, fully-resolved
-	 * output. See verify_capture_survived_to_root()'s docblock for what
-	 * happens with it.
+	 * top-level block that contains any pending capture has now finished
+	 * its own generic 'render_block' chain: block rendering is depth-first
+	 * and never interleaved between top-level blocks, so no other top-level
+	 * block could have started yet.
+	 *
+	 * That block's own dynamic 'render_block_{$name}' filter — which can
+	 * still further modify $block_content, per WP_Block::render() applying
+	 * it after the generic one this hook is registered on — has not run
+	 * yet, though, so verifying right here would miss a later-priority
+	 * ancestor-name-specific callback still to come. schedule_root_verification()
+	 * defers the actual check to that dynamic filter instead, once we know
+	 * this specific block's name.
 	 *
 	 * PHP_INT_MAX (see register()): the generic 'render_block' filter itself
 	 * can have several callbacks; seeing the last one's result keeps this
 	 * consistent with $context in track_render_block_context() likewise
 	 * reflecting every render_block_context callback's result.
 	 *
-	 * @param string $block_content The rendered block, already past every
-	 *                               other render_block callback for it.
+	 * @param string               $block_content The rendered block, already past every
+	 *                                             other render_block callback for it.
+	 * @param array<string, mixed> $parsed_block  The root block, for its (already-final,
+	 *                                             post-render_block_data) name.
 	 * @return string
 	 */
-	public function track_root_block_render_end( string $block_content ): string {
+	public function track_root_block_render_end( string $block_content, array $parsed_block ): string {
 		if ( ! is_singular( 'saai_faq' ) || 0 === $this->root_block_render_depth ) {
 			return $block_content;
 		}
 
 		--$this->root_block_render_depth;
 
-		if ( 0 === $this->root_block_render_depth && self::$pending_root_verification ) {
-			$this->verify_capture_survived_to_root( $block_content );
-			self::$pending_root_verification = false;
+		if ( 0 === $this->root_block_render_depth && ! empty( self::$pending_root_verification ) ) {
+			// Snapshot-and-clear rather than leaving the pending set for
+			// verify_capture_survived_to_root() to clear itself: only the
+			// properties captured under THIS specific top-level block
+			// belong to this check. A capture made under a later, different
+			// top-level block (e.g. a separate content Group rendering
+			// after this one) must start its own, independent pending
+			// entry rather than inheriting whatever's left over here.
+			$pending                         = self::$pending_root_verification;
+			self::$pending_root_verification = array();
+
+			$this->schedule_root_verification( $parsed_block['blockName'] ?? null, $pending );
 		}
 
 		return $block_content;
 	}
 
 	/**
+	 * Defers verify_capture_survived_to_root() to $block_name's own dynamic
+	 * 'render_block_{$block_name}' filter — see track_root_block_render_end()'s
+	 * docblock for why checking there, rather than at the generic
+	 * 'render_block' filter this is called from, is necessary: that dynamic
+	 * filter can still further modify the top-level block's content, and
+	 * fires after the generic one.
+	 *
+	 * A self-removing one-off callback rather than a permanent hook: this
+	 * block instance's dynamic filter will not fire again for the rest of
+	 * the request (block rendering is depth-first and this was the
+	 * outermost render for this specific pending capture), and a permanent
+	 * hook would otherwise keep firing — and re-verifying stale state —
+	 * for every later, unrelated block that happens to share the same name.
+	 *
+	 * @param string|null         $block_name The root block's name; no-op if null (blockName is
+	 *                                        only ever null for freeform/classic content, which
+	 *                                        can't be an ancestor of a rendered block anyway).
+	 * @param array<string, bool> $pending    Which properties ('answer' / 'title') to verify.
+	 */
+	private function schedule_root_verification( ?string $block_name, array $pending ): void {
+		if ( null === $block_name ) {
+			return;
+		}
+
+		$hook     = "render_block_{$block_name}";
+		$callback = null;
+
+		$callback = function ( $final_block_content ) use ( &$callback, $hook, $pending ) {
+			remove_filter( $hook, $callback, PHP_INT_MAX );
+			$this->verify_capture_survived_to_root( $final_block_content, $pending );
+
+			return $final_block_content;
+		};
+
+		add_filter( $hook, $callback, PHP_INT_MAX );
+	}
+
+	/**
 	 * Discards a captured answer and/or title that didn't survive as a
 	 * literal substring of $final_root_content — see
-	 * track_root_block_render_end()'s docblock for why an already-captured
-	 * core/post-content or core/post-title value can still be discarded or
-	 * rewritten by an ancestor block afterward, and for why
-	 * $final_root_content is unambiguously the right content to check each
-	 * pending capture against.
+	 * track_root_block_render_end()'s / schedule_root_verification()'s
+	 * docblocks for why an already-captured core/post-content or
+	 * core/post-title value can still be discarded or rewritten by an
+	 * ancestor block afterward, and for why $final_root_content is
+	 * unambiguously the right content to check each pending capture
+	 * against.
 	 *
 	 * A plain layout wrapper (Group, Row, Stack) concatenates its
 	 * children's output verbatim into its own, so containment holds for
@@ -609,19 +674,31 @@ final class Faq_Question {
 	 * (an access-control block returning '' for an unauthorized viewer, a
 	 * "read more" truncation block) simply won't contain it anymore.
 	 *
-	 * @param string $final_root_content The top-level block's fully-resolved output.
+	 * Only checks the properties named in $pending — see
+	 * $pending_root_verification's docblock for why re-checking a property
+	 * that wasn't actually part of THIS top-level block's own capture would
+	 * be wrong (it would never be found in this unrelated root's content,
+	 * and would look discarded even though nothing about it changed).
+	 *
+	 * @param string              $final_root_content The top-level block's fully-resolved output.
+	 * @param array<string, bool> $pending             Which properties ('answer' / 'title') to check.
 	 */
-	private function verify_capture_survived_to_root( string $final_root_content ): void {
-		if ( null !== self::$captured_answer_html && ! str_contains( $final_root_content, self::$captured_answer_html ) ) {
+	private function verify_capture_survived_to_root( string $final_root_content, array $pending ): void {
+		if ( ! empty( $pending['answer'] ) && null !== self::$captured_answer_html && ! str_contains( $final_root_content, self::$captured_answer_html ) ) {
 			self::$captured_answer_html = null;
 		}
 
-		// title_text()'s get_the_title() fallback only helps when nothing
-		// was ever captured — see $title_verification_failed's docblock for
-		// why an ancestor-discarded title must be flagged instead of just
-		// nulling $captured_title out the same way.
-		if ( null !== self::$captured_title && ! str_contains( $final_root_content, self::$captured_title ) ) {
-			self::$title_verification_failed = true;
+		if ( ! empty( $pending['title'] ) && null !== self::$captured_title ) {
+			// title_text()'s get_the_title() fallback only helps when
+			// nothing was ever captured — see $title_verification_failed's
+			// docblock for why an ancestor-discarded title must be flagged
+			// instead of just nulling $captured_title out the same way. A
+			// title that DOES survive explicitly clears any earlier
+			// failure: this is the latest capture for $captured_title (both
+			// capture_post_title_if_matching() and this always deal with
+			// the single, current value, never a stale one), so a fresh
+			// success here means whatever failed before no longer applies.
+			self::$title_verification_failed = ! str_contains( $final_root_content, self::$captured_title );
 		}
 	}
 
@@ -745,7 +822,7 @@ final class Faq_Question {
 		}
 
 		self::$captured_answer_html = $content;
-		$this->mark_pending_root_verification();
+		$this->mark_pending_root_verification( 'answer' );
 	}
 
 	/**
@@ -759,10 +836,12 @@ final class Faq_Question {
 	 * itself the top-level one) has nothing left that could still modify
 	 * it, so there is nothing to verify — see $pending_root_verification's
 	 * docblock.
+	 *
+	 * @param string $property Which capture this is: 'answer' or 'title'.
 	 */
-	private function mark_pending_root_verification(): void {
+	private function mark_pending_root_verification( string $property ): void {
 		if ( $this->root_block_render_depth > 0 ) {
-			self::$pending_root_verification = true;
+			self::$pending_root_verification[ $property ] = true;
 		}
 	}
 
@@ -892,6 +971,14 @@ final class Faq_Question {
 	 * mark_pending_root_verification() provisional-capture reasoning as
 	 * capture_post_content_if_matching()'s.
 	 *
+	 * Also clears $title_verification_failed unconditionally: this capture
+	 * is, from here on, THE current $captured_title, so any earlier
+	 * failure (from a different, already-finished top-level block) no
+	 * longer describes it. If this capture is itself later found to not
+	 * survive its own ancestor chain, verify_capture_survived_to_root()
+	 * sets the flag again; if there's no open ancestor at all, this value
+	 * is final and the optimistic clear here is already correct.
+	 *
 	 * @param string $content The rendered (or short-circuited) post-title HTML.
 	 */
 	private function capture_post_title_if_matching( string $content ): void {
@@ -913,8 +1000,9 @@ final class Faq_Question {
 			return;
 		}
 
-		self::$captured_title = $content;
-		$this->mark_pending_root_verification();
+		self::$captured_title            = $content;
+		self::$title_verification_failed = false;
+		$this->mark_pending_root_verification( 'title' );
 	}
 
 	/**
@@ -948,6 +1036,22 @@ final class Faq_Question {
 		// answer out of the page source via this JSON-LD. Same guard as
 		// Glossary_Term's equivalent.
 		if ( post_password_required( $post ) ) {
+			return;
+		}
+
+		// A Page Break block splits post_content into multiple <!--nextpage-->
+		// segments; WP_Query::generate_postdata() (wp-includes/class-wp-query.php)
+		// checks for this same literal marker to decide whether to split at
+		// all, and get_the_content() then returns only the current page's
+		// segment — never the whole post_content — so $captured_answer_html
+		// above is only ever a fragment for a paginated FAQ, not the answer
+		// docs/DESIGN.md section 7.1 requires ("1ページで回答が完結する").
+		// There is no core API to reassemble the full, as-rendered answer
+		// from a single page view, and capturing what the visible page
+		// itself rendered (rather than re-deriving independently) is this
+		// class's whole design — so a paginated FAQ suppresses the QAPage
+		// entirely rather than emitting a partial acceptedAnswer.text.
+		if ( str_contains( $post->post_content, '<!--nextpage-->' ) ) {
 			return;
 		}
 

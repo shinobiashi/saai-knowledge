@@ -882,6 +882,114 @@ class Test_Faq_Question extends WP_UnitTestCase {
 	}
 
 	/**
+	 * An ancestor's OWN dynamic render_block_{name} filter — which
+	 * WP_Block::render() applies AFTER the generic render_block filter the
+	 * root-verification depth tracker is registered on — can still discard
+	 * the answer even though the generic filter alone left it intact. The
+	 * verification must wait for that dynamic filter too, not just the
+	 * generic one.
+	 */
+	public function test_json_ld_answer_is_discarded_when_an_ancestors_own_dynamic_filter_hides_it() {
+		$post = $this->create_faq(
+			array(
+				'post_title'   => 'Question',
+				'post_content' => 'Secret answer.',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+		the_post();
+
+		$discard_after_generic = function () {
+			return '';
+		};
+
+		add_filter( 'render_block_core/group', $discard_after_generic, 20 );
+
+		try {
+			do_blocks( '<!-- wp:group --><div class="wp-block-group"><!-- wp:post-content /--></div><!-- /wp:group -->' );
+
+			ob_start();
+			$this->faq_question->output_structured_data();
+			$footer_output = ob_get_clean();
+		} finally {
+			remove_filter( 'render_block_core/group', $discard_after_generic, 20 );
+		}
+
+		$this->assertSame( '', $footer_output );
+	}
+
+	/**
+	 * A template that places the question and answer in separate top-level
+	 * blocks (a header Group for core/post-title, a different content
+	 * Group for core/post-content) must verify each capture only against
+	 * its own top-level block's final output — not re-check a capture from
+	 * an earlier, already-finished, unrelated top-level block against a
+	 * later one's content, which would never contain it and would look
+	 * wrongly discarded.
+	 */
+	public function test_json_ld_answer_and_title_verify_independently_across_separate_top_level_blocks() {
+		$post = $this->create_faq(
+			array(
+				'post_title'   => 'Separate roots question',
+				'post_content' => 'Separate roots answer.',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+		the_post();
+
+		do_blocks( '<!-- wp:group --><div class="wp-block-group"><!-- wp:post-title /--></div><!-- /wp:group -->' );
+		do_blocks( '<!-- wp:group --><div class="wp-block-group"><!-- wp:post-content /--></div><!-- /wp:group -->' );
+
+		$schema = $this->faq_question->json_ld( $post );
+
+		$this->assertStringContainsString( 'Separate roots question', $schema['mainEntity']['name'] );
+		$this->assertStringContainsString( 'Separate roots answer.', $schema['mainEntity']['acceptedAnswer']['text'] );
+	}
+
+	/**
+	 * A core/post-title that was discarded by an ancestor once (a
+	 * conditional header) but genuinely renders successfully elsewhere
+	 * afterward (a template's regular header, further down the same page)
+	 * must not have that earlier failure permanently suppress the whole
+	 * QAPage — the later, successful capture is the current, correct one.
+	 */
+	public function test_json_ld_question_name_recovers_after_a_later_successful_title_capture() {
+		$post = $this->create_faq(
+			array(
+				'post_title'   => 'Recovered title',
+				'post_content' => 'Answer.',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+		the_post();
+
+		$discard_ancestor = function ( $block_content, $parsed_block ) {
+			if ( 'core/group' === ( $parsed_block['blockName'] ?? null ) ) {
+				return '';
+			}
+
+			return $block_content;
+		};
+
+		add_filter( 'render_block', $discard_ancestor, 20, 2 );
+
+		try {
+			do_blocks( '<!-- wp:group --><div class="wp-block-group"><!-- wp:post-title /--></div><!-- /wp:group -->' );
+		} finally {
+			remove_filter( 'render_block', $discard_ancestor, 20 );
+		}
+
+		do_blocks( '<!-- wp:post-title /-->' );
+
+		$schema = $this->faq_question->json_ld( $post );
+
+		$this->assertStringContainsString( 'Recovered title', $schema['mainEntity']['name'] );
+	}
+
+	/**
 	 * The data model's title = question means a title-only saai_faq with an
 	 * empty (or markup-only) body is a valid, admin-savable post too —
 	 * captured_answer_html would then be '' rather than null, which must
@@ -918,6 +1026,34 @@ class Test_Faq_Question extends WP_UnitTestCase {
 			array(
 				'post_title'   => 'Question with a blank answer',
 				'post_content' => '<p>&nbsp;</p>',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+		$this->render_content_in_the_loop();
+
+		ob_start();
+		$this->faq_question->output_structured_data();
+		$output = ob_get_clean();
+
+		$this->assertSame( '', $output );
+	}
+
+	/**
+	 * A Page Break block (<!--nextpage-->) splits post_content into
+	 * multiple pages; get_the_content() then returns only the current
+	 * page's segment, never the whole post_content. Emitting a QAPage
+	 * would give acceptedAnswer.text just that one page's fragment,
+	 * contradicting both this class's docs/DESIGN.md 7.1
+	 * "1ページで回答が完結する" requirement and Google's structured data
+	 * expectation of a complete answer — so a paginated FAQ suppresses the
+	 * QAPage entirely instead.
+	 */
+	public function test_output_structured_data_skips_paginated_faqs() {
+		$post = $this->create_faq(
+			array(
+				'post_title'   => 'Paginated question',
+				'post_content' => 'Page one.<!--nextpage-->Page two.',
 			)
 		);
 
