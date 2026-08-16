@@ -331,7 +331,62 @@ final class Autolinker {
 		$filtered = apply_filters( 'saai_autolink_dictionary', $entries, $context );
 
 		// @phpstan-ignore ternary.elseUnreachable (PHPStan trusts the docblock @param type above, but a third-party saai_autolink_dictionary callback can violate it at runtime.)
-		return is_array( $filtered ) ? $filtered : $entries;
+		return $this->sanitize_dictionary_entries( is_array( $filtered ) ? $filtered : $entries );
+	}
+
+	/**
+	 * Validates/normalizes dictionary entries after the public
+	 * saai_autolink_dictionary filter has run.
+	 *
+	 * A third-party callback can return entries with a missing/wrong-typed
+	 * key (e.g. `patterns` not an array), which would otherwise reach
+	 * compile_groups()/build_anchor() and trigger a warning or TypeError —
+	 * undermining the preg-failure fail-safe with a different kind of
+	 * failure. Malformed entries are dropped entirely rather than partially
+	 * repaired, so a bad entry never silently links to the wrong place.
+	 *
+	 * @param array<int, mixed> $entries Filter output, of unknown-if-conforming shape.
+	 * @return array<int, array<string, mixed>>
+	 */
+	private function sanitize_dictionary_entries( array $entries ): array {
+		$sanitized = array();
+
+		foreach ( $entries as $entry ) {
+			if ( ! is_array( $entry ) ) {
+				continue;
+			}
+
+			$post_id  = $entry['post_id'] ?? null;
+			$url      = $entry['url'] ?? null;
+			$patterns = $entry['patterns'] ?? null;
+
+			if ( ! is_int( $post_id ) || $post_id <= 0 || ! is_string( $url ) || '' === $url || ! is_array( $patterns ) ) {
+				continue;
+			}
+
+			$patterns = array_values(
+				array_filter(
+					$patterns,
+					static function ( $pattern ): bool {
+						return is_string( $pattern ) && '' !== $pattern;
+					}
+				)
+			);
+
+			if ( ! $patterns ) {
+				continue;
+			}
+
+			$sanitized[] = array(
+				'post_id'  => $post_id,
+				'url'      => $url,
+				'label'    => is_string( $entry['label'] ?? null ) ? $entry['label'] : '',
+				'patterns' => $patterns,
+				'excerpt'  => is_string( $entry['excerpt'] ?? null ) ? $entry['excerpt'] : '',
+			);
+		}
+
+		return $sanitized;
 	}
 
 	/**
@@ -576,18 +631,23 @@ final class Autolinker {
 	 * Builds the object-cache key for a processed HTML string.
 	 *
 	 * Per docs/DESIGN-AUTOLINK.md section 2.3: keyed off the dictionary
-	 * generation, the settings that affect output, and either the post's
-	 * modified time (when a post is known) or a content hash (direct
-	 * process() calls with no post, e.g. a product description).
+	 * generation, the settings that affect output, the post's modified time
+	 * (when a post is known), and always a content hash. The content hash is
+	 * not optional even when a post is known: process() is a public service
+	 * (docs/DESIGN-HOOKS-API.md section 5) an add-on can call more than once
+	 * for the *same* post_id with different HTML in one request — e.g. a
+	 * WooCommerce product's short description and full description both tied
+	 * to one product post — and post_id + post_modified_gmt alone can't tell
+	 * those two calls apart.
 	 *
-	 * @param string        $html Input HTML, used for the content-hash fallback.
+	 * @param string        $html Input HTML, hashed into the key.
 	 * @param \WP_Post|null $post The post being processed, if any.
 	 * @return string
 	 */
 	private function cache_key( string $html, ?\WP_Post $post ): string {
 		$generation = (int) get_option( self::GENERATION_OPTION, 1 );
 		$identity   = $post instanceof \WP_Post
-			? $post->ID . '|' . $post->post_modified_gmt
+			? $post->ID . '|' . $post->post_modified_gmt . '|' . md5( $html )
 			: 'raw|' . md5( $html );
 
 		return 'saai_al_' . md5( $generation . '|' . $this->max_links() . '|' . $identity );
@@ -678,11 +738,28 @@ final class Autolinker {
 	 * Resolves compiled match-group regexes for a dictionary, memoized per
 	 * request so a repeatedly-used dictionary is only compiled once.
 	 *
+	 * The fingerprint includes each entry's patterns, not just its post_id:
+	 * saai_autolink_dictionary can return the same post_id set with a
+	 * different patterns list per context (e.g. a paid add-on narrowing
+	 * synonyms per product) in the same request, and post_id alone would
+	 * wrongly reuse a stale compiled regex built from the other context's
+	 * patterns.
+	 *
 	 * @param array<int, array<string, mixed>> $entries Dictionary entries.
 	 * @return array<string, array{regex: string, entry_map: array<string, int>}>
 	 */
 	private function compiled_groups_for( array $entries ): array {
-		$fingerprint = md5( implode( ',', array_column( $entries, 'post_id' ) ) );
+		$fingerprint = md5(
+			implode(
+				';',
+				array_map(
+					static function ( array $entry ): string {
+						return $entry['post_id'] . ':' . implode( ',', $entry['patterns'] );
+					},
+					$entries
+				)
+			)
+		);
 
 		if ( isset( $this->compiled_cache[ $fingerprint ] ) ) {
 			return $this->compiled_cache[ $fingerprint ];

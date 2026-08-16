@@ -11,14 +11,21 @@
 class Test_Autolinker extends WP_UnitTestCase {
 
 	/**
-	 * The service under test.
+	 * An unregistered instance for tests that call process()/handle_*()
+	 * directly. Deliberately not register()'d: the plugin's own bootstrap
+	 * (Plugin::boot(), fired once for the whole test process via
+	 * plugins_loaded) already registers its own Autolinker instance on
+	 * `the_content`/`save_post_saai_glossary`/`deleted_post` — registering
+	 * a second instance here would double-process content flowing through
+	 * render()'s apply_filters( 'the_content', ... ), chaining the first
+	 * instance's output into the second instance's input.
 	 *
 	 * @var \SAAI\Knowledge\Autolinker
 	 */
 	private $autolinker;
 
 	/**
-	 * Registers the engine's hooks and resets dictionary state before each test.
+	 * Resets dictionary state before each test.
 	 */
 	public function set_up() {
 		parent::set_up();
@@ -29,7 +36,6 @@ class Test_Autolinker extends WP_UnitTestCase {
 		wp_cache_flush();
 
 		$this->autolinker = new \SAAI\Knowledge\Autolinker();
-		$this->autolinker->register();
 	}
 
 	/**
@@ -396,6 +402,111 @@ class Test_Autolinker extends WP_UnitTestCase {
 		$content = $this->render( $post_id );
 
 		$this->assertStringContainsString( 'Injected</a>', $content );
+	}
+
+	/**
+	 * Malformed entries from the `saai_autolink_dictionary` filter (wrong
+	 * types, missing keys) are dropped rather than crashing the engine; a
+	 * well-formed entry in the same result still links.
+	 */
+	public function test_dictionary_filter_malformed_entries_are_dropped_not_fatal() {
+		add_filter(
+			'saai_autolink_dictionary',
+			static function () {
+				return array(
+					'not even an array',
+					array(
+						'post_id'  => 999998,
+						'url'      => 'https://example.com/no-patterns/',
+						'patterns' => 'not-an-array',
+					),
+					array(
+						'post_id'  => -1,
+						'url'      => 'https://example.com/bad-id/',
+						'patterns' => array( 'BadId' ),
+					),
+					array(
+						'post_id'  => 999997,
+						'url'      => '',
+						'patterns' => array( 'NoUrl' ),
+					),
+					array(
+						'post_id'  => 999996,
+						'url'      => 'https://example.com/valid/',
+						'label'    => 'ValidInjected',
+						'patterns' => array( 'ValidInjected' ),
+						'excerpt'  => 'A valid injected entry.',
+					),
+				);
+			}
+		);
+
+		$post_id = $this->create_kb_post( '<p>BadId, NoUrl, and ValidInjected are mentioned.</p>' );
+
+		$content = $this->render( $post_id );
+
+		$this->assertStringContainsString( 'ValidInjected</a>', $content );
+		$this->assertStringNotContainsString( 'BadId</a>', $content );
+		$this->assertStringNotContainsString( 'NoUrl</a>', $content );
+	}
+
+	/**
+	 * The compiled-regex cache is keyed on more than just the dictionary's
+	 * post_id set: two process() calls in the same request whose
+	 * saai_autolink_dictionary filter returns the same post_id with
+	 * different patterns must each match their own pattern, not reuse a
+	 * regex compiled for the other call's patterns.
+	 */
+	public function test_compiled_regex_cache_does_not_collide_when_patterns_differ_for_the_same_post_id() {
+		$term_id = $this->create_term( 'Original' );
+
+		add_filter(
+			'saai_autolink_dictionary',
+			static function ( $entries, $context ) use ( $term_id ) {
+				$pattern = ( 'context-a' === ( $context['post_type'] ?? '' ) ) ? 'Alpha' : 'Beta';
+
+				return array(
+					array(
+						'post_id'  => $term_id,
+						'url'      => 'https://example.com/term/',
+						'label'    => 'Original',
+						'patterns' => array( $pattern ),
+						'excerpt'  => 'excerpt',
+					),
+				);
+			},
+			10,
+			2
+		);
+
+		$first  = $this->autolinker->process( 'Mentions Alpha here.', array( 'post_type' => 'context-a' ) );
+		$second = $this->autolinker->process( 'Mentions Beta here.', array( 'post_type' => 'context-b' ) );
+
+		$this->assertStringContainsString( 'Alpha</a>', $first );
+		$this->assertStringContainsString( 'Beta</a>', $second );
+	}
+
+	/**
+	 * Process() calls tied to the same post_id but with different HTML
+	 * (e.g. a WooCommerce product's short vs. full description, both
+	 * against the one product post) must not cross-contaminate the object
+	 * cache: each call's own content, not another call's cached result.
+	 */
+	public function test_process_cache_does_not_collide_across_different_html_for_the_same_post() {
+		$this->create_term( 'API' );
+		$this->create_term( 'SDK' );
+
+		$post_id = $this->create_kb_post( 'placeholder' );
+		$context = array( 'post_id' => $post_id );
+
+		$first  = $this->autolinker->process( 'This mentions API only.', $context );
+		$second = $this->autolinker->process( 'This mentions SDK only.', $context );
+
+		$this->assertStringContainsString( 'API</a>', $first );
+		$this->assertStringNotContainsString( 'SDK</a>', $first );
+
+		$this->assertStringContainsString( 'SDK</a>', $second );
+		$this->assertStringNotContainsString( 'API</a>', $second );
 	}
 
 	/**
