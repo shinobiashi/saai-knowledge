@@ -445,6 +445,55 @@ class Test_Faq_Question extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A block-caching plugin (or similar) can short-circuit core/post-content
+	 * via an earlier-priority pre_render_block callback — render_block()
+	 * (wp-includes/blocks.php) returns that value immediately without ever
+	 * constructing WP_Block or applying render_block_core/post-content, so
+	 * capture_answer_content_for_block_theme() never fires even though the
+	 * cached answer is genuinely what the visitor sees.
+	 *
+	 * The short-circuited text deliberately differs from the post's real
+	 * content, and the filter is registered at priority 20 rather than a
+	 * lower number: core's own _wp_add_block_level_preset_styles (hooked at
+	 * the default priority 10) unconditionally returns null regardless of
+	 * the incoming value, which would silently clobber a short-circuit
+	 * registered before it and mask this test either passing for the wrong
+	 * reason (matching the real content instead) or failing to reproduce the
+	 * scenario at all.
+	 */
+	public function test_json_ld_answer_uses_captured_content_when_post_content_is_short_circuited() {
+		$post = $this->create_faq(
+			array(
+				'post_title'   => 'Cached block theme question',
+				'post_content' => 'Real content, never rendered.',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+		the_post();
+
+		$short_circuit = function ( $pre_render, $parsed_block ) {
+			if ( 'core/post-content' === ( $parsed_block['blockName'] ?? null ) ) {
+				return '<div class="wp-block-post-content"><p>Short-circuited cached answer.</p></div>';
+			}
+
+			return $pre_render;
+		};
+
+		add_filter( 'pre_render_block', $short_circuit, 20, 2 );
+
+		try {
+			$output = do_blocks( '<!-- wp:post-content /-->' );
+			$schema = $this->faq_question->json_ld( $post );
+		} finally {
+			remove_filter( 'pre_render_block', $short_circuit, 20 );
+		}
+
+		$this->assertStringContainsString( 'Short-circuited cached answer.', $output );
+		$this->assertStringContainsString( 'Short-circuited cached answer.', $schema['mainEntity']['acceptedAnswer']['text'] );
+	}
+
+	/**
 	 * A theme or plugin can still modify core/post-content's rendered output
 	 * after Faq_Question's own hook runs (translation, access control,
 	 * hiding part of the answer) — capturing at a priority later than any

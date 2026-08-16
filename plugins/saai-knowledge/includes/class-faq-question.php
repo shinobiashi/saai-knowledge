@@ -355,13 +355,36 @@ final class Faq_Question {
 	 * track_post_template_render_start(): only increments if $pre_render is
 	 * still null.
 	 *
+	 * A block-caching plugin (or similar) can register its own, earlier-priority
+	 * pre_render_block callback that returns non-null HTML for core/post-content
+	 * — render_block() (wp-includes/blocks.php) returns that value immediately
+	 * without ever constructing WP_Block or applying render_block_core/post-content,
+	 * so capture_answer_content_for_block_theme() (which relies on that filter)
+	 * never runs even though the cached answer is genuinely what the visitor
+	 * sees. This is the only chance to capture that value: capture directly
+	 * from the short-circuited $pre_render here instead, via the same guards
+	 * capture_answer_content_for_block_theme() uses (0 === $post_content_render_depth
+	 * at this point is this method's equivalent of that method's $was_outermost
+	 * — nothing else can be short-circuiting mid-unwind of an already-open,
+	 * non-short-circuited post-content render at the moment this fires).
+	 *
 	 * @param string|null          $pre_render   Pass-through; never short-circuits.
 	 * @param array<string, mixed> $parsed_block The block about to render.
 	 * @return string|null
 	 */
 	public function track_post_content_render_start( $pre_render, array $parsed_block ) {
-		if ( null === $pre_render && 'core/post-content' === ( $parsed_block['blockName'] ?? null ) ) {
+		if ( 'core/post-content' !== ( $parsed_block['blockName'] ?? null ) ) {
+			return $pre_render;
+		}
+
+		if ( null === $pre_render ) {
 			++$this->post_content_render_depth;
+
+			return $pre_render;
+		}
+
+		if ( 0 === $this->post_content_render_depth ) {
+			$this->capture_post_content_if_matching( $pre_render );
 		}
 
 		return $pre_render;
@@ -377,17 +400,11 @@ final class Faq_Question {
 	 * $was_outermost (captured from $post_content_render_depth before
 	 * decrementing) rejects a core/post-content nested inside the one
 	 * actually being captured — a Query Loop the answer body itself embeds,
-	 * rendering some other, unrelated FAQ through the same filter.
-	 * $post_template_render_depth separately rejects a core/post-content
-	 * encountered while iterating a Query Loop that includes the viewed FAQ
-	 * (e.g. a "related FAQs" section) — a case $was_outermost can't catch on
-	 * its own, since each iteration's core/post-content sits at the same,
-	 * non-nested depth. claim_block_capture_slot() then rejects a discarded
-	 * speculative render from permanently consuming the slot — see its own
-	 * docblock. get_queried_object_id() === get_the_ID() scopes this to the
-	 * viewed FAQ itself, relying on core/post-template's the_post() call (or,
-	 * for the primary render, the block template canvas's own) having set
-	 * the global $post to it.
+	 * rendering some other, unrelated FAQ through the same filter. The rest
+	 * of the guards (get_queried_object_id() scoping, password check, slot
+	 * claiming) are shared with track_post_content_render_start()'s
+	 * short-circuited-render path via capture_post_content_if_matching() —
+	 * see that method's docblock.
 	 *
 	 * @param string               $block_content The rendered post-content block.
 	 * @param array<string, mixed> $parsed_block  Parsed block data (unused).
@@ -398,34 +415,62 @@ final class Faq_Question {
 		$was_outermost = 1 === $this->post_content_render_depth;
 		--$this->post_content_render_depth;
 
-		if ( ! $was_outermost || 0 !== $this->post_template_render_depth ) {
-			return $block_content;
+		if ( $was_outermost ) {
+			$this->capture_post_content_if_matching( $block_content );
+		}
+
+		return $block_content;
+	}
+
+	/**
+	 * Captures $content as the queried FAQ's answer if it's genuinely the
+	 * viewed FAQ's own core/post-content, shared by both
+	 * capture_answer_content_for_block_theme() (the normal render path) and
+	 * track_post_content_render_start() (the pre_render_block short-circuit
+	 * path) — see each caller's docblock for how they establish "this is the
+	 * outermost, not-nested-in-another-post-content render" before calling
+	 * this.
+	 *
+	 * $post_template_render_depth rejects a core/post-content encountered
+	 * while iterating a Query Loop that includes the viewed FAQ (e.g. a
+	 * "related FAQs" section) — a case the callers' own outermost checks
+	 * can't catch on their own, since each iteration's core/post-content
+	 * sits at the same, non-nested depth. claim_block_capture_slot() rejects
+	 * a discarded speculative render from permanently consuming the slot —
+	 * see its own docblock. get_queried_object_id() === get_the_ID() scopes
+	 * this to the viewed FAQ itself, relying on core/post-template's
+	 * the_post() call (or, for the primary render, the block template
+	 * canvas's own) having set the global $post to it.
+	 *
+	 * @param string $content The rendered (or short-circuited) post-content HTML.
+	 */
+	private function capture_post_content_if_matching( string $content ): void {
+		if ( 0 !== $this->post_template_render_depth ) {
+			return;
 		}
 
 		if ( ! is_singular( 'saai_faq' ) || get_queried_object_id() !== get_the_ID() ) {
-			return $block_content;
+			return;
 		}
 
 		$post = get_post( get_the_ID() );
 
 		if ( ! $post instanceof \WP_Post ) {
-			return $block_content;
+			return;
 		}
 
 		// Same reasoning as capture_answer_content()'s equivalent guard: the
 		// JSON-LD must not carry a protected FAQ's rendered password form,
 		// nor leak the real answer to an unauthenticated visitor.
 		if ( post_password_required( $post ) ) {
-			return $block_content;
+			return;
 		}
 
 		if ( ! self::claim_block_capture_slot( $post->ID ) ) {
-			return $block_content;
+			return;
 		}
 
-		self::$captured_answer_html = $block_content;
-
-		return $block_content;
+		self::$captured_answer_html = $content;
 	}
 
 	/**
