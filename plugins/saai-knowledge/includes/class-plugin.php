@@ -61,6 +61,7 @@ final class Plugin {
 		( new Template_Loader() )->register();
 		( new Heading_Anchors() )->register();
 		( new Faq_List() )->register();
+		( new Faq_Question() )->register();
 		( new Glossary_Term() )->register();
 		( new Blocks() )->register();
 		( new Shortcodes() )->register();
