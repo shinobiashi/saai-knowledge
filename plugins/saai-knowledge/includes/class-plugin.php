@@ -22,6 +22,13 @@ final class Plugin {
 	private static $instance = null;
 
 	/**
+	 * The auto-link engine service.
+	 *
+	 * @var Autolinker|null
+	 */
+	private $autolinker = null;
+
+	/**
 	 * Registers services and signals that the free version is ready.
 	 *
 	 * Hooked on `plugins_loaded` at priority 20.
@@ -66,9 +73,31 @@ final class Plugin {
 		( new Blocks() )->register();
 		( new Shortcodes() )->register();
 
+		$this->autolinker = new Autolinker();
+		$this->autolinker->register();
+
 		if ( is_admin() ) {
 			( new Glossary_Editor() )->register();
 		}
+	}
+
+	/**
+	 * The auto-link engine service.
+	 *
+	 * Public per docs/DESIGN-HOOKS-API.md section 5 — the only supported way
+	 * for the paid add-on (or any other saai_loaded consumer) to reach it.
+	 *
+	 * @return Autolinker
+	 */
+	public function autolinker(): Autolinker {
+		if ( null === $this->autolinker ) {
+			// register_services() always constructs this before saai_loaded
+			// fires; this branch only exists to satisfy static analysis, not
+			// any real call path.
+			$this->autolinker = new Autolinker();
+		}
+
+		return $this->autolinker;
 	}
 
 	/**
