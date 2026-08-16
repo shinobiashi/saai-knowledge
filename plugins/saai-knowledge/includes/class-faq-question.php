@@ -74,6 +74,25 @@ final class Faq_Question {
 	private static $captured_answer_html = null;
 
 	/**
+	 * The title the visible page actually rendered for the queried FAQ —
+	 * captured from the_title (classic themes) or
+	 * render_block_core/post-title (block themes), the same reasoning as
+	 * $captured_answer_html but for the question name: a the_title filter
+	 * can behave differently depending on in_the_loop() (e.g. a callback
+	 * that only translates during the main Loop), so re-deriving it via a
+	 * fresh get_the_title() call from wp_footer — outside the Loop — could
+	 * diverge from what the <h1> actually showed. Null while unset; unlike
+	 * $captured_answer_html, title_text() falls back to a fresh
+	 * get_the_title() call in that case rather than suppressing the QAPage
+	 * — a the_title filter is not expected to have a shortcode-like side
+	 * effect a repeat call would double-apply, so there's no
+	 * "never re-derive" requirement here the way there is for the answer.
+	 *
+	 * @var string|null
+	 */
+	private static $captured_title = null;
+
+	/**
 	 * Tracks nested core/post-content block renders — same purpose and
 	 * reasoning as Glossary_Term::$post_content_render_depth: it lets
 	 * capture_answer_content_for_block_theme() (on
@@ -91,23 +110,35 @@ final class Faq_Question {
 	 * Tracks whether a core/post-template (Query Loop) block whose query is
 	 * NOT inherited from the main query is currently mid-render — same
 	 * purpose as Glossary_Term::$post_template_render_depth: rejects a
-	 * core/post-content encountered while iterating a Query Loop that lists
-	 * unrelated posts (e.g. a "related FAQs" section that happens to embed
-	 * the very FAQ being viewed), which post_content_render_depth's
-	 * outermost-render check alone can't distinguish from the primary
-	 * answer body.
+	 * core/post-content or core/post-title encountered while iterating a
+	 * Query Loop that lists unrelated posts (e.g. a "related FAQs" section
+	 * that happens to embed the very FAQ being viewed), which
+	 * post_content_render_depth's / post_title_render_depth's own
+	 * outermost-render checks alone can't distinguish from the primary
+	 * answer/question render.
 	 *
 	 * An *inherited* Query Loop's "posts" are the main query itself — on a
 	 * singular saai_faq view that main query is exactly the one viewed FAQ,
-	 * so a core/post-content nested inside such a loop (a template
-	 * customized to wrap the primary content in an inherited Query Loop) is
-	 * still the primary answer body, not an unrelated nested render, and
-	 * must not be rejected. See track_post_template_render_start()'s
+	 * so a core/post-content or core/post-title nested inside such a loop
+	 * (a template customized to wrap the primary content in an inherited
+	 * Query Loop) is still the primary render, not an unrelated nested one,
+	 * and must not be rejected. See track_render_block_context()'s
 	 * docblock for how "inherited" is determined.
 	 *
 	 * @var int
 	 */
 	private $post_template_render_depth = 0;
+
+	/**
+	 * Tracks nested core/post-title block renders — the title counterpart
+	 * to $post_content_render_depth, same purpose and reasoning: lets
+	 * capture_title_for_block_theme() (on render_block_core/post-title)
+	 * tell whether the render it's looking at is the outermost
+	 * core/post-title currently unwinding.
+	 *
+	 * @var int
+	 */
+	private $post_title_render_depth = 0;
 
 	/**
 	 * Tracks the_content filter re-entrancy depth. A shortcode or dynamic
@@ -134,6 +165,11 @@ final class Faq_Question {
 		// $the_content_render_depth's docblock.
 		add_filter( 'the_content', array( $this, 'track_the_content_render_start' ), PHP_INT_MIN );
 		add_filter( 'the_content', array( $this, 'capture_answer_content' ), PHP_INT_MAX );
+		// PHP_INT_MAX: a the_title filter registered at a later priority
+		// (translation, a callback that only runs during the main Loop) is
+		// what the visible <h1> actually shows — see capture_title()'s
+		// docblock.
+		add_filter( 'the_title', array( $this, 'capture_title' ), PHP_INT_MAX, 2 );
 		// Block themes render the answer via core/post-content, whose own
 		// render callback applies the_content internally but without ever
 		// calling WP_Query::the_post() — in_the_loop() (capture_answer_content()'s
@@ -144,6 +180,9 @@ final class Faq_Question {
 		// classic theme can still render this core block via do_blocks()
 		// (e.g. inside a widget or a block-built page).
 		add_filter( 'pre_render_block', array( $this, 'track_post_content_render_start' ), PHP_INT_MAX, 2 );
+		// Same short-circuited-render capture path as
+		// track_post_content_render_start(), for core/post-title.
+		add_filter( 'pre_render_block', array( $this, 'track_post_title_render_start' ), PHP_INT_MAX, 2 );
 		// render_block_context, not pre_render_block, for the depth tracking
 		// itself — see track_render_block_context()'s docblock for why it
 		// must key off the block's post-render_block_data name/context
@@ -151,7 +190,15 @@ final class Faq_Question {
 		// it. PHP_INT_MAX for the same "see the truly final value" reasoning
 		// as render_block_core/post-content below.
 		add_filter( 'render_block_context', array( $this, 'track_render_block_context' ), PHP_INT_MAX, 2 );
-		add_filter( 'render_block_core/post-template', array( $this, 'track_post_template_render_end' ), 10, 3 );
+		// PHP_INT_MAX: a later-priority render_block_core/post-template
+		// callback on this same apply_filters() call is still mid-render of
+		// that post-template as far as this class's own bookkeeping is
+		// concerned — see track_post_template_render_end()'s docblock for
+		// why decrementing any earlier would let such a callback's own
+		// reentrant core/post-content render (e.g. a read-time estimator
+		// re-rendering the block tree for analysis) be mistaken for the
+		// primary answer.
+		add_filter( 'render_block_core/post-template', array( $this, 'track_post_template_render_end' ), PHP_INT_MAX, 3 );
 		// PHP_INT_MAX: WP_Block::render() applies this filter via a plain
 		// apply_filters(), so a theme or plugin registered at a later
 		// priority (translation, access control, hiding part of the answer)
@@ -161,6 +208,8 @@ final class Faq_Question {
 		// "capture the truly final value" reasoning as capture_answer_content()'s
 		// PHP_INT_MAX priority on the_content.
 		add_filter( 'render_block_core/post-content', array( $this, 'capture_answer_content_for_block_theme' ), PHP_INT_MAX, 3 );
+		// Same "capture the truly final value" reasoning, for core/post-title.
+		add_filter( 'render_block_core/post-title', array( $this, 'capture_title_for_block_theme' ), PHP_INT_MAX, 3 );
 		// wp_head has already fired by the time either capture hook above
 		// can possibly have run (the answer body renders in <body>), so the
 		// QAPage <script> tag is emitted from wp_footer instead — Google
@@ -187,6 +236,7 @@ final class Faq_Question {
 		self::reset_state();
 		$this->post_content_render_depth  = 0;
 		$this->post_template_render_depth = 0;
+		$this->post_title_render_depth    = 0;
 		$this->the_content_render_depth   = 0;
 	}
 
@@ -199,6 +249,7 @@ final class Faq_Question {
 		self::$classic_capture_claimed       = false;
 		self::$block_capture_claimed_post_id = null;
 		self::$captured_answer_html          = null;
+		self::$captured_title                = null;
 	}
 
 	/**
@@ -328,22 +379,23 @@ final class Faq_Question {
 	}
 
 	/**
-	 * Tracks the start of a core/post-template or core/post-content render
-	 * — see $post_template_render_depth's / $post_content_render_depth's
-	 * docblocks — keyed off the block's fully-resolved name and context
-	 * rather than pre_render_block's pre-rename, context-less view of it.
+	 * Tracks the start of a core/post-template, core/post-content, or
+	 * core/post-title render — see $post_template_render_depth's /
+	 * $post_content_render_depth's / $post_title_render_depth's docblocks
+	 * — keyed off the block's fully-resolved name and context rather than
+	 * pre_render_block's pre-rename, context-less view of it.
 	 *
 	 * Core's render_block() (wp-includes/blocks.php) applies render_block_data
 	 * (which can rename the block) BEFORE constructing the WP_Block that
 	 * the dynamic render_block_core/post-template / render_block_core/post-content
-	 * hooks below key off — those dynamic hook names come from the
-	 * POST-rename value. render_block_context fires after that rename has
-	 * already happened, with $parsed_block reflecting the same final name,
-	 * so tracking the start here keeps it symmetric with those dynamic end
-	 * hooks: a block a render_block_data callback renames away from
-	 * core/post-template or core/post-content simply never increments here
-	 * (and so never needs, or misses, a matching decrement), rather than
-	 * incrementing under the old pre_render_block name and permanently
+	 * / render_block_core/post-title hooks below key off — those dynamic
+	 * hook names come from the POST-rename value. render_block_context
+	 * fires after that rename has already happened, with $parsed_block
+	 * reflecting the same final name, so tracking the start here keeps it
+	 * symmetric with those dynamic end hooks: a block a render_block_data
+	 * callback renames away from one of these three simply never increments
+	 * here (and so never needs, or misses, a matching decrement), rather
+	 * than incrementing under the old pre_render_block name and permanently
 	 * desyncing the counter when the expected dynamic hook — tied to the
 	 * new name — never arrives.
 	 *
@@ -355,14 +407,16 @@ final class Faq_Question {
 	 * every descendant that declares it in usesContext, which
 	 * core/post-template does. An inherited Query Loop's iteration is the
 	 * main query itself — on a singular saai_faq view that's exactly the
-	 * one viewed FAQ, so its core/post-content is the primary answer body,
-	 * not an unrelated nested render (e.g. a "related FAQs" section, which
-	 * never inherits) — see $post_template_render_depth's docblock.
+	 * one viewed FAQ, so its core/post-content or core/post-title is the
+	 * primary render, not an unrelated nested one (e.g. a "related FAQs"
+	 * section, which never inherits) — see $post_template_render_depth's
+	 * docblock.
 	 *
 	 * Only fires for a block that reaches this point un-short-circuited;
-	 * track_post_content_render_start()'s pre_render_block hook separately
-	 * handles core/post-content's short-circuited-render capture path,
-	 * which never reaches render_block_data/render_block_context at all.
+	 * track_post_content_render_start()'s / track_post_title_render_start()'s
+	 * pre_render_block hooks separately handle each block's
+	 * short-circuited-render capture path, which never reaches
+	 * render_block_data/render_block_context at all.
 	 *
 	 * @param array<string, mixed> $context      The block's resolved context.
 	 * @param array<string, mixed> $parsed_block The block about to render, already past render_block_data.
@@ -373,6 +427,8 @@ final class Faq_Question {
 
 		if ( 'core/post-content' === $block_name ) {
 			++$this->post_content_render_depth;
+		} elseif ( 'core/post-title' === $block_name ) {
+			++$this->post_title_render_depth;
 		} elseif ( 'core/post-template' === $block_name && empty( $context['query']['inherit'] ) ) {
 			++$this->post_template_render_depth;
 		}
@@ -391,6 +447,16 @@ final class Faq_Question {
 	 * non-inherited query) — an inherited Query Loop's render never
 	 * incremented the counter in the first place, so it must not decrement
 	 * it either.
+	 *
+	 * Registered at PHP_INT_MAX (see register()): WP_Block::render() applies
+	 * this filter via a plain apply_filters(), so a later-priority callback
+	 * on the same hook is still, as far as any of its own side effects go,
+	 * mid-render of this same post-template. Decrementing any earlier would
+	 * let such a callback's own reentrant render of core/post-content (e.g.
+	 * a read-time estimator or analytics plugin re-rendering the block tree
+	 * to inspect it) be mistaken for a primary answer render happening
+	 * outside any Query Loop, wrongly overwriting the real captured answer
+	 * with that discarded, analysis-only render's content.
 	 *
 	 * @param string               $block_content The rendered post-template block.
 	 * @param array<string, mixed> $parsed_block  Parsed block data (unused).
@@ -524,6 +590,154 @@ final class Faq_Question {
 	}
 
 	/**
+	 * Captures the queried FAQ's rendered title, right as the classic-theme
+	 * Loop produces it — the title counterpart to capture_answer_content().
+	 *
+	 * A the_title filter can behave differently depending on in_the_loop()
+	 * (e.g. a callback that only translates/replaces during the main Loop)
+	 * — capturing here, rather than output_structured_data() re-fetching
+	 * get_the_title() from wp_footer (outside the Loop, once
+	 * WP_Query::have_posts() has already reset in_the_loop to false), keeps
+	 * the JSON-LD question name in sync with what the visible <h1> actually
+	 * showed.
+	 *
+	 * Unlike the_content, 'the_title' hands the target post ID directly
+	 * ($id), so there's no need for the_content's re-entrant-call detection
+	 * ($the_content_render_depth): a the_title call for a different post's
+	 * $id simply won't match get_queried_object_id() below. And unlike
+	 * capture_answer_content(), this always overwrites rather than claiming
+	 * a one-time slot: a the_title filter is not expected to have a
+	 * shortcode-like side effect a repeat capture would double-apply, so
+	 * there's no "first call wins" requirement here — see title_text()'s
+	 * docblock for the same reasoning applied to why this is allowed to
+	 * simply go uncaptured (title_text() falls back to a fresh
+	 * get_the_title() call) rather than suppressing the whole QAPage the
+	 * way an uncaptured answer does.
+	 *
+	 * @param string $title The post title, already run through the_title.
+	 * @param int    $id    The post ID the_title fired for.
+	 * @return string
+	 */
+	public function capture_title( string $title, $id ): string {
+		if ( ! in_the_loop() || ! is_singular( 'saai_faq' ) ) {
+			return $title;
+		}
+
+		if ( get_queried_object_id() !== (int) $id ) {
+			return $title;
+		}
+
+		$post = get_post( (int) $id );
+
+		if ( ! $post instanceof \WP_Post ) {
+			return $title;
+		}
+
+		// Same reasoning as capture_answer_content()'s equivalent guard,
+		// applied to the title: get_the_title() already prepends
+		// "Protected: " for a password-protected post before this filter
+		// runs, and while that prefix itself isn't secret,
+		// output_structured_data() already suppresses the whole QAPage for
+		// a protected FAQ — capturing here too keeps this guarded the same
+		// way every other capture point in this class is, rather than
+		// relying solely on that later check.
+		if ( post_password_required( $post ) ) {
+			return $title;
+		}
+
+		self::$captured_title = $title;
+
+		return $title;
+	}
+
+	/**
+	 * Handles core/post-title's short-circuited-render capture path — the
+	 * title counterpart to track_post_content_render_start(); see that
+	 * method's docblock for the reasoning (a block-caching plugin returning
+	 * non-null HTML for core/post-title via an earlier-priority
+	 * pre_render_block callback bypasses render_block_core/post-title
+	 * entirely, so this is the only chance to capture that value).
+	 *
+	 * @param string|null          $pre_render   Pass-through; never short-circuits.
+	 * @param array<string, mixed> $parsed_block The block about to render.
+	 * @return string|null
+	 */
+	public function track_post_title_render_start( $pre_render, array $parsed_block ) {
+		if ( null === $pre_render || 'core/post-title' !== ( $parsed_block['blockName'] ?? null ) ) {
+			return $pre_render;
+		}
+
+		if ( 0 === $this->post_title_render_depth ) {
+			$this->capture_post_title_if_matching( $pre_render );
+		}
+
+		return $pre_render;
+	}
+
+	/**
+	 * Captures the queried FAQ's rendered title from a block theme's
+	 * core/post-title render — the title counterpart to
+	 * capture_answer_content_for_block_theme(). $was_outermost (captured
+	 * from $post_title_render_depth before decrementing) rejects a
+	 * core/post-title nested inside the one actually being captured, same
+	 * reasoning as that method's.
+	 *
+	 * @param string               $block_content The rendered post-title block.
+	 * @param array<string, mixed> $parsed_block  Parsed block data (unused).
+	 * @param \WP_Block            $block         Unused.
+	 * @return string
+	 */
+	public function capture_title_for_block_theme( string $block_content, array $parsed_block, \WP_Block $block ): string { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed -- kept to match the render_block_core/post-title filter signature.
+		$was_outermost = 1 === $this->post_title_render_depth;
+		--$this->post_title_render_depth;
+
+		if ( $was_outermost ) {
+			$this->capture_post_title_if_matching( $block_content );
+		}
+
+		return $block_content;
+	}
+
+	/**
+	 * Captures $content as the queried FAQ's title if it's genuinely the
+	 * viewed FAQ's own core/post-title, shared by both
+	 * capture_title_for_block_theme() (the normal render path) and
+	 * track_post_title_render_start() (the pre_render_block short-circuit
+	 * path) — the title counterpart to capture_post_content_if_matching();
+	 * see that method's docblock for the shared $post_template_render_depth
+	 * / queried-post / password guard reasoning.
+	 *
+	 * No claim-slot the way capture_post_content_if_matching() has: unlike
+	 * core/post-content, there's no known speculative-pre-render scenario
+	 * to guard against here (get_the_excerpt()'s nested the_content call
+	 * has no title analog), and a plain title string has no side effect a
+	 * repeat capture could double-apply, so this simply overwrites.
+	 *
+	 * @param string $content The rendered (or short-circuited) post-title HTML.
+	 */
+	private function capture_post_title_if_matching( string $content ): void {
+		if ( 0 !== $this->post_template_render_depth ) {
+			return;
+		}
+
+		if ( ! is_singular( 'saai_faq' ) || get_queried_object_id() !== get_the_ID() ) {
+			return;
+		}
+
+		$post = get_post( get_the_ID() );
+
+		if ( ! $post instanceof \WP_Post ) {
+			return;
+		}
+
+		if ( post_password_required( $post ) ) {
+			return;
+		}
+
+		self::$captured_title = $content;
+	}
+
+	/**
 	 * Outputs the QAPage JSON-LD for a saai_faq singular view, once the
 	 * visible answer has actually rendered — see the class docblock for why
 	 * this fires from wp_footer using captured content rather than
@@ -565,10 +779,9 @@ final class Faq_Question {
 		// suppress the whole QAPage rather than emit an invalid one. Not
 		// empty(): an FAQ legitimately titled "0" must not be dropped —
 		// same check as Faq_List::json_ld(). is_blank() rather than a plain
-		// '' check: a title of pure whitespace passes get_the_title()
-		// unchanged, so it must be decoded/stripped first (same as
-		// json_ld()'s 'name' field below) and then Unicode-blank-checked.
-		if ( self::is_blank( html_entity_decode( wp_strip_all_tags( get_the_title( $post ) ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' ) ) ) {
+		// '' check: a title of pure whitespace passes title_text() unchanged
+		// and must be Unicode-blank-checked.
+		if ( self::is_blank( $this->title_text( $post ) ) ) {
 			return;
 		}
 
@@ -604,11 +817,7 @@ final class Faq_Question {
 			'@type'      => 'QAPage',
 			'mainEntity' => array(
 				'@type'          => 'Question',
-				// get_the_title() encodes characters as HTML references (the_title
-				// filter, e.g. & -> &#038;); JSON-LD consumers never HTML-decode,
-				// so decode to plain text after stripping tags. Same reasoning as
-				// Faq_List::json_ld() / Glossary_Term::json_ld().
-				'name'           => html_entity_decode( wp_strip_all_tags( get_the_title( $post ) ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' ),
+				'name'           => $this->title_text( $post ),
 				// Required by Google's Q&A structured data guidelines. The data
 				// model is always 1 post = 1 answer (docs/DESIGN.md section 3.1),
 				// so this is never anything but 1.
@@ -676,6 +885,30 @@ final class Faq_Question {
 		$html = (string) preg_replace( '#</' . $blocks . '>|<br\s*/?>#i', '$0' . "\n", $html );
 
 		return html_entity_decode( wp_strip_all_tags( $html ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' );
+	}
+
+	/**
+	 * The captured title as plain text — $captured_title is what the
+	 * visible page's <h1> actually rendered (see capture_title()'s
+	 * docblock for why that can differ from a fresh get_the_title() call),
+	 * falling back to get_the_title( $post ) when nothing was captured
+	 * (e.g. an unusual template override that never renders core/post-title
+	 * or calls the_title() at all). Unlike answer_text(), a fallback here
+	 * is safe: get_the_title() has no shortcode-like side effect a repeat
+	 * call could double-apply, unlike re-rendering the answer.
+	 *
+	 * Both get_the_title() and the_title filters encode characters as HTML
+	 * references (e.g. & -> &#038;); JSON-LD consumers never HTML-decode,
+	 * so decode to plain text after stripping tags. Same reasoning as
+	 * Faq_List::json_ld() / Glossary_Term::json_ld().
+	 *
+	 * @param \WP_Post $post The FAQ entry, for the get_the_title() fallback.
+	 * @return string
+	 */
+	private function title_text( \WP_Post $post ): string {
+		$title = self::$captured_title ?? get_the_title( $post );
+
+		return html_entity_decode( wp_strip_all_tags( $title ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' );
 	}
 
 	/**

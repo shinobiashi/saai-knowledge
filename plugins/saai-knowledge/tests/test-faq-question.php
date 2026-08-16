@@ -48,11 +48,12 @@ class Test_Faq_Question extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Renders the queried FAQ's answer through the real Loop
-	 * (the_post()/the_content()) so capture_answer_content()'s
-	 * in_the_loop()/queried-post guards run exactly as they would on the
-	 * front end, and its capture lands in Faq_Question's static state the
-	 * same way a real page render would.
+	 * Renders the queried FAQ's title and answer through the real Loop
+	 * (the_post()/the_title()/the_content()) so capture_answer_content()'s
+	 * and capture_title()'s in_the_loop()/queried-post guards run exactly
+	 * as they would on the front end, and their captures land in
+	 * Faq_Question's static state the same way a real page render would —
+	 * every classic single template renders both, not just the content.
 	 *
 	 * @return string The rendered content.
 	 */
@@ -61,6 +62,9 @@ class Test_Faq_Question extends WP_UnitTestCase {
 
 		while ( have_posts() ) {
 			the_post();
+			// get_the_title() alone is enough to run the_title filters
+			// (capture_title()'s hook) the same way the_title() would.
+			get_the_title();
 			$content .= get_the_content();
 			// get_the_content() alone doesn't run the_content filters; apply()
 			// them the same way the_content() would, through the real Loop.
@@ -553,6 +557,73 @@ class Test_Faq_Question extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A the_title filter that behaves differently depending on in_the_loop()
+	 * (e.g. a translation callback that only runs during the main Loop)
+	 * must not have the JSON-LD question name diverge from what the
+	 * visible <h1> actually showed. Before the fix, json_ld() re-derived
+	 * the title via a fresh get_the_title( $post ) call — which, called
+	 * from output_structured_data()'s wp_footer context, runs after
+	 * WP_Query::have_posts() has already reset in_the_loop() back to
+	 * false, so a loop-state-dependent filter would produce a different
+	 * value there than it did for the real <h1>.
+	 */
+	public function test_json_ld_question_name_uses_the_in_loop_rendered_title() {
+		$post = $this->create_faq( array( 'post_title' => 'Original title' ) );
+
+		$this->go_to( get_permalink( $post ) );
+
+		$loop_dependent_title = function ( $title, $id ) use ( $post ) {
+			if ( (int) $id !== $post->ID ) {
+				return $title;
+			}
+
+			return in_the_loop() ? 'In-loop title' : 'Out-of-loop title';
+		};
+
+		add_filter( 'the_title', $loop_dependent_title, 20, 2 );
+
+		try {
+			$this->render_content_in_the_loop();
+			$schema = $this->faq_question->json_ld( $post );
+		} finally {
+			remove_filter( 'the_title', $loop_dependent_title, 20 );
+		}
+
+		$this->assertSame( 'In-loop title', $schema['mainEntity']['name'] );
+	}
+
+	/**
+	 * A theme or plugin can still modify core/post-title's rendered output
+	 * after Faq_Question's own hook runs (translation, access control) —
+	 * capturing at a priority later than any such callback is expected to
+	 * run at must reflect that later value, not a stale snapshot taken
+	 * before it ran. Mirrors
+	 * test_json_ld_answer_reflects_a_later_render_block_core_post_content_filter()
+	 * for the title's own block-theme capture path.
+	 */
+	public function test_json_ld_question_name_reflects_a_later_render_block_core_post_title_filter() {
+		$post = $this->create_faq( array( 'post_title' => 'Original title' ) );
+
+		$this->go_to( get_permalink( $post ) );
+		the_post();
+
+		$late_filter = function ( $block_content ) {
+			return str_replace( 'Original title', 'Replaced title', $block_content );
+		};
+
+		add_filter( 'render_block_core/post-title', $late_filter, 11 );
+
+		try {
+			do_blocks( '<!-- wp:post-title /-->' );
+			$schema = $this->faq_question->json_ld( $post );
+		} finally {
+			remove_filter( 'render_block_core/post-title', $late_filter, 11 );
+		}
+
+		$this->assertStringContainsString( 'Replaced title', $schema['mainEntity']['name'] );
+	}
+
+	/**
 	 * A single template customized to wrap its main content in an inherited
 	 * Query Loop (Inherit query from URL) still shows the viewed FAQ's own
 	 * answer — core's render_block_core_query() makes an inherited Query
@@ -629,6 +700,75 @@ class Test_Faq_Question extends WP_UnitTestCase {
 		}
 
 		$this->assertStringContainsString( 'Real answer.', $schema['mainEntity']['acceptedAnswer']['text'] );
+	}
+
+	/**
+	 * A later-priority render_block_core/post-template callback (a
+	 * read-time estimator or analytics plugin reentrantly re-rendering the
+	 * block tree for analysis) must not have its discarded core/post-content
+	 * render mistaken for the primary answer.
+	 *
+	 * WP_Block::render() applies render_block_core/post-template via a
+	 * single apply_filters() call: every registered callback, regardless of
+	 * priority, runs as part of that one call. If this class's own
+	 * end-of-post-template tracking ran at a low priority, a later callback
+	 * on the same hook doing a reentrant core/post-content render would see
+	 * $post_template_render_depth already back at 0 — as if that render
+	 * were happening outside any Query Loop — and wrongly capture its
+	 * discarded, analysis-only content as the real answer.
+	 */
+	public function test_json_ld_answer_ignores_a_reentrant_post_content_render_from_a_later_post_template_filter() {
+		$post = $this->create_faq(
+			array(
+				'post_title'   => 'Reentrant filter question',
+				'post_content' => 'Real answer.',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+		the_post();
+
+		$is_reentrant_render = false;
+
+		$tag_reentrant_content = function ( $block_content ) use ( &$is_reentrant_render ) {
+			return $is_reentrant_render ? 'Reentrant analysis render.' : $block_content;
+		};
+		add_filter( 'render_block_core/post-content', $tag_reentrant_content, 5 );
+
+		$reentrant_render = function ( $block_content ) use ( &$is_reentrant_render ) {
+			$is_reentrant_render = true;
+			render_block(
+				array(
+					'blockName'    => 'core/post-content',
+					'attrs'        => array(),
+					'innerBlocks'  => array(),
+					'innerHTML'    => '',
+					'innerContent' => array(),
+				)
+			);
+			$is_reentrant_render = false;
+
+			return $block_content;
+		};
+		add_filter( 'render_block_core/post-template', $reentrant_render, 20 );
+
+		try {
+			do_blocks(
+				'<!-- wp:query {"query":{"inherit":false,"postType":"saai_faq","perPage":10}} -->' .
+				'<div class="wp-block-query">' .
+				'<!-- wp:post-template -->' .
+				'<!-- wp:post-content /-->' .
+				'<!-- /wp:post-template -->' .
+				'</div>' .
+				'<!-- /wp:query -->'
+			);
+			$schema = $this->faq_question->json_ld( $post );
+		} finally {
+			remove_filter( 'render_block_core/post-template', $reentrant_render, 20 );
+			remove_filter( 'render_block_core/post-content', $tag_reentrant_content, 5 );
+		}
+
+		$this->assertStringNotContainsString( 'Reentrant analysis render.', $schema['mainEntity']['acceptedAnswer']['text'] );
 	}
 
 	/**
