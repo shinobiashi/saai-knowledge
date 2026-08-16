@@ -69,6 +69,9 @@ FAQ / Knowledge Base / 用語集を提供する WordPress プラグインのモ�
 - `doing_filter( 'the_content' )` / `doing_filter( 'get_the_excerpt' )` は、コンテンツ処理中の再入呼び出し（回答内のショートコードが同じ投稿の `get_the_title()` や `the_content` を再度呼ぶ等）を確実に検出できる。捕捉ロジックが「本物の一次レンダーか、コンテンツ内部からの再入呼び出しか」を区別する必要がある場合のガードに使う。
 - `WP_UnitTestCase` は各テスト後に DB を `ROLLBACK` し、次のテスト開始時（`set_up()` が呼ぶ `clean_up_global_scope()`）にオブジェクトキャッシュもフラッシュするため、`update_option()` 等のテスト内での変更は手動での復元が不要（レビューbotに誤検知として指摘された実績あり）。
 - `core/post-title` の `render_block_core_post_title()`（wp-includes/blocks/post-title.php）は `get_the_title()` を意図的に引数なし（グローバル `$post` 依存）で呼ぶ。`$block->context['postId']` は存在チェックと `isLink` 時のパーマリンク生成にのみ使われ、表示するタイトルテキスト自体には使われない — `core/post-content` の `get_the_content()` と同じ設計。
+- PHPのPCRE `\p{Han}`/`\p{Katakana}`/`\p{Hiragana}`（bare形式のUnicodeプロパティ）は、実装によっては各文字の Script ではなく Script_Extensions を参照するため、複数スクリプトで共有される句読点（例: `。` U+3002）が Han・Hiragana・Katakana すべてにマッチしてしまう（実機検証で確認: `preg_match('/\p{Han}/u','。')` が `1` を返す）。スクリプト単位の文字種判定が必要な場合は `\p{Script=Han}` のような明示的構文を使う（`Autolinker::char_class()` で実例）。
+- `wp_insert_post()` はデフォルトの（`unfiltered_html` 権限を持たない）テストユーザーだと `content_save_pre` の `wp_filter_post_kses()` で `<script>`/`<style>` 等のタグを保存時に除去する（内容は残り、タグだけ消える）。これらのタグを含む生HTMLの挙動をテストする場合は投稿保存を経由せず、対象の処理関数へ直接HTML文字列を渡す。
+- テスト側で `set_up()` ごとに `new Service(); ->register();` して `the_content` 等の共有フックに独自登録すると、`Plugin::boot()`（`plugins_loaded`、テストプロセス全体で1回だけ発火）が既に同じサービスを登録済みの場合、同一フックに2つのインスタンスが登録され、片方の出力がもう片方の入力として二重処理される。この不具合はキャッシュキーが粗いと偶然キャッシュヒットで隠蔽されうる（`Autolinker` のキャッシュキー修正で実際に顕在化した）。直接メソッド呼び出し用のインスタンスは `register()` を呼ばない。
 
 ## Git 運用（重要）
 
