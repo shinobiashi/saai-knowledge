@@ -553,6 +553,85 @@ class Test_Faq_Question extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A single template customized to wrap its main content in an inherited
+	 * Query Loop (Inherit query from URL) still shows the viewed FAQ's own
+	 * answer — core's render_block_core_query() makes an inherited Query
+	 * Loop iterate the main query itself, which on a singular view is
+	 * exactly the one viewed post. This must not be rejected the same way a
+	 * genuinely unrelated Query Loop (e.g. "related FAQs") is.
+	 */
+	public function test_json_ld_answer_uses_captured_content_from_an_inherited_query_loop() {
+		$post = $this->create_faq(
+			array(
+				'post_title'   => 'Inherited query loop question',
+				'post_content' => 'Inherited query loop answer.',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+		the_post();
+
+		do_blocks(
+			'<!-- wp:query {"query":{"inherit":true}} -->' .
+			'<div class="wp-block-query">' .
+			'<!-- wp:post-template -->' .
+			'<!-- wp:post-content /-->' .
+			'<!-- /wp:post-template -->' .
+			'</div>' .
+			'<!-- /wp:query -->'
+		);
+
+		$schema = $this->faq_question->json_ld( $post );
+
+		$this->assertStringContainsString( 'Inherited query loop answer.', $schema['mainEntity']['acceptedAnswer']['text'] );
+	}
+
+	/**
+	 * A render_block_data callback (a block-variation swap, a translation
+	 * proxy block) that renames one core/post-content instance to a
+	 * different block name must not desync $post_content_render_depth and
+	 * break capture of an unrelated, un-renamed core/post-content that
+	 * renders afterward in the same request.
+	 *
+	 * Before the fix, depth tracking happened on pre_render_block using the
+	 * pre-rename block name: the renamed instance would increment the depth
+	 * but never decrement it (its dynamic render_block_core/post-content
+	 * hook, keyed off the post-rename name, never fires), permanently
+	 * leaving $was_outermost false for every real post-content render that
+	 * follows in the same request.
+	 */
+	public function test_json_ld_answer_is_unaffected_by_a_renamed_post_content_block() {
+		$post = $this->create_faq(
+			array(
+				'post_title'   => 'Renamed sibling block question',
+				'post_content' => 'Real answer.',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+		the_post();
+
+		$rename_marked_block = function ( $parsed_block ) {
+			if ( 'core/post-content' === ( $parsed_block['blockName'] ?? null ) && ! empty( $parsed_block['attrs']['saaiTestRenamed'] ) ) {
+				$parsed_block['blockName'] = 'core/paragraph';
+			}
+
+			return $parsed_block;
+		};
+
+		add_filter( 'render_block_data', $rename_marked_block );
+
+		try {
+			do_blocks( '<!-- wp:post-content {"saaiTestRenamed":true} /--><!-- wp:post-content /-->' );
+			$schema = $this->faq_question->json_ld( $post );
+		} finally {
+			remove_filter( 'render_block_data', $rename_marked_block );
+		}
+
+		$this->assertStringContainsString( 'Real answer.', $schema['mainEntity']['acceptedAnswer']['text'] );
+	}
+
+	/**
 	 * The data model's title = question means a title-only saai_faq with an
 	 * empty (or markup-only) body is a valid, admin-savable post too —
 	 * captured_answer_html would then be '' rather than null, which must

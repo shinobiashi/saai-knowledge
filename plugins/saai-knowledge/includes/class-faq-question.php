@@ -88,12 +88,22 @@ final class Faq_Question {
 	private $post_content_render_depth = 0;
 
 	/**
-	 * Tracks whether a core/post-template (Query Loop) block is currently
-	 * mid-render — same purpose as Glossary_Term::$post_template_render_depth:
-	 * rejects a core/post-content encountered while iterating a Query Loop
-	 * (e.g. a "related FAQs" section embedding the very FAQ being viewed),
-	 * which post_content_render_depth's outermost-render check alone can't
-	 * distinguish from the primary answer body.
+	 * Tracks whether a core/post-template (Query Loop) block whose query is
+	 * NOT inherited from the main query is currently mid-render — same
+	 * purpose as Glossary_Term::$post_template_render_depth: rejects a
+	 * core/post-content encountered while iterating a Query Loop that lists
+	 * unrelated posts (e.g. a "related FAQs" section that happens to embed
+	 * the very FAQ being viewed), which post_content_render_depth's
+	 * outermost-render check alone can't distinguish from the primary
+	 * answer body.
+	 *
+	 * An *inherited* Query Loop's "posts" are the main query itself — on a
+	 * singular saai_faq view that main query is exactly the one viewed FAQ,
+	 * so a core/post-content nested inside such a loop (a template
+	 * customized to wrap the primary content in an inherited Query Loop) is
+	 * still the primary answer body, not an unrelated nested render, and
+	 * must not be rejected. See track_post_template_render_start()'s
+	 * docblock for how "inherited" is determined.
 	 *
 	 * @var int
 	 */
@@ -133,9 +143,15 @@ final class Faq_Question {
 		// that render directly instead. Not gated on wp_is_block_theme(): a
 		// classic theme can still render this core block via do_blocks()
 		// (e.g. inside a widget or a block-built page).
-		add_filter( 'pre_render_block', array( $this, 'track_post_template_render_start' ), PHP_INT_MAX, 2 );
-		add_filter( 'render_block_core/post-template', array( $this, 'track_post_template_render_end' ) );
 		add_filter( 'pre_render_block', array( $this, 'track_post_content_render_start' ), PHP_INT_MAX, 2 );
+		// render_block_context, not pre_render_block, for the depth tracking
+		// itself — see track_render_block_context()'s docblock for why it
+		// must key off the block's post-render_block_data name/context
+		// rather than pre_render_block's pre-rename, context-less view of
+		// it. PHP_INT_MAX for the same "see the truly final value" reasoning
+		// as render_block_core/post-content below.
+		add_filter( 'render_block_context', array( $this, 'track_render_block_context' ), PHP_INT_MAX, 2 );
+		add_filter( 'render_block_core/post-template', array( $this, 'track_post_template_render_end' ), 10, 3 );
 		// PHP_INT_MAX: WP_Block::render() applies this filter via a plain
 		// apply_filters(), so a theme or plugin registered at a later
 		// priority (translation, access control, hiding part of the answer)
@@ -312,48 +328,88 @@ final class Faq_Question {
 	}
 
 	/**
-	 * Marks the start of a core/post-template (Query Loop) render — see
-	 * $post_template_render_depth's docblock. Identical to
-	 * Glossary_Term::track_post_template_render_start(): only increments if
-	 * $pre_render is still null, since a lower-priority pre_render_block
-	 * callback may have already short-circuited this same block, in which
-	 * case render_block_core_post_template() (and with it,
-	 * track_post_template_render_end(), the filter that decrements this)
-	 * never runs.
+	 * Tracks the start of a core/post-template or core/post-content render
+	 * — see $post_template_render_depth's / $post_content_render_depth's
+	 * docblocks — keyed off the block's fully-resolved name and context
+	 * rather than pre_render_block's pre-rename, context-less view of it.
 	 *
-	 * @param string|null          $pre_render   Pass-through; never short-circuits.
-	 * @param array<string, mixed> $parsed_block The block about to render.
-	 * @return string|null
+	 * Core's render_block() (wp-includes/blocks.php) applies render_block_data
+	 * (which can rename the block) BEFORE constructing the WP_Block that
+	 * the dynamic render_block_core/post-template / render_block_core/post-content
+	 * hooks below key off — those dynamic hook names come from the
+	 * POST-rename value. render_block_context fires after that rename has
+	 * already happened, with $parsed_block reflecting the same final name,
+	 * so tracking the start here keeps it symmetric with those dynamic end
+	 * hooks: a block a render_block_data callback renames away from
+	 * core/post-template or core/post-content simply never increments here
+	 * (and so never needs, or misses, a matching decrement), rather than
+	 * incrementing under the old pre_render_block name and permanently
+	 * desyncing the counter when the expected dynamic hook — tied to the
+	 * new name — never arrives.
+	 *
+	 * $context is likewise the block's fully-resolved context, unlike
+	 * $parsed_block's own attrs: a core/post-template's own parsed block
+	 * carries no "inherit" attribute (that lives on its core/query
+	 * ancestor), but core/query's providesContext makes its "query"
+	 * attribute — inherit included — available as $context['query'] to
+	 * every descendant that declares it in usesContext, which
+	 * core/post-template does. An inherited Query Loop's iteration is the
+	 * main query itself — on a singular saai_faq view that's exactly the
+	 * one viewed FAQ, so its core/post-content is the primary answer body,
+	 * not an unrelated nested render (e.g. a "related FAQs" section, which
+	 * never inherits) — see $post_template_render_depth's docblock.
+	 *
+	 * Only fires for a block that reaches this point un-short-circuited;
+	 * track_post_content_render_start()'s pre_render_block hook separately
+	 * handles core/post-content's short-circuited-render capture path,
+	 * which never reaches render_block_data/render_block_context at all.
+	 *
+	 * @param array<string, mixed> $context      The block's resolved context.
+	 * @param array<string, mixed> $parsed_block The block about to render, already past render_block_data.
+	 * @return array<string, mixed>
 	 */
-	public function track_post_template_render_start( $pre_render, array $parsed_block ) {
-		if ( null === $pre_render && 'core/post-template' === ( $parsed_block['blockName'] ?? null ) ) {
+	public function track_render_block_context( array $context, array $parsed_block ): array {
+		$block_name = $parsed_block['blockName'] ?? null;
+
+		if ( 'core/post-content' === $block_name ) {
+			++$this->post_content_render_depth;
+		} elseif ( 'core/post-template' === $block_name && empty( $context['query']['inherit'] ) ) {
 			++$this->post_template_render_depth;
 		}
 
-		return $pre_render;
+		return $context;
 	}
 
 	/**
 	 * Marks the end of a core/post-template render — the
 	 * render_block_core/post-template counterpart to
-	 * track_post_template_render_start(). This filter only ever fires for
-	 * core/post-template (its dynamic hook name), so every call here is one
-	 * such block finishing its render.
+	 * track_render_block_context(). This filter only ever fires for
+	 * core/post-template (its dynamic hook name, resolved from the same
+	 * post-rename value track_render_block_context() keys off), so every
+	 * call here is one such block finishing its render. Decrements only
+	 * when track_render_block_context() would have incremented for it (a
+	 * non-inherited query) — an inherited Query Loop's render never
+	 * incremented the counter in the first place, so it must not decrement
+	 * it either.
 	 *
-	 * @param string $block_content The rendered post-template block.
+	 * @param string               $block_content The rendered post-template block.
+	 * @param array<string, mixed> $parsed_block  Parsed block data (unused).
+	 * @param \WP_Block            $block         The post-template block instance, for its resolved query context.
 	 * @return string
 	 */
-	public function track_post_template_render_end( string $block_content ): string {
-		--$this->post_template_render_depth;
+	public function track_post_template_render_end( string $block_content, array $parsed_block, \WP_Block $block ): string { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed -- kept to match the render_block_core/post-template filter signature.
+		if ( empty( $block->context['query']['inherit'] ) ) {
+			--$this->post_template_render_depth;
+		}
 
 		return $block_content;
 	}
 
 	/**
-	 * Marks the start of a core/post-content block render — see
-	 * $post_content_render_depth's docblock. Identical reasoning to
-	 * track_post_template_render_start(): only increments if $pre_render is
-	 * still null.
+	 * Handles core/post-content's short-circuited-render capture path — see
+	 * $post_content_render_depth's docblock for the normal (non-short-circuited)
+	 * depth tracking, which happens on render_block_context via
+	 * track_render_block_context() instead.
 	 *
 	 * A block-caching plugin (or similar) can register its own, earlier-priority
 	 * pre_render_block callback that returns non-null HTML for core/post-content
@@ -373,13 +429,7 @@ final class Faq_Question {
 	 * @return string|null
 	 */
 	public function track_post_content_render_start( $pre_render, array $parsed_block ) {
-		if ( 'core/post-content' !== ( $parsed_block['blockName'] ?? null ) ) {
-			return $pre_render;
-		}
-
-		if ( null === $pre_render ) {
-			++$this->post_content_render_depth;
-
+		if ( null === $pre_render || 'core/post-content' !== ( $parsed_block['blockName'] ?? null ) ) {
 			return $pre_render;
 		}
 
@@ -601,15 +651,29 @@ final class Faq_Question {
 	 *
 	 * Tag removal below deletes tags without inserting a separator (
 	 * wp_strip_all_tags() uses strip_tags() internally), so "First<br>Second"
-	 * or adjacent block elements like "<p>First</p><p>Second</p>" would
-	 * otherwise collapse into the single word "FirstSecond". Line-break
+	 * or adjacent block elements like "<section>First</section><section>Second</section>"
+	 * would otherwise collapse into the single word "FirstSecond". Line-break
 	 * points are converted to a literal newline first so the plain-text
-	 * answer keeps the same word boundaries the visible page shows.
+	 * answer keeps the same word boundaries the visible page shows. The
+	 * block-level tag set is core's own wpautop() $allblocks list
+	 * (wp-includes/formatting.php) rather than a hand-picked few tag names:
+	 * it's the same list WordPress itself uses to decide where a block
+	 * boundary is, so it already covers every block-level element a
+	 * classic-editor or block-theme answer could contain (section, article,
+	 * ul, figure, etc.) without this needing its own, easily-incomplete
+	 * enumeration.
 	 *
 	 * @return string
 	 */
 	private function answer_text(): string {
-		$html = (string) preg_replace( '#</(?:p|div|li|h[1-6]|blockquote|pre|tr|td|th)>|<br\s*/?>#i', '$0' . "\n", self::$captured_answer_html ?? '' );
+		$blocks = '(?:table|thead|tfoot|caption|col|colgroup|tbody|tr|td|th|div|dl|dd|dt|ul|ol|li|pre|form|map|area|blockquote|address|style|p|h[1-6]|hr|fieldset|legend|section|article|aside|hgroup|header|footer|nav|figure|figcaption|details|menu|summary)';
+
+		$html = self::$captured_answer_html ?? '';
+		// Opening tags get the break before them (nothing follows an opening
+		// tag on the same line to separate it from), closing tags after —
+		// same two-pass placement as wpautop()'s own handling of $allblocks.
+		$html = (string) preg_replace( '#<' . $blocks . '[\s/>]#i', "\n" . '$0', $html );
+		$html = (string) preg_replace( '#</' . $blocks . '>|<br\s*/?>#i', '$0' . "\n", $html );
 
 		return html_entity_decode( wp_strip_all_tags( $html ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' );
 	}
