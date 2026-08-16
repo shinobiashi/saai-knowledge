@@ -33,9 +33,14 @@ defined( 'ABSPATH' ) || exit;
 final class Faq_Question {
 
 	/**
-	 * Whether the classic-theme capture (capture_answer_content()) has
-	 * already claimed this request's answer for the current main query's
-	 * Loop pass — see that method's docblock.
+	 * The post ID of the FAQ that has claimed this request's answer capture
+	 * from the block-theme render path — see claim_block_capture_slot() —
+	 * or null while unclaimed. Only relevant to the block-theme path (the_content
+	 * vs. render_block_core/post-content are different hooks, and per
+	 * capture_answer_content()'s $post_content_render_depth guard only one
+	 * of them ever actually captures for a given request); the classic-theme
+	 * path in capture_answer_content() has no equivalent claim state — see
+	 * that method's docblock for why it always overwrites instead.
 	 *
 	 * Static, not per-instance: Plugin::register_services() constructs one
 	 * Faq_Question and registers its hooks once for the process's lifetime,
@@ -43,19 +48,6 @@ final class Faq_Question {
 	 * register() again) would otherwise add a second, independent the_content
 	 * filter callback — same double-registration hazard
 	 * Faq_List::$rendering avoids by being static rather than per-instance.
-	 *
-	 * @var bool
-	 */
-	private static $classic_capture_claimed = false;
-
-	/**
-	 * The post ID of the FAQ that has claimed this request's answer capture
-	 * from the block-theme render path — see claim_block_capture_slot() —
-	 * or null while unclaimed. Separate from $classic_capture_claimed
-	 * because the two run on different hooks (the_content vs.
-	 * render_block_core/post-content) and, per capture_answer_content()'s
-	 * $post_content_render_depth guard, only one of them ever actually
-	 * captures for a given request.
 	 *
 	 * @var int|null
 	 */
@@ -91,6 +83,39 @@ final class Faq_Question {
 	 * @var string|null
 	 */
 	private static $captured_title = null;
+
+	/**
+	 * Whether a block-theme capture (capture_post_content_if_matching() /
+	 * capture_post_title_if_matching()) has captured a value while still
+	 * nested inside at least one ancestor block whose own filters haven't
+	 * run yet — see verify_capture_survived_to_root()'s docblock for why an
+	 * ancestor can still discard that captured value afterward, and
+	 * track_root_block_render_end() for when this gets checked and cleared.
+	 * False (not pending) when a capture happens with no open ancestor at
+	 * all — nothing further could still modify it in that case, so there is
+	 * nothing to verify.
+	 *
+	 * @var bool
+	 */
+	private static $pending_root_verification = false;
+
+	/**
+	 * Whether verify_capture_survived_to_root() found that an ancestor
+	 * block discarded or rewrote an already-captured core/post-title —
+	 * see that method's docblock. Deliberately separate from
+	 * $captured_title being null: title_text() falls back to a fresh
+	 * get_the_title() call when $captured_title is null because nothing
+	 * was ever captured (a template that never renders core/post-title),
+	 * but that same fallback would defeat this check if it also ran after
+	 * an ancestor specifically hid the title — get_the_title() would just
+	 * return the real title anyway, since it has no knowledge of the
+	 * block-level hiding. This flag makes title_text() treat that case as
+	 * blank instead, which is correct either way: the visible page didn't
+	 * actually show that title text.
+	 *
+	 * @var bool
+	 */
+	private static $title_verification_failed = false;
 
 	/**
 	 * Tracks nested core/post-content block renders — same purpose and
@@ -139,6 +164,23 @@ final class Faq_Question {
 	 * @var int
 	 */
 	private $post_title_render_depth = 0;
+
+	/**
+	 * Generic (any block, not just core/post-content or core/post-title)
+	 * open-block-render depth, tracked only while is_singular( 'saai_faq' )
+	 * — see track_render_block_context()'s and track_root_block_render_end()'s
+	 * docblocks. Distinct from $post_content_render_depth /
+	 * $post_title_render_depth / $post_template_render_depth, which each
+	 * count only their own specific block name: this counts every
+	 * currently-open block, including plain layout wrappers (Group, Row)
+	 * and third-party ones this class has no name for, so
+	 * verify_capture_survived_to_root() knows when a capture's full
+	 * ancestor chain — whatever blocks it happens to consist of — has
+	 * completely finished rendering.
+	 *
+	 * @var int
+	 */
+	private $root_block_render_depth = 0;
 
 	/**
 	 * Tracks the_content filter re-entrancy depth. A shortcode or dynamic
@@ -190,6 +232,14 @@ final class Faq_Question {
 		// it. PHP_INT_MAX for the same "see the truly final value" reasoning
 		// as render_block_core/post-content below.
 		add_filter( 'render_block_context', array( $this, 'track_render_block_context' ), PHP_INT_MAX, 2 );
+		// The generic (any block name) counterpart to
+		// track_render_block_context()'s $root_block_render_depth
+		// increment — see track_root_block_render_end()'s and
+		// verify_capture_survived_to_root()'s docblocks for why this
+		// exists: a Group or custom access-control block can still discard
+		// an already-captured core/post-content or core/post-title after
+		// the fact, from its own, later-running ancestor filters.
+		add_filter( 'render_block', array( $this, 'track_root_block_render_end' ), PHP_INT_MAX );
 		// PHP_INT_MAX: a later-priority render_block_core/post-template
 		// callback on this same apply_filters() call is still mid-render of
 		// that post-template as far as this class's own bookkeeping is
@@ -237,6 +287,7 @@ final class Faq_Question {
 		$this->post_content_render_depth  = 0;
 		$this->post_template_render_depth = 0;
 		$this->post_title_render_depth    = 0;
+		$this->root_block_render_depth    = 0;
 		$this->the_content_render_depth   = 0;
 	}
 
@@ -246,10 +297,11 @@ final class Faq_Question {
 	 * without running a main query.
 	 */
 	public static function reset_state(): void {
-		self::$classic_capture_claimed       = false;
 		self::$block_capture_claimed_post_id = null;
 		self::$captured_answer_html          = null;
 		self::$captured_title                = null;
+		self::$pending_root_verification     = false;
+		self::$title_verification_failed     = false;
 	}
 
 	/**
@@ -330,9 +382,20 @@ final class Faq_Question {
 	 * summary) would otherwise have this claim the slot first with
 	 * wp_trim_excerpt()'s intermediate value — shortcodes already stripped
 	 * via strip_shortcodes() rather than expanded, dynamic blocks reduced by
-	 * excerpt_remove_blocks() — permanently pre-empting the real capture
-	 * that follows. doing_filter( 'get_the_excerpt' ) reliably detects that
-	 * nested call and defers to it instead.
+	 * excerpt_remove_blocks(). doing_filter( 'get_the_excerpt' ) reliably
+	 * detects that nested call and defers to it instead.
+	 *
+	 * No claimed-flag gate the way an earlier version of this method had:
+	 * a plugin computing something else from the same post's content within
+	 * the same Loop pass (a read-time estimate, an SEO description) can
+	 * call apply_filters( 'the_content', ... ) on the queried FAQ before the
+	 * theme's own real, visible render does. All of the guards above already
+	 * scope this to only the queried FAQ's own outermost, in-Loop calls, so
+	 * every one of them that reaches this point is, as best this class can
+	 * tell, equally "genuine" — this always overwrites with the latest such
+	 * call's result rather than freezing on whichever happened first, the
+	 * same reclaim reasoning claim_block_capture_slot() already applies to
+	 * the block-theme path's speculative-render case.
 	 *
 	 * @param string $content The post content, already run through the_content.
 	 * @return string
@@ -349,7 +412,7 @@ final class Faq_Question {
 			return $content;
 		}
 
-		if ( self::$classic_capture_claimed || ! in_the_loop() || ! is_singular( 'saai_faq' ) ) {
+		if ( ! in_the_loop() || ! is_singular( 'saai_faq' ) ) {
 			return $content;
 		}
 
@@ -372,8 +435,7 @@ final class Faq_Question {
 			return $content;
 		}
 
-		self::$classic_capture_claimed = true;
-		self::$captured_answer_html    = $content;
+		self::$captured_answer_html = $content;
 
 		return $content;
 	}
@@ -418,11 +480,21 @@ final class Faq_Question {
 	 * short-circuited-render capture path, which never reaches
 	 * render_block_data/render_block_context at all.
 	 *
+	 * Also increments $root_block_render_depth for every block, regardless
+	 * of name — the generic counterpart to the name-specific increments
+	 * above, gated on is_singular( 'saai_faq' ) since nothing else in this
+	 * class does anything on any other page. See
+	 * track_root_block_render_end()'s docblock for what that's for.
+	 *
 	 * @param array<string, mixed> $context      The block's resolved context.
 	 * @param array<string, mixed> $parsed_block The block about to render, already past render_block_data.
 	 * @return array<string, mixed>
 	 */
 	public function track_render_block_context( array $context, array $parsed_block ): array {
+		if ( is_singular( 'saai_faq' ) ) {
+			++$this->root_block_render_depth;
+		}
+
 		$block_name = $parsed_block['blockName'] ?? null;
 
 		if ( 'core/post-content' === $block_name ) {
@@ -469,6 +541,88 @@ final class Faq_Question {
 		}
 
 		return $block_content;
+	}
+
+	/**
+	 * Marks the end of ANY block's render (unlike track_post_template_render_end(),
+	 * this is registered on the generic 'render_block' filter, not a
+	 * per-name dynamic one) — the counterpart to $root_block_render_depth's
+	 * increment in track_render_block_context().
+	 *
+	 * WP_Block::render() (wp-includes/class-wp-block.php) renders a block's
+	 * children fully — including every one of their own filters — before
+	 * applying that block's OWN 'render_block' / 'render_block_{$name}'
+	 * filters. So a Group, or a custom access-control block, wrapping
+	 * core/post-content or core/post-title can still discard or rewrite the
+	 * already-captured child value afterward (e.g. returning '' for a
+	 * viewer without a required capability, or hiding it for any other
+	 * reason) — invisibly to capture_post_content_if_matching() /
+	 * capture_post_title_if_matching(), which only ever see the child's own
+	 * output and have no way to know what an ancestor does to it later.
+	 *
+	 * $root_block_render_depth returning to 0 here means the specific
+	 * top-level block that contains any pending capture — the one
+	 * self::$pending_root_verification was set true for — has now finished
+	 * rendering completely, ancestors included: block rendering is
+	 * depth-first and never interleaved between top-level blocks, so no
+	 * other top-level block could have started yet, making $block_content
+	 * here unambiguously that one top-level block's own, fully-resolved
+	 * output. See verify_capture_survived_to_root()'s docblock for what
+	 * happens with it.
+	 *
+	 * PHP_INT_MAX (see register()): the generic 'render_block' filter itself
+	 * can have several callbacks; seeing the last one's result keeps this
+	 * consistent with $context in track_render_block_context() likewise
+	 * reflecting every render_block_context callback's result.
+	 *
+	 * @param string $block_content The rendered block, already past every
+	 *                               other render_block callback for it.
+	 * @return string
+	 */
+	public function track_root_block_render_end( string $block_content ): string {
+		if ( ! is_singular( 'saai_faq' ) || 0 === $this->root_block_render_depth ) {
+			return $block_content;
+		}
+
+		--$this->root_block_render_depth;
+
+		if ( 0 === $this->root_block_render_depth && self::$pending_root_verification ) {
+			$this->verify_capture_survived_to_root( $block_content );
+			self::$pending_root_verification = false;
+		}
+
+		return $block_content;
+	}
+
+	/**
+	 * Discards a captured answer and/or title that didn't survive as a
+	 * literal substring of $final_root_content — see
+	 * track_root_block_render_end()'s docblock for why an already-captured
+	 * core/post-content or core/post-title value can still be discarded or
+	 * rewritten by an ancestor block afterward, and for why
+	 * $final_root_content is unambiguously the right content to check each
+	 * pending capture against.
+	 *
+	 * A plain layout wrapper (Group, Row, Stack) concatenates its
+	 * children's output verbatim into its own, so containment holds for
+	 * that common case; an ancestor that discards or rewrites the child
+	 * (an access-control block returning '' for an unauthorized viewer, a
+	 * "read more" truncation block) simply won't contain it anymore.
+	 *
+	 * @param string $final_root_content The top-level block's fully-resolved output.
+	 */
+	private function verify_capture_survived_to_root( string $final_root_content ): void {
+		if ( null !== self::$captured_answer_html && ! str_contains( $final_root_content, self::$captured_answer_html ) ) {
+			self::$captured_answer_html = null;
+		}
+
+		// title_text()'s get_the_title() fallback only helps when nothing
+		// was ever captured — see $title_verification_failed's docblock for
+		// why an ancestor-discarded title must be flagged instead of just
+		// nulling $captured_title out the same way.
+		if ( null !== self::$captured_title && ! str_contains( $final_root_content, self::$captured_title ) ) {
+			self::$title_verification_failed = true;
+		}
 	}
 
 	/**
@@ -556,7 +710,11 @@ final class Faq_Question {
 	 * see its own docblock. get_queried_object_id() === get_the_ID() scopes
 	 * this to the viewed FAQ itself, relying on core/post-template's
 	 * the_post() call (or, for the primary render, the block template
-	 * canvas's own) having set the global $post to it.
+	 * canvas's own) having set the global $post to it. This capture is
+	 * still provisional if there's an open ancestor block —
+	 * mark_pending_root_verification() flags it for
+	 * verify_capture_survived_to_root() to confirm or discard once that
+	 * ancestor chain finishes.
 	 *
 	 * @param string $content The rendered (or short-circuited) post-content HTML.
 	 */
@@ -587,6 +745,25 @@ final class Faq_Question {
 		}
 
 		self::$captured_answer_html = $content;
+		$this->mark_pending_root_verification();
+	}
+
+	/**
+	 * Marks a just-written block-theme capture (core/post-content or
+	 * core/post-title) as needing the root-of-render-tree verification
+	 * track_root_block_render_end() / verify_capture_survived_to_root()
+	 * perform — but only if $root_block_render_depth is still nonzero,
+	 * meaning at least one ancestor block hasn't finished its own
+	 * rendering yet and could still discard or rewrite what was just
+	 * captured. A capture with no open ancestor at all (this block is
+	 * itself the top-level one) has nothing left that could still modify
+	 * it, so there is nothing to verify — see $pending_root_verification's
+	 * docblock.
+	 */
+	private function mark_pending_root_verification(): void {
+		if ( $this->root_block_render_depth > 0 ) {
+			self::$pending_root_verification = true;
+		}
 	}
 
 	/**
@@ -711,7 +888,9 @@ final class Faq_Question {
 	 * core/post-content, there's no known speculative-pre-render scenario
 	 * to guard against here (get_the_excerpt()'s nested the_content call
 	 * has no title analog), and a plain title string has no side effect a
-	 * repeat capture could double-apply, so this simply overwrites.
+	 * repeat capture could double-apply, so this simply overwrites. Same
+	 * mark_pending_root_verification() provisional-capture reasoning as
+	 * capture_post_content_if_matching()'s.
 	 *
 	 * @param string $content The rendered (or short-circuited) post-title HTML.
 	 */
@@ -735,6 +914,7 @@ final class Faq_Question {
 		}
 
 		self::$captured_title = $content;
+		$this->mark_pending_root_verification();
 	}
 
 	/**
@@ -897,6 +1077,14 @@ final class Faq_Question {
 	 * is safe: get_the_title() has no shortcode-like side effect a repeat
 	 * call could double-apply, unlike re-rendering the answer.
 	 *
+	 * $title_verification_failed takes priority over that fallback: it
+	 * means a title genuinely was captured, but an ancestor block later
+	 * discarded or rewrote it before the visible page's final output — see
+	 * that property's docblock for why falling back to get_the_title()
+	 * would be wrong there specifically (it would just return the real
+	 * title, defeating the whole point of the check), whereas treating it
+	 * as blank matches what the visible page actually showed.
+	 *
 	 * Both get_the_title() and the_title filters encode characters as HTML
 	 * references (e.g. & -> &#038;); JSON-LD consumers never HTML-decode,
 	 * so decode to plain text after stripping tags. Same reasoning as
@@ -906,6 +1094,10 @@ final class Faq_Question {
 	 * @return string
 	 */
 	private function title_text( \WP_Post $post ): string {
+		if ( self::$title_verification_failed ) {
+			return '';
+		}
+
 		$title = self::$captured_title ?? get_the_title( $post );
 
 		return html_entity_decode( wp_strip_all_tags( $title ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' );

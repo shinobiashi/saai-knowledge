@@ -772,6 +772,116 @@ class Test_Faq_Question extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A Group (or custom access-control block) wrapping core/post-content
+	 * can still discard the child's already-captured output from its own,
+	 * later-running render_block filter — WP_Block::render() renders
+	 * children fully, including the capture, before applying the parent's
+	 * own filters. The discarded content must not leak into the JSON-LD:
+	 * output_structured_data() must treat this exactly like nothing was
+	 * ever captured.
+	 */
+	public function test_json_ld_answer_is_discarded_when_an_ancestor_block_hides_it() {
+		$post = $this->create_faq(
+			array(
+				'post_title'   => 'Restricted question',
+				'post_content' => 'Secret answer.',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+		the_post();
+
+		$discard_ancestor = function ( $block_content, $parsed_block ) {
+			if ( 'core/group' === ( $parsed_block['blockName'] ?? null ) ) {
+				return '';
+			}
+
+			return $block_content;
+		};
+
+		add_filter( 'render_block', $discard_ancestor, 20, 2 );
+
+		try {
+			$output = do_blocks( '<!-- wp:group --><div class="wp-block-group"><!-- wp:post-content /--></div><!-- /wp:group -->' );
+
+			ob_start();
+			$this->faq_question->output_structured_data();
+			$footer_output = ob_get_clean();
+		} finally {
+			remove_filter( 'render_block', $discard_ancestor, 20 );
+		}
+
+		$this->assertSame( '', $output );
+		$this->assertStringNotContainsString( 'Secret answer.', $footer_output );
+		$this->assertSame( '', $footer_output );
+	}
+
+	/**
+	 * The title counterpart to
+	 * test_json_ld_answer_is_discarded_when_an_ancestor_block_hides_it():
+	 * an ancestor discarding core/post-title's already-captured output
+	 * must not leave a stale question name in the JSON-LD.
+	 */
+	public function test_json_ld_question_name_is_discarded_when_an_ancestor_block_hides_it() {
+		$post = $this->create_faq(
+			array(
+				'post_title'   => 'Restricted title',
+				'post_content' => 'Answer.',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+		the_post();
+
+		$discard_ancestor = function ( $block_content, $parsed_block ) {
+			if ( 'core/group' === ( $parsed_block['blockName'] ?? null ) ) {
+				return '';
+			}
+
+			return $block_content;
+		};
+
+		add_filter( 'render_block', $discard_ancestor, 20, 2 );
+
+		try {
+			do_blocks( '<!-- wp:group --><div class="wp-block-group"><!-- wp:post-title /--></div><!-- /wp:group -->' );
+			do_blocks( '<!-- wp:post-content /-->' );
+
+			$schema = $this->faq_question->json_ld( $post );
+		} finally {
+			remove_filter( 'render_block', $discard_ancestor, 20 );
+		}
+
+		$this->assertStringNotContainsString( 'Restricted title', $schema['mainEntity']['name'] );
+	}
+
+	/**
+	 * A Group that merely wraps core/post-content — the overwhelmingly
+	 * common case, any layout block (Group, Row, Stack, a column) — must
+	 * not have the new ancestor-discard check in
+	 * test_json_ld_answer_is_discarded_when_an_ancestor_block_hides_it()
+	 * cause a false positive: the captured answer must still survive when
+	 * nothing actually discards it.
+	 */
+	public function test_json_ld_answer_survives_a_non_discarding_ancestor_block() {
+		$post = $this->create_faq(
+			array(
+				'post_title'   => 'Wrapped question',
+				'post_content' => 'Wrapped answer.',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+		the_post();
+
+		do_blocks( '<!-- wp:group --><div class="wp-block-group"><!-- wp:post-content /--></div><!-- /wp:group -->' );
+
+		$schema = $this->faq_question->json_ld( $post );
+
+		$this->assertStringContainsString( 'Wrapped answer.', $schema['mainEntity']['acceptedAnswer']['text'] );
+	}
+
+	/**
 	 * The data model's title = question means a title-only saai_faq with an
 	 * empty (or markup-only) body is a valid, admin-savable post too —
 	 * captured_answer_html would then be '' rather than null, which must
@@ -904,5 +1014,40 @@ class Test_Faq_Question extends WP_UnitTestCase {
 
 		$this->assertStringContainsString( 'Outer before.', $answer );
 		$this->assertStringContainsString( 'Outer after.', $answer );
+	}
+
+	/**
+	 * A plugin computing something else from the same post's content within
+	 * the same Loop pass (a read-time estimate, an SEO description) can call
+	 * apply_filters( 'the_content', ... ) on the queried FAQ before the
+	 * theme's own real, visible render does. The captured answer must
+	 * reflect the latest such call, not freeze on whichever discarded,
+	 * non-visible one happened first — the same reclaim reasoning the
+	 * block-theme path already applies via claim_block_capture_slot().
+	 */
+	public function test_json_ld_answer_updates_to_the_latest_same_post_the_content_call() {
+		$post = $this->create_faq(
+			array(
+				'post_title'   => 'Read-time question',
+				'post_content' => 'Real answer.',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+
+		while ( have_posts() ) {
+			the_post();
+			// Simulates an early metadata/read-time-estimator plugin calling
+			// apply_filters( 'the_content', ... ) on the same post ahead of
+			// the theme's own real, visible the_content() call.
+			apply_filters( 'the_content', 'Discarded early analysis render.' );
+			apply_filters( 'the_content', get_the_content() );
+		}
+
+		$schema = $this->faq_question->json_ld( $post );
+		$answer = $schema['mainEntity']['acceptedAnswer']['text'];
+
+		$this->assertStringContainsString( 'Real answer.', $answer );
+		$this->assertStringNotContainsString( 'Discarded early analysis render.', $answer );
 	}
 }
