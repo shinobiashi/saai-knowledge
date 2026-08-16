@@ -687,7 +687,16 @@ final class Autolinker {
 			return $html;
 		}
 
-		$segments = preg_split( '/(<[^>]*+>)/u', $working, -1, PREG_SPLIT_DELIM_CAPTURE );
+		// Quote-aware: a bare `[^>]*+` would treat a `>` inside a quoted
+		// attribute value (e.g. `<span title="x > API">`) as the tag's own
+		// end, splitting the rest of that attribute value out as a "text"
+		// segment — matching a term inside it and inserting a link into the
+		// middle of an attribute, corrupting the markup. Each alternative
+		// only consumes what it recognizes (plain non-quote/non-`>` chars,
+		// or a fully-quoted string), so there's no ambiguity between them
+		// for backtracking to explore — safe against catastrophic
+		// backtracking despite not being a single flat character class.
+		$segments = preg_split( '/(<(?:[^"\'>]++|"[^"]*+"|\'[^\']*+\')*+>)/u', $working, -1, PREG_SPLIT_DELIM_CAPTURE );
 
 		// @phpstan-ignore notIdentical.alwaysFalse (PHPStan's preg_last_error() stub always returns literal 0 here; the check is a real fail-safe against pathological input at runtime — docs/DESIGN-AUTOLINK.md section 5.)
 		if ( false === $segments || PREG_NO_ERROR !== preg_last_error() ) {

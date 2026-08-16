@@ -271,6 +271,24 @@ class Test_Autolinker extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A `>` inside a quoted attribute value must not be treated as that
+	 * tag's own end: a naive `[^>]*+` tag/text split would spill the rest
+	 * of the attribute value out as scannable text and insert a link into
+	 * the middle of the attribute, corrupting the markup. Uses process()
+	 * directly: wp_insert_post()'s kses pass isn't guaranteed to preserve
+	 * this exact byte-for-byte quoting, and the point here is the
+	 * tokenizer's own behavior on a specific input.
+	 */
+	public function test_quoted_attribute_value_containing_gt_does_not_split_the_tag() {
+		$this->create_term( 'API' );
+		$html = '<p><span title="x > API">text</span></p>';
+
+		$result = $this->autolinker->process( $html );
+
+		$this->assertSame( $html, $result );
+	}
+
+	/**
 	 * Script/style contents and HTML comments are stashed out and never
 	 * scanned. Uses process() directly rather than a saved post: wp_insert_post()
 	 * runs content through wp_filter_post_kses() for a user without the
