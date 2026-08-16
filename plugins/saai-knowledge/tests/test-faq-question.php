@@ -1186,4 +1186,85 @@ class Test_Faq_Question extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'Real answer.', $answer );
 		$this->assertStringNotContainsString( 'Discarded early analysis render.', $answer );
 	}
+
+	/**
+	 * A theme's functions.php can register its own PHP_INT_MAX the_content
+	 * callback (an access-control check, a translation) — functions.php
+	 * loads during WordPress's own bootstrap, before the 'wp' action this
+	 * class's own capture is registered from, so WordPress's registration-order
+	 * tie-break for same-priority callbacks means the theme's callback
+	 * still runs after this class's own capture. The captured answer must
+	 * reflect that later value, not the pre-modification one PHP_INT_MAX
+	 * alone would seem to guarantee.
+	 */
+	public function test_json_ld_answer_reflects_a_same_priority_the_content_filter_registered_before_wp_fires() {
+		$post = $this->create_faq(
+			array(
+				'post_title'   => 'Same priority question',
+				'post_content' => 'Original answer.',
+			)
+		);
+
+		$competing_filter = function ( $content ) {
+			return str_replace( 'Original answer.', 'Access restricted.', $content );
+		};
+
+		add_filter( 'the_content', $competing_filter, PHP_INT_MAX );
+
+		try {
+			$this->go_to( get_permalink( $post ) );
+			$this->render_content_in_the_loop();
+			$schema = $this->faq_question->json_ld( $post );
+		} finally {
+			remove_filter( 'the_content', $competing_filter, PHP_INT_MAX );
+		}
+
+		$answer = $schema['mainEntity']['acceptedAnswer']['text'];
+
+		$this->assertStringContainsString( 'Access restricted.', $answer );
+		$this->assertStringNotContainsString( 'Original answer.', $answer );
+	}
+
+	/**
+	 * A shortcode inside the answer can itself call get_the_title() for the
+	 * very same queried FAQ, and a the_title filter that behaves
+	 * differently depending on doing_filter( 'the_content' ) would then
+	 * have that reentrant call overwrite the real <h1> heading's already-captured
+	 * title with whatever representation the answer body used instead. The
+	 * classic-theme Loop always renders the_title() before the_content()
+	 * (question, then answer), so the genuine capture must survive.
+	 */
+	public function test_json_ld_question_name_ignores_a_reentrant_get_the_title_call_from_the_answer() {
+		add_shortcode(
+			'saai_test_title_in_answer',
+			function () {
+				return get_the_title();
+			}
+		);
+
+		$context_dependent_title = function ( $title ) {
+			return doing_filter( 'the_content' ) ? 'Answer-context title' : $title;
+		};
+
+		add_filter( 'the_title', $context_dependent_title, 20 );
+
+		$post = $this->create_faq(
+			array(
+				'post_title'   => 'Real heading',
+				'post_content' => '[saai_test_title_in_answer]',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+
+		try {
+			$this->render_content_in_the_loop();
+			$schema = $this->faq_question->json_ld( $post );
+		} finally {
+			remove_shortcode( 'saai_test_title_in_answer' );
+			remove_filter( 'the_title', $context_dependent_title, 20 );
+		}
+
+		$this->assertSame( 'Real heading', $schema['mainEntity']['name'] );
+	}
 }

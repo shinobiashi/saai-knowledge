@@ -211,18 +211,15 @@ final class Faq_Question {
 	 * Hooks the QAPage JSON-LD capture and output into WordPress.
 	 */
 	public function register(): void {
-		// PHP_INT_MIN: must run before any other the_content callback (core's
-		// do_blocks at 9, WP_Embed's handlers at 8, do_shortcode at 11, or a
-		// plugin's own callback) could itself trigger a nested
-		// apply_filters( 'the_content', ... ) call — see
-		// $the_content_render_depth's docblock.
-		add_filter( 'the_content', array( $this, 'track_the_content_render_start' ), PHP_INT_MIN );
-		add_filter( 'the_content', array( $this, 'capture_answer_content' ), PHP_INT_MAX );
-		// PHP_INT_MAX: a the_title filter registered at a later priority
-		// (translation, a callback that only runs during the main Loop) is
-		// what the visible <h1> actually shows — see capture_title()'s
-		// docblock.
-		add_filter( 'the_title', array( $this, 'capture_title' ), PHP_INT_MAX, 2 );
+		// Deferred to the 'wp' action rather than registered directly here
+		// — see register_classic_capture_filters()'s docblock for why: a
+		// PHP_INT_MAX priority registered at plugins_loaded (when this
+		// method normally runs) does not guarantee running last, since
+		// WordPress preserves registration order among same-priority
+		// callbacks, and a theme's functions.php (loaded after
+		// plugins_loaded) can register its own PHP_INT_MAX the_content
+		// callback after this one.
+		add_action( 'wp', array( $this, 'register_classic_capture_filters' ) );
 		// Block themes render the answer via core/post-content, whose own
 		// render callback applies the_content internally but without ever
 		// calling WP_Query::the_post() — in_the_loop() (capture_answer_content()'s
@@ -282,6 +279,61 @@ final class Faq_Question {
 		// this test suite itself) reuses this instance across each one —
 		// same reasoning as Faq_List::reset_render_state().
 		add_action( 'pre_get_posts', array( $this, 'reset_capture_state' ) );
+	}
+
+	/**
+	 * Registers the classic-theme the_content / the_title capture filters
+	 * — deferred here from register() (see that method's docblock) rather
+	 * than registered directly at plugins_loaded.
+	 *
+	 * WP_Hook::add_filter() (wp-includes/class-wp-hook.php) appends each
+	 * callback to that priority's own array in registration order, and
+	 * WP_Hook::apply_filters() iterates each priority's callbacks in that
+	 * same order — so two callbacks registered at the identical PHP_INT_MAX
+	 * priority still run in registration order, and PHP_INT_MAX alone does
+	 * not guarantee running last. A theme's functions.php — loaded during
+	 * WordPress's own bootstrap after plugins_loaded (when register() runs)
+	 * — registering its own PHP_INT_MAX the_content callback (a membership
+	 * plugin's access check, translation) would therefore still run after
+	 * this class's own PHP_INT_MAX capture, seeing the pre-modification
+	 * value and potentially replacing the answer's visible text without
+	 * this class ever finding out.
+	 *
+	 * The 'wp' action fires from WP::main() (wp-includes/class-wp.php),
+	 * itself called from wp-blog-header.php only after every part of
+	 * WordPress's normal bootstrap — plugins_loaded, the theme's
+	 * functions.php, after_setup_theme, init, wp_loaded — has already run
+	 * and had its chance to register a same-priority the_content callback.
+	 * Registering from there instead means this class's own callbacks are
+	 * added after all of those, so same-priority ties resolve in its favor.
+	 * WP_UnitTestCase::go_to() also triggers this same action (via
+	 * WP::main()), unlike 'template_redirect' (which only fires from the
+	 * real front-end's template-loader.php, never reached in tests), so
+	 * this stays exercised by the existing test suite.
+	 *
+	 * has_filter() guards against 'wp' firing more than once for this same
+	 * instance in one process (e.g. more than one WP_UnitTestCase::go_to()
+	 * call in a single test, or — in a real request — a plugin re-triggering
+	 * the 'wp' action) re-registering these and running them multiple times
+	 * per real the_content/the_title call.
+	 */
+	public function register_classic_capture_filters(): void {
+		if ( has_filter( 'the_content', array( $this, 'capture_answer_content' ) ) ) {
+			return;
+		}
+
+		// PHP_INT_MIN: must run before any other the_content callback (core's
+		// do_blocks at 9, WP_Embed's handlers at 8, do_shortcode at 11, or a
+		// plugin's own callback) could itself trigger a nested
+		// apply_filters( 'the_content', ... ) call — see
+		// $the_content_render_depth's docblock.
+		add_filter( 'the_content', array( $this, 'track_the_content_render_start' ), PHP_INT_MIN );
+		add_filter( 'the_content', array( $this, 'capture_answer_content' ), PHP_INT_MAX );
+		// PHP_INT_MAX: a the_title filter registered at a later priority
+		// (translation, a callback that only runs during the main Loop) is
+		// what the visible <h1> actually shows — see capture_title()'s
+		// docblock.
+		add_filter( 'the_title', array( $this, 'capture_title' ), PHP_INT_MAX, 2 );
 	}
 
 	/**
@@ -721,6 +773,25 @@ final class Faq_Question {
 	 * — nothing else can be short-circuiting mid-unwind of an already-open,
 	 * non-short-circuited post-content render at the moment this fires).
 	 *
+	 * Known accepted limitation: this only covers a short-circuit of
+	 * core/post-content itself. A block-caching plugin that instead
+	 * short-circuits an ANCESTOR block (a Group wrapping core/post-content)
+	 * returns a single, already-flattened HTML string for that whole
+	 * ancestor — render_block() never recurses into its children at all in
+	 * that case, so pre_render_block never fires for core/post-content
+	 * either, and this method never gets a chance to run. There is no
+	 * reliable way to recover from that: the cached ancestor HTML has
+	 * already lost every block boundary (this class's own required
+	 * distinguishing signal — a class/attribute marking specifically
+	 * "core/post-content", vs. any other markup this ancestor happens to
+	 * also wrap), so extracting "the answer" from it would mean guessing
+	 * at arbitrary HTML rather than reading a value WordPress itself
+	 * identified as this block's own output. The result is a missing
+	 * QAPage for that render (this class emits nothing rather than a
+	 * guessed, possibly wrong, answer) — not an incorrect one — for the
+	 * specific combination of a block-caching plugin configured to cache
+	 * at an ancestor's granularity, on a saai_faq singular view.
+	 *
 	 * @param string|null          $pre_render   Pass-through; never short-circuits.
 	 * @param array<string, mixed> $parsed_block The block about to render.
 	 * @return string|null
@@ -859,22 +930,42 @@ final class Faq_Question {
 	 *
 	 * Unlike the_content, 'the_title' hands the target post ID directly
 	 * ($id), so there's no need for the_content's re-entrant-call detection
-	 * ($the_content_render_depth): a the_title call for a different post's
-	 * $id simply won't match get_queried_object_id() below. And unlike
-	 * capture_answer_content(), this always overwrites rather than claiming
-	 * a one-time slot: a the_title filter is not expected to have a
-	 * shortcode-like side effect a repeat capture would double-apply, so
-	 * there's no "first call wins" requirement here — see title_text()'s
-	 * docblock for the same reasoning applied to why this is allowed to
-	 * simply go uncaptured (title_text() falls back to a fresh
-	 * get_the_title() call) rather than suppressing the whole QAPage the
-	 * way an uncaptured answer does.
+	 * ($the_content_render_depth) to tell apart a different post: a
+	 * the_title call for a different post's $id simply won't match
+	 * get_queried_object_id() below. And unlike capture_answer_content(),
+	 * this always overwrites rather than claiming a one-time slot: a
+	 * the_title filter is not expected to have a shortcode-like side effect
+	 * a repeat capture would double-apply, so there's no "first call wins"
+	 * requirement here — see title_text()'s docblock for the same reasoning
+	 * applied to why this is allowed to simply go uncaptured (title_text()
+	 * falls back to a fresh get_the_title() call) rather than suppressing
+	 * the whole QAPage the way an uncaptured answer does.
+	 *
+	 * doing_filter( 'the_content' ) does still need checking, though: a
+	 * shortcode or dynamic block inside the answer can itself call
+	 * get_the_title() for the very same queried FAQ (a "you're reading: {title}"
+	 * shortcode, a self-referential block), and that nested call satisfies
+	 * every guard below just as validly as the real <h1> render — get_the_title()
+	 * applies the_title on every call, and do_shortcode_tag() (one of
+	 * the_content's own registered filters) runs shortcode callbacks
+	 * synchronously as part of that same the_content application. A
+	 * the_title filter that behaves differently depending on context (e.g.
+	 * doing_filter( 'the_content' ) itself) would then have this overwrite
+	 * the real heading's captured title with whatever representation the
+	 * answer body used instead — the classic-theme the_content Loop always
+	 * runs the_title() before the_content() (question, then answer), so by
+	 * the time any such reentrant call could happen, the genuine title
+	 * capture has already landed and must not be clobbered.
 	 *
 	 * @param string $title The post title, already run through the_title.
 	 * @param int    $id    The post ID the_title fired for.
 	 * @return string
 	 */
 	public function capture_title( string $title, $id ): string {
+		if ( doing_filter( 'the_content' ) ) {
+			return $title;
+		}
+
 		if ( ! in_the_loop() || ! is_singular( 'saai_faq' ) ) {
 			return $title;
 		}
