@@ -100,9 +100,29 @@ final class Faq_Question {
 	private $post_template_render_depth = 0;
 
 	/**
+	 * Tracks the_content filter re-entrancy depth. A shortcode or dynamic
+	 * block inside the answer can itself call apply_filters( 'the_content',
+	 * ... ) on unrelated content (e.g. a "related post" teaser shortcode) —
+	 * that nested call's own PHP_INT_MAX pass through capture_answer_content()
+	 * would otherwise claim the capture slot with just the inner fragment
+	 * before the outer, complete answer finishes rendering. Same
+	 * $was_outermost pattern as $post_content_render_depth, applied to
+	 * the_content instead of render_block_core/post-content.
+	 *
+	 * @var int
+	 */
+	private $the_content_render_depth = 0;
+
+	/**
 	 * Hooks the QAPage JSON-LD capture and output into WordPress.
 	 */
 	public function register(): void {
+		// PHP_INT_MIN: must run before any other the_content callback (core's
+		// do_blocks at 9, WP_Embed's handlers at 8, do_shortcode at 11, or a
+		// plugin's own callback) could itself trigger a nested
+		// apply_filters( 'the_content', ... ) call — see
+		// $the_content_render_depth's docblock.
+		add_filter( 'the_content', array( $this, 'track_the_content_render_start' ), PHP_INT_MIN );
 		add_filter( 'the_content', array( $this, 'capture_answer_content' ), PHP_INT_MAX );
 		// Block themes render the answer via core/post-content, whose own
 		// render callback applies the_content internally but without ever
@@ -151,6 +171,7 @@ final class Faq_Question {
 		self::reset_state();
 		$this->post_content_render_depth  = 0;
 		$this->post_template_render_depth = 0;
+		$this->the_content_render_depth   = 0;
 	}
 
 	/**
@@ -195,10 +216,37 @@ final class Faq_Question {
 	}
 
 	/**
+	 * Marks the start of a the_content filter application — see
+	 * $the_content_render_depth's docblock. Registered at PHP_INT_MIN so it
+	 * runs before any other the_content callback (including a shortcode or
+	 * dynamic block inside the answer that reentrantly triggers its own
+	 * nested apply_filters( 'the_content', ... ) call) could have already
+	 * run.
+	 *
+	 * @param string $content Pass-through; never modified.
+	 * @return string
+	 */
+	public function track_the_content_render_start( string $content ): string {
+		++$this->the_content_render_depth;
+
+		return $content;
+	}
+
+	/**
 	 * Captures the queried FAQ's rendered answer, right as the classic-theme
 	 * Loop produces it — the classic-theme counterpart to
 	 * Glossary_Term::append_after_definition_hook(); see that method's
 	 * docblock for the reasoning behind each guard.
+	 *
+	 * $was_outermost_the_content_call (captured from $the_content_render_depth
+	 * before decrementing, same pattern as capture_answer_content_for_block_theme()'s
+	 * $was_outermost) rejects a the_content call that is itself nested inside
+	 * another one still unwinding — a shortcode or dynamic block in the
+	 * answer can call apply_filters( 'the_content', ... ) on unrelated
+	 * content (e.g. a "related post" teaser shortcode), and without this
+	 * guard that inner call's own pass through this method would claim the
+	 * capture slot with just the inner fragment, before the outer, complete
+	 * answer finishes rendering and reaches this same PHP_INT_MAX priority.
 	 *
 	 * $post_content_render_depth being nonzero here means this the_content
 	 * call is firing as a side effect of a core/post-content render (the
@@ -223,6 +271,13 @@ final class Faq_Question {
 	 * @return string
 	 */
 	public function capture_answer_content( string $content ): string {
+		$was_outermost_the_content_call = 1 === $this->the_content_render_depth;
+		--$this->the_content_render_depth;
+
+		if ( ! $was_outermost_the_content_call ) {
+			return $content;
+		}
+
 		if ( $this->post_content_render_depth > 0 || doing_filter( 'get_the_excerpt' ) ) {
 			return $content;
 		}

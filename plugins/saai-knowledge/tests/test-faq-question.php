@@ -549,4 +549,42 @@ class Test_Faq_Question extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'Expanded output', $answer );
 		$this->assertStringNotContainsString( '[saai_test_shortcode]', $answer );
 	}
+
+	/**
+	 * A shortcode inside the answer can itself reentrantly call
+	 * apply_filters( 'the_content', ... ) on unrelated content (e.g. a
+	 * "related post" teaser shortcode). That nested call must not claim the
+	 * capture slot with just its own inner fragment before the outer,
+	 * complete answer finishes rendering and reaches the same PHP_INT_MAX
+	 * priority.
+	 */
+	public function test_capture_ignores_a_reentrant_the_content_call() {
+		add_shortcode(
+			'saai_test_reentrant',
+			function () {
+				return apply_filters( 'the_content', 'Inner fragment.' );
+			}
+		);
+
+		$post = $this->create_faq(
+			array(
+				'post_title'   => 'Reentrant question',
+				'post_content' => 'Outer before. [saai_test_reentrant] Outer after.',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+
+		try {
+			$this->render_content_in_the_loop();
+			$schema = $this->faq_question->json_ld( $post );
+		} finally {
+			remove_shortcode( 'saai_test_reentrant' );
+		}
+
+		$answer = $schema['mainEntity']['acceptedAnswer']['text'];
+
+		$this->assertStringContainsString( 'Outer before.', $answer );
+		$this->assertStringContainsString( 'Outer after.', $answer );
+	}
 }
