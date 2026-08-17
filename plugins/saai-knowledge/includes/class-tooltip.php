@@ -98,11 +98,19 @@ final class Tooltip {
 	 * (the overwhelming majority; admin, cron, and REST requests never
 	 * reach wp_footer at all) skips it entirely.
 	 *
+	 * The "already registered" check only asks wp_style_is() — not also
+	 * WP_Script_Modules::get_registered() for the module, which a prior
+	 * version of this method did — because get_registered() doesn't exist
+	 * before WordPress core 7.0.0 (`@since 7.0.0` in
+	 * wp-includes/class-wp-script-modules.php), a fatal error on this
+	 * plugin's declared 6.9+ minimum. The style and module are always
+	 * registered together below, so the style's registration state alone
+	 * is a reliable proxy for "this method already ran successfully."
+	 *
 	 * @return bool Whether both are registered (freshly, or already were).
 	 */
 	private function ensure_assets_registered(): bool {
-		// @phpstan-ignore method.notFound (WP_Script_Modules::get_registered() shipped in WordPress core 6.9.0 but is missing from the bundled php-stubs/wordpress-stubs 6.9.4; verified against the real method in wp-includes/class-wp-script-modules.php.)
-		if ( wp_style_is( self::STYLE_HANDLE, 'registered' ) && null !== wp_script_modules()->get_registered( self::MODULE_ID ) ) {
+		if ( wp_style_is( self::STYLE_HANDLE, 'registered' ) ) {
 			return true;
 		}
 
@@ -123,11 +131,22 @@ final class Tooltip {
 			$version
 		);
 
+		$style_file = SAAI_KNOWLEDGE_DIR . 'build/tooltip/style-view.css';
+
+		// The JS asset's version hash is computed from the JS bundle only
+		// (the CSS is a separately-extracted file); reusing it for the
+		// stylesheet would mean a CSS-only change doesn't bust the
+		// browser/CDN cache for style-view.css, since that hash wouldn't
+		// change (verified: rebuilding after a style.scss-only edit leaves
+		// view.asset.php's version identical). The CSS file's own mtime
+		// gives it an independent, correctly-changing version instead.
+		$style_version = file_exists( $style_file ) ? (string) filemtime( $style_file ) : $version;
+
 		wp_register_style(
 			self::STYLE_HANDLE,
 			SAAI_KNOWLEDGE_URL . 'build/tooltip/style-view.css',
 			array(),
-			$version
+			$style_version
 		);
 
 		return true;

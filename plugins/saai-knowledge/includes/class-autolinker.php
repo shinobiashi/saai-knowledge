@@ -55,6 +55,21 @@ final class Autolinker {
 	private const CACHE_GROUP = 'saai_autolink';
 
 	/**
+	 * Bumped whenever the shape of the value cache_key() is used for
+	 * (currently `[ 'html' => string, 'has_links' => bool ]`) changes.
+	 * Folded into the key itself rather than just handled by the is_array()
+	 * check in process() so a rolling deploy/rollback behind a shared
+	 * persistent object cache can't have old- and new-code requests
+	 * fighting over the same key with two different value shapes — each
+	 * version simply reads/writes its own key namespace and self-heals
+	 * once the deploy finishes, instead of every request in the mixed
+	 * window missing the cache.
+	 *
+	 * @var string
+	 */
+	private const CACHE_SCHEMA_VERSION = '2';
+
+	/**
 	 * Maximum number of match patterns (title + synonyms, across all terms)
 	 * the dictionary keeps. Longest patterns win when the cap is exceeded.
 	 *
@@ -710,7 +725,7 @@ final class Autolinker {
 			? $post->ID . '|' . $post->post_modified_gmt . '|' . md5( $html )
 			: 'raw|' . md5( $html );
 
-		return 'saai_al_' . md5( $generation . '|' . $this->max_links() . '|' . $identity );
+		return 'saai_al_' . self::CACHE_SCHEMA_VERSION . '_' . md5( $generation . '|' . $this->max_links() . '|' . $identity );
 	}
 
 	/**
