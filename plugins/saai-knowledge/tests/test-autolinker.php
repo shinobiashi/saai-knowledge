@@ -615,6 +615,7 @@ class Test_Autolinker extends WP_UnitTestCase {
 		$result = $this->autolinker->process( 'This mentions API directly.' );
 
 		$this->assertStringContainsString( 'data-wp-init="callbacks.initTooltipListeners"', $result );
+		$this->assertStringContainsString( 'data-wp-on--touchstart="actions.handleTouchStart"', $result );
 		$this->assertStringContainsString( 'data-wp-on--click="actions.handleClick"', $result );
 		$this->assertStringContainsString( 'aria-describedby="saai-tooltip"', $result );
 	}

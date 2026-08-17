@@ -78,6 +78,17 @@ final class Autolinker {
 	private const DEFAULT_POST_TYPES = array( 'post', 'page', 'saai_kb', 'saai_faq' );
 
 	/**
+	 * The data-wp-interactive attribute build_anchor() stamps onto every
+	 * term link. note_rendered_links() greps rendered HTML for this exact
+	 * string to detect whether a link was inserted (including on a cache
+	 * hit, where build_anchor() itself never runs) — kept as one constant so
+	 * the two stay in sync if the anchor markup ever changes.
+	 *
+	 * @var string
+	 */
+	private const TOOLTIP_INTERACTIVE_MARKER = 'data-wp-interactive="saai-knowledge/tooltip"';
+
+	/**
 	 * Tag names whose rendered text content is never auto-linked: headings
 	 * (a term shouldn't link inside its own section title), existing links
 	 * (no links inside links), code-ish elements, and interactive controls.
@@ -261,7 +272,7 @@ final class Autolinker {
 	 * @param string $html Processed HTML (cached or freshly built).
 	 */
 	private function note_rendered_links( string $html ): void {
-		if ( ! $this->has_rendered_links && false !== strpos( $html, 'data-wp-interactive="saai-knowledge/tooltip"' ) ) {
+		if ( ! $this->has_rendered_links && false !== strpos( $html, self::TOOLTIP_INTERACTIVE_MARKER ) ) {
 			$this->has_rendered_links = true;
 		}
 	}
@@ -1257,11 +1268,20 @@ final class Autolinker {
 	 * The tooltip is rendered by the saai-knowledge/tooltip Interactivity API
 	 * store (M3-4): the excerpt travels in data-saai-tooltip so the
 	 * singleton tooltip element can be populated without a JSON script tag.
-	 * data-wp-on--click intercepts a touch device's first tap (tooltip not
-	 * shown yet) to reveal the tooltip instead of navigating; a second tap
-	 * (tooltip already visible) navigates normally. data-wp-init attaches
-	 * the store's single document-level Escape-to-close listener the first
-	 * time any term link on the page hydrates.
+	 * data-wp-on--touchstart marks the anchor as mid-tap before the
+	 * synthesized click arrives (some mobile browsers fire mouseenter/focus
+	 * for the same tap, which would otherwise make the tooltip look already
+	 * shown by the time data-wp-on--click runs); data-wp-on--click uses that
+	 * mark to intercept only a touch device's first tap (revealing the
+	 * tooltip instead of navigating) and lets a second tap navigate
+	 * normally, while mouse/keyboard clicks (no preceding touchstart) always
+	 * navigate immediately. data-wp-init attaches the store's single
+	 * document-level Escape-to-close listener the first time any term link
+	 * on the page hydrates.
+	 *
+	 * TOOLTIP_INTERACTIVE_MARKER's exact string must appear in this markup —
+	 * Autolinker::note_rendered_links() greps the rendered HTML for it to
+	 * decide whether Tooltip::render() has anything to show.
 	 *
 	 * @param array<string, mixed> $entry        The matched dictionary entry.
 	 * @param string               $matched_text The original text to keep as the link's visible text.
@@ -1269,11 +1289,12 @@ final class Autolinker {
 	 */
 	private function build_anchor( array $entry, string $matched_text ): string {
 		return sprintf(
-			'<a href="%1$s" class="saai-term" data-wp-interactive="saai-knowledge/tooltip" data-wp-init="callbacks.initTooltipListeners" data-wp-on--mouseenter="actions.show" data-wp-on--focus="actions.show" data-wp-on--mouseleave="actions.hide" data-wp-on--blur="actions.hide" data-wp-on--click="actions.handleClick" data-saai-term-id="%2$d" data-saai-tooltip="%3$s" aria-describedby="saai-tooltip">%4$s</a>',
+			'<a href="%1$s" class="saai-term" %5$s data-wp-init="callbacks.initTooltipListeners" data-wp-on--mouseenter="actions.show" data-wp-on--focus="actions.show" data-wp-on--mouseleave="actions.hide" data-wp-on--blur="actions.hide" data-wp-on--touchstart="actions.handleTouchStart" data-wp-on--click="actions.handleClick" data-saai-term-id="%2$d" data-saai-tooltip="%3$s" aria-describedby="saai-tooltip">%4$s</a>',
 			esc_url( $entry['url'] ),
 			(int) $entry['post_id'],
 			esc_attr( $entry['excerpt'] ),
-			$matched_text
+			$matched_text,
+			self::TOOLTIP_INTERACTIVE_MARKER
 		);
 	}
 

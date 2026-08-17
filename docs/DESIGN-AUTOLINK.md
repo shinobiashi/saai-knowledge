@@ -83,15 +83,18 @@
    data-wp-init="callbacks.initTooltipListeners"
    data-wp-on--mouseenter="actions.show" data-wp-on--focus="actions.show"
    data-wp-on--mouseleave="actions.hide" data-wp-on--blur="actions.hide"
+   data-wp-on--touchstart="actions.handleTouchStart"
    data-wp-on--click="actions.handleClick"
    data-saai-term-id="{post_id}" data-saai-tooltip="{excerpt}"
    aria-describedby="saai-tooltip">{元のテキストそのまま}</a>
 ```
 
-- ツールチップ本体はページに **1つのシングルトン要素**（`#saai-tooltip`, `role="tooltip"`, `hidden` 属性で初期非表示）を footer に出力し（`Tooltip` サービス、`wp_footer`）、表示時に該当用語の excerpt を差し込む（excerpt は `data-saai-tooltip` 属性に `esc_attr` で埋め込み。JSON を script タグで持たない）。footer 出力・スクリプトモジュール（`saai-knowledge/tooltip`）・スタイルの enqueue は、`Autolinker::has_rendered_links()`（そのリクエストで実際にリンクを1件でも生成したか）が true の場合のみ行う — ほとんどのページは自動リンクを生成しないため。
-- `data-wp-on--click="actions.handleClick"`: ツールチップが非表示の状態でのクリックは `preventDefault()` してまず表示のみ行う（タッチデバイスの1タップ目相当）。既に表示中のクリックはそのまま遷移させる（デスクトップの hover→click、タッチの2タップ目の両方をこの1つの分岐でカバーする）。
+- ツールチップ本体はページに **1つのシングルトン要素**（`#saai-tooltip`, `role="tooltip"`, `hidden` 属性で初期非表示）を footer に出力し（`Tooltip` サービス、`wp_footer` の**既定優先度**）、表示時に該当用語の excerpt を差し込む（excerpt は `data-saai-tooltip` 属性に `esc_attr` で埋め込み。JSON を script タグで持たない）。footer 出力・スクリプトモジュール（`saai-knowledge/tooltip`）・スタイルの enqueue は、`Autolinker::has_rendered_links()`（そのリクエストで実際にリンクを1件でも生成したか）が true の場合のみ行う — ほとんどのページは自動リンクを生成しないため。優先度は既定のまま据え置く: WordPress core 自身がこの enqueue を実際に印字する `WP_Script_Modules::print_enqueued_script_modules()` とスタイルの late-capture（`script-loader.php`）はいずれも `wp_footer` の既定〜優先度20に固定されており、より遅い優先度から enqueue するとどちらの印字経路にも間に合わず出力自体が消える（実機検証で確認済み）。
+- `data-wp-on--touchstart="actions.handleTouchStart"` + `data-wp-on--click="actions.handleClick"`: 一部のモバイルブラウザは1回のタップで `mouseenter`/`focus` も合成発火するため、クリック時点の「ツールチップが非表示か」だけでは実際のタップ起点かを判定できない。`touchstart`（実タップにしか発火せず、常に `click` より先に届く）でアンカーに一時マークを付け、`click` はそのマークの有無で「タッチの1タップ目（`preventDefault()` して表示のみ）」「タッチの2タップ目（マークが既に消費済み→遷移）」「マウス/キーボード（マークなし→常に即遷移）」を判別する。
 - `data-wp-init="callbacks.initTooltipListeners"`: ページ内のどれか1つの用語リンクがハイドレートした時点で、`document` への Esc キー（`keydown`）リスナーを1度だけ登録する（モジュールスコープのフラグで重複登録を防止）。押下時はシングルトン要素を非表示に戻す。
-- `prefers-reduced-motion` でアニメーション（`opacity` の transition）を無効化する。
+- シングルトン要素の `id` はアンカーの `data-saai-term-id`（用語の投稿ID）から生成しない — 同じ用語が複数記事から自動リンクされるページ（アーカイブ等）では同一 `data-saai-term-id` を持つアンカーが複数存在しうるため、代わりにページ全体で1つのカウンターから発番する。
+- ツールチップはビューポート右端・左端をはみ出さないようクランプする（アンカーの位置に応じて `left` を再計算）。
+- アニメーションは行わない（`hidden` 属性による表示/非表示の切り替えのみ）ため `prefers-reduced-motion` を考慮する対象がない。
 
 ## 4. HTML 安全な走査（タグを壊さない）
 

@@ -40,17 +40,6 @@ final class Tooltip {
 	private $autolinker;
 
 	/**
-	 * Whether register_assets() found build/tooltip/view.asset.php and
-	 * registered the module/style. CI's PHPUnit job runs without a JS build
-	 * (build/ is gitignored — see class-blocks.php's same file_exists()
-	 * guard), so render() must not try to enqueue a module/style that were
-	 * never registered.
-	 *
-	 * @var bool
-	 */
-	private $assets_registered = false;
-
-	/**
 	 * Constructor.
 	 *
 	 * @param Autolinker $autolinker The auto-link engine service, consulted by render().
@@ -61,6 +50,23 @@ final class Tooltip {
 
 	/**
 	 * Hooks the tooltip service into WordPress.
+	 *
+	 * Render() deliberately stays at wp_footer's default priority (10),
+	 * not a later one: WordPress core's own printers for what render()
+	 * enqueues — WP_Script_Modules::print_enqueued_script_modules()
+	 * (default priority) and script-loader.php's late-style capture
+	 * (priority 20) — are both hooked on wp_footer too, at fixed
+	 * priorities. Enqueuing from a later priority than those would queue
+	 * the module/style only after WordPress already printed everything
+	 * queued at that point, so they'd never reach the page (verified: this
+	 * broke real output when tried at PHP_INT_MAX). At the same default
+	 * priority, this plugin's own add_action() call — fired from
+	 * plugins_loaded — is registered before core's (fired from
+	 * after_setup_theme, later in the request), so render() still runs
+	 * first within that bucket and its enqueue calls are seen in time.
+	 * This does mean a link an unusually late (later-priority) wp_footer
+	 * callback produces after render() already ran won't get a tooltip;
+	 * that's an accepted trade-off against actually breaking the common case.
 	 */
 	public function register(): void {
 		add_action( 'init', array( $this, 'register_assets' ) );
@@ -96,8 +102,6 @@ final class Tooltip {
 			array(),
 			$version
 		);
-
-		$this->assets_registered = true;
 	}
 
 	/**
@@ -106,7 +110,7 @@ final class Tooltip {
 	 * request — most pages never do, and shouldn't pay for the module/style.
 	 */
 	public function render(): void {
-		if ( ! $this->assets_registered || ! $this->autolinker->has_rendered_links() ) {
+		if ( ! $this->assets_are_registered() || ! $this->autolinker->has_rendered_links() ) {
 			return;
 		}
 
@@ -114,5 +118,26 @@ final class Tooltip {
 		wp_enqueue_style( self::STYLE_HANDLE );
 
 		echo '<div id="saai-tooltip" class="saai-tooltip" role="tooltip" hidden></div>';
+	}
+
+	/**
+	 * Whether register_assets() found build/tooltip/view.asset.php and
+	 * registered the module/style, asked of core's own registries rather
+	 * than tracked in a separate flag here (which could drift from what's
+	 * actually registered if register_assets()'s early-return condition
+	 * ever changes without a matching update to the flag). CI's PHPUnit job
+	 * runs without a JS build (build/ is gitignored — see class-blocks.php's
+	 * same file_exists() guard), so render() must not try to enqueue a
+	 * module/style that were never registered.
+	 *
+	 * @return bool
+	 */
+	private function assets_are_registered(): bool {
+		if ( ! wp_style_is( self::STYLE_HANDLE, 'registered' ) ) {
+			return false;
+		}
+
+		// @phpstan-ignore method.notFound (WP_Script_Modules::get_registered() shipped in WordPress core 6.9.0 but is missing from the bundled php-stubs/wordpress-stubs 6.9.4; verified against the real method in wp-includes/class-wp-script-modules.php.)
+		return null !== wp_script_modules()->get_registered( self::MODULE_ID );
 	}
 }
