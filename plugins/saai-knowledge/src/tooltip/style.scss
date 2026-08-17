@@ -1,7 +1,12 @@
 .saai-tooltip {
 	position: absolute;
 	z-index: 100000;
-	max-width: 20rem;
+	// Capped by viewport width too (minus the same 8px margin view.js's
+	// positionTooltip() clamps against on each side): the JS horizontal
+	// clamp can't simultaneously respect both viewport edges if the
+	// tooltip itself is wider than the viewport, so keep that from
+	// happening in the first place on narrow (mobile) screens.
+	max-width: min(20rem, calc(100vw - 16px));
 	padding: 0.5em 0.75em;
 	border-radius: 4px;
 	background: #1e1e1e;

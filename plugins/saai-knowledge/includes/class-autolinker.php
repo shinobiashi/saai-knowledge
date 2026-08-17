@@ -79,13 +79,17 @@ final class Autolinker {
 
 	/**
 	 * The data-wp-interactive attribute build_anchor() stamps onto every
-	 * term link. Kept as a constant purely so the tooltip's Interactivity
-	 * API store id (referenced in docs/DESIGN-AUTOLINK.md) can't drift out
-	 * of sync with the anchor markup — has_rendered_links() no longer
-	 * derives its answer from this string (see process()'s `$link_count`
-	 * tracking below): grepping rendered HTML for this literal text is
-	 * unreliable, since ordinary content that quotes this plugin's own
-	 * anchor markup as a documentation/code example would false-positive.
+	 * term link, naming the saai-knowledge/tooltip Interactivity API store
+	 * (docs/DESIGN-AUTOLINK.md section 3.3). Named as a constant purely for
+	 * readability at its one use site in build_anchor() — it is NOT a
+	 * cross-file source of truth: the store id also appears as independent
+	 * literals in Tooltip::MODULE_ID (class-tooltip.php) and view.js's own
+	 * store() call, and this constant can't keep those in sync if one of
+	 * the three ever changes without the others. has_rendered_links() does
+	 * not derive its answer from this string (see process()'s `$link_count`
+	 * tracking below) precisely because grepping rendered HTML for it is
+	 * unreliable — ordinary content that quotes this plugin's own anchor
+	 * markup as a documentation/code example would false-positive.
 	 *
 	 * @var string
 	 */
@@ -1296,11 +1300,12 @@ final class Autolinker {
 	 * document-level Escape-to-close listener the first time any term link
 	 * on the page hydrates.
 	 *
-	 * TOOLTIP_INTERACTIVE_MARKER's exact string must appear in this markup —
-	 * it's the single source of truth for the Interactivity API store id, so
-	 * the tooltip's view.js store() call and Tooltip::register_assets()'s
-	 * module id stay in sync with it (has_rendered_links() itself is tracked
-	 * separately from real replace_in_html() link counts — see process()).
+	 * TOOLTIP_INTERACTIVE_MARKER names the store this markup's directives
+	 * target; see its own docblock for why that constant is only a
+	 * readability aid here, not something the other two independent copies
+	 * of the same store id (Tooltip::MODULE_ID, view.js's store() call)
+	 * actually stay in sync with. has_rendered_links() is tracked
+	 * separately from real replace_in_html() link counts — see process().
 	 *
 	 * @param array<string, mixed> $entry        The matched dictionary entry.
 	 * @param string               $matched_text The original text to keep as the link's visible text.

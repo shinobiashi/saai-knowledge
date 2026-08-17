@@ -59,8 +59,13 @@ function positionTooltip( tooltip, anchor ) {
 	const anchorRect = anchor.getBoundingClientRect();
 	const scrollX = window.scrollX || document.documentElement.scrollLeft;
 	const scrollY = window.scrollY || document.documentElement.scrollTop;
+	// Both from documentElement.client*, not window.inner*: the latter
+	// includes a horizontal scrollbar's height in innerHeight but
+	// clientWidth excludes a vertical scrollbar's width, an inconsistent
+	// pair of metrics that would throw off the overflow math below by the
+	// scrollbar's size whenever one is present.
 	const viewportWidth = document.documentElement.clientWidth;
-	const viewportHeight = window.innerHeight;
+	const viewportHeight = document.documentElement.clientHeight;
 	const tooltipWidth = tooltip.offsetWidth;
 	const tooltipHeight = tooltip.offsetHeight;
 
@@ -97,9 +102,10 @@ function positionTooltip( tooltip, anchor ) {
 }
 
 // Returns the anchor that WAS shown (before this call hid it), or null if
-// the tooltip was already hidden — callers decide what "ending this
-// anchor's shown episode" should do to its saaiTapConfirmed flag (see the
-// two call sites below; they can't share one rule).
+// the tooltip was already hidden. Doesn't touch saaiTapConfirmed itself:
+// show() needs to keep it when re-entering for the SAME anchor (see its own
+// comment), so only dismissTooltip() — used by every OTHER caller, which
+// all want the same "this anchor's episode is over" behavior — clears it.
 function hideTooltip() {
 	const tooltip = getTooltipElement();
 
@@ -119,6 +125,17 @@ function hideTooltip() {
 	tooltip.removeAttribute( 'data-saai-shown-for' );
 
 	return anchor;
+}
+
+// An explicit dismiss (mouseleave/blur/Escape) ends the shown anchor's
+// episode outright, unlike show()'s hand-off to a new anchor — so the next
+// tap on it is always treated as a fresh first tap.
+function dismissTooltip() {
+	const anchor = hideTooltip();
+
+	if ( anchor ) {
+		delete anchor.dataset.saaiTapConfirmed;
+	}
 }
 
 const { actions } = store( 'saai-knowledge/tooltip', {
@@ -155,14 +172,7 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 			ref.setAttribute( 'aria-expanded', 'true' );
 		},
 		hide() {
-			// An explicit dismiss (mouseleave/blur) ends this anchor's
-			// shown episode outright, unlike show()'s hand-off to a new
-			// anchor — so the next tap on it is always a fresh first tap.
-			const anchor = hideTooltip();
-
-			if ( anchor ) {
-				delete anchor.dataset.saaiTapConfirmed;
-			}
+			dismissTooltip();
 		},
 		handleTouchStart() {
 			const { ref } = getElement();
@@ -220,11 +230,7 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 
 			window.addEventListener( 'keydown', ( event ) => {
 				if ( 'Escape' === event.key ) {
-					const anchor = hideTooltip();
-
-					if ( anchor ) {
-						delete anchor.dataset.saaiTapConfirmed;
-					}
+					dismissTooltip();
 				}
 			} );
 		},

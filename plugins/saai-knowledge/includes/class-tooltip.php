@@ -11,10 +11,10 @@ namespace SAAI\Knowledge;
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Registers the saai-knowledge/tooltip script module and, only on requests
- * where the auto-link engine actually produced a term link, prints the
- * single `#saai-tooltip` element every term anchor's aria-describedby
- * points at and enqueues the module/style that drive it.
+ * On requests where the auto-link engine actually produced a term link,
+ * prints the single `#saai-tooltip` element every term anchor's
+ * aria-describedby points at and enqueues the saai-knowledge/tooltip
+ * script module + its style that drive it.
  */
 final class Tooltip {
 
@@ -69,32 +69,47 @@ final class Tooltip {
 	 * that's an accepted trade-off against actually breaking the common case.
 	 */
 	public function register(): void {
-		add_action( 'init', array( $this, 'register_assets' ) );
 		add_action( 'wp_footer', array( $this, 'render' ) );
 	}
 
 	/**
-	 * Registers the tooltip script module and stylesheet from their build/
-	 * metadata. Registration doesn't enqueue: render() only enqueues once it
-	 * knows the current page actually contains a term link.
-	 *
-	 * Skips the file_exists()/include work entirely on requests that can
-	 * never reach render()'s wp_footer callback: wp-admin uses
-	 * admin_footer, not wp_footer, and cron requests don't render a
-	 * front-end template at all. (A REST API request also never reaches
-	 * wp_footer(), but REST_REQUEST isn't defined yet this early at
-	 * `init` — see is_rest_request() in class-autolinker.php — so it can't
-	 * be reliably excluded here and is left unguarded.)
+	 * Prints the singleton tooltip element and enqueues its module/style,
+	 * but only when the auto-link engine reports it actually linked a term
+	 * this request — most pages never do, and shouldn't pay for either.
 	 */
-	public function register_assets(): void {
-		if ( is_admin() || wp_doing_cron() ) {
+	public function render(): void {
+		if ( ! $this->autolinker->has_rendered_links() || ! $this->ensure_assets_registered() ) {
 			return;
+		}
+
+		wp_enqueue_script_module( self::MODULE_ID );
+		wp_enqueue_style( self::STYLE_HANDLE );
+
+		echo '<div id="saai-tooltip" class="saai-tooltip" role="tooltip" hidden></div>';
+	}
+
+	/**
+	 * Registers the tooltip module/style from their build/ metadata, unless
+	 * they're registered already. Called from render() instead of eagerly
+	 * on every request's `init` (a prior version did that): the
+	 * file_exists()/include/two registry writes this does only need to run
+	 * once per process, and only for requests that reach this — has
+	 * has_rendered_links() true — while every other front-end request
+	 * (the overwhelming majority; admin, cron, and REST requests never
+	 * reach wp_footer at all) skips it entirely.
+	 *
+	 * @return bool Whether both are registered (freshly, or already were).
+	 */
+	private function ensure_assets_registered(): bool {
+		// @phpstan-ignore method.notFound (WP_Script_Modules::get_registered() shipped in WordPress core 6.9.0 but is missing from the bundled php-stubs/wordpress-stubs 6.9.4; verified against the real method in wp-includes/class-wp-script-modules.php.)
+		if ( wp_style_is( self::STYLE_HANDLE, 'registered' ) && null !== wp_script_modules()->get_registered( self::MODULE_ID ) ) {
+			return true;
 		}
 
 		$asset_file = SAAI_KNOWLEDGE_DIR . 'build/tooltip/view.asset.php';
 
 		if ( ! file_exists( $asset_file ) ) {
-			return;
+			return false;
 		}
 
 		$asset        = include $asset_file;
@@ -114,42 +129,7 @@ final class Tooltip {
 			array(),
 			$version
 		);
-	}
 
-	/**
-	 * Prints the singleton tooltip element and enqueues its assets, but only
-	 * when the auto-link engine reports it actually linked a term this
-	 * request — most pages never do, and shouldn't pay for the module/style.
-	 */
-	public function render(): void {
-		if ( ! $this->assets_are_registered() || ! $this->autolinker->has_rendered_links() ) {
-			return;
-		}
-
-		wp_enqueue_script_module( self::MODULE_ID );
-		wp_enqueue_style( self::STYLE_HANDLE );
-
-		echo '<div id="saai-tooltip" class="saai-tooltip" role="tooltip" hidden></div>';
-	}
-
-	/**
-	 * Whether register_assets() found build/tooltip/view.asset.php and
-	 * registered the module/style, asked of core's own registries rather
-	 * than tracked in a separate flag here (which could drift from what's
-	 * actually registered if register_assets()'s early-return condition
-	 * ever changes without a matching update to the flag). CI's PHPUnit job
-	 * runs without a JS build (build/ is gitignored — see class-blocks.php's
-	 * same file_exists() guard), so render() must not try to enqueue a
-	 * module/style that were never registered.
-	 *
-	 * @return bool
-	 */
-	private function assets_are_registered(): bool {
-		if ( ! wp_style_is( self::STYLE_HANDLE, 'registered' ) ) {
-			return false;
-		}
-
-		// @phpstan-ignore method.notFound (WP_Script_Modules::get_registered() shipped in WordPress core 6.9.0 but is missing from the bundled php-stubs/wordpress-stubs 6.9.4; verified against the real method in wp-includes/class-wp-script-modules.php.)
-		return null !== wp_script_modules()->get_registered( self::MODULE_ID );
+		return true;
 	}
 }
