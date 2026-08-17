@@ -4,6 +4,8 @@ import './style.scss';
 
 const TOOLTIP_ID = 'saai-tooltip';
 const VIEWPORT_MARGIN = 8;
+const TOUCH_START_EXPIRY_MS = 750;
+const TAP_CONFIRMED_EXPIRY_MS = 5000;
 
 let escapeListenerAttached = false;
 let anchorIdCounter = 0;
@@ -148,6 +150,18 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 				return;
 			}
 
+			const text = ref.getAttribute( 'data-saai-tooltip' ) || '';
+
+			// A term with no excerpt and no body to fall back on (e.g. a
+			// stub glossary entry) has nothing to preview — showing an
+			// empty bubble would be confusing, so leave the tooltip as it
+			// was (handleClick separately avoids treating this as an
+			// interceptable tap in the first place, so this mainly guards
+			// the hover/focus path).
+			if ( '' === text.trim() ) {
+				return;
+			}
+
 			// A singleton tooltip can only describe one anchor at a time;
 			// hovering/focusing a new term reassigns it. Only clear the
 			// PREVIOUS anchor's tap-confirmed flag when it's a genuinely
@@ -162,7 +176,7 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 				delete previousAnchor.dataset.saaiTapConfirmed;
 			}
 
-			tooltip.textContent = ref.getAttribute( 'data-saai-tooltip' ) || '';
+			tooltip.textContent = text;
 			tooltip.setAttribute(
 				'data-saai-shown-for',
 				ensureAnchorId( ref )
@@ -193,7 +207,7 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 			// of navigating). Self-expiring it bounds that window.
 			window.setTimeout( () => {
 				delete ref.dataset.saaiTouchStarted;
-			}, 750 );
+			}, TOUCH_START_EXPIRY_MS );
 		},
 		handleClick( event ) {
 			const { ref } = getElement();
@@ -215,7 +229,30 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 				return; // Second tap on this anchor: let it navigate.
 			}
 
+			// Nothing to preview (see show()'s same check) — don't
+			// intercept the tap at all, or it'd navigate nowhere: no
+			// tooltip appears (show() no-ops) and the link never gets a
+			// second tap to complete the navigation it just swallowed.
+			if (
+				'' === ( ref.getAttribute( 'data-saai-tooltip' ) || '' ).trim()
+			) {
+				return;
+			}
+
 			ref.dataset.saaiTapConfirmed = 'true';
+
+			// Bounds how long a shown-but-forgotten tooltip keeps this
+			// anchor's next tap classified as "second tap, navigate" —
+			// mouseleave/blur/Escape/a different anchor's show() already
+			// clear it on their own triggers, but touch has no reliable
+			// equivalent of "the user looked away" (mouseleave never fires,
+			// and blur only if something else takes focus), so a tap
+			// returning much later would otherwise still read as stale
+			// confirmation and navigate without ever re-showing the tooltip.
+			window.setTimeout( () => {
+				delete ref.dataset.saaiTapConfirmed;
+			}, TAP_CONFIRMED_EXPIRY_MS );
+
 			event.preventDefault();
 			actions.show();
 		},
