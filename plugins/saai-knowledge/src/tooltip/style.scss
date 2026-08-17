@@ -1,0 +1,30 @@
+.saai-tooltip {
+	position: absolute;
+	z-index: 100000;
+	max-width: 20rem;
+	padding: 0.5em 0.75em;
+	border-radius: 4px;
+	background: #1e1e1e;
+	color: #fff;
+	font-size: 0.8125rem;
+	line-height: 1.4;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+	opacity: 1;
+	transition: opacity 0.12s ease-in-out;
+
+	&[hidden] {
+		display: none;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+	.saai-tooltip {
+		transition: none;
+	}
+}
+
+a.saai-term {
+	text-decoration: underline dotted;
+	text-underline-offset: 2px;
+}

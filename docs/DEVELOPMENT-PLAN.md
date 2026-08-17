@@ -97,7 +97,7 @@ M1〜M5 の全タスクは GitHub Issues #1〜#27（マイルストーン M1〜M
 - [x] `saai-knowledge/glossary-index` ブロック（五十音 / A–Z タブ、`saai_reading` ソート）
 - [x] 用語個別ページテンプレート + DefinedTerm JSON-LD
 - [x] 自動リンクエンジン: 辞書キャッシュ（保存時無効化）、`preg_split` ベース軽量トークナイザーによる本文置換（DESIGN-AUTOLINK.md §4）、除外ルール（見出し/a/code/pre/自身のページ）、初出のみ・最大リンク数制御
-- [ ] ツールチップ UI（Interactivity API、excerpt 表示、タップ対応）
+- [x] ツールチップ UI（Interactivity API、excerpt 表示、タップ対応）
 - [x] `saai_autolink_dictionary` フィルター（有料版の注入ポイント）
 - [x] 自動リンクのユニットテスト（置換・除外・キャッシュ無効化）とパフォーマンス計測（用語500件で計測）
 

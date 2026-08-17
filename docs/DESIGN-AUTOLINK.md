@@ -80,15 +80,18 @@
 ```html
 <a href="{url}" class="saai-term"
    data-wp-interactive="saai-knowledge/tooltip"
+   data-wp-init="callbacks.initTooltipListeners"
    data-wp-on--mouseenter="actions.show" data-wp-on--focus="actions.show"
    data-wp-on--mouseleave="actions.hide" data-wp-on--blur="actions.hide"
-   data-saai-term-id="{post_id}"
+   data-wp-on--click="actions.handleClick"
+   data-saai-term-id="{post_id}" data-saai-tooltip="{excerpt}"
    aria-describedby="saai-tooltip">{元のテキストそのまま}</a>
 ```
 
-- ツールチップ本体はページに **1つのシングルトン要素**（`#saai-tooltip`, `role="tooltip"`）を footer に出力し、表示時に該当用語の excerpt を差し込む（excerpt は `data-saai-tooltip` 属性に `esc_attr` で埋め込み。JSON を script タグで持たない）。
-- タッチデバイス: 1タップ目でツールチップ表示、2タップ目で遷移（`click` を1回インターセプト）。
-- Esc キーで閉じる。`prefers-reduced-motion` でアニメーション無効。
+- ツールチップ本体はページに **1つのシングルトン要素**（`#saai-tooltip`, `role="tooltip"`, `hidden` 属性で初期非表示）を footer に出力し（`Tooltip` サービス、`wp_footer`）、表示時に該当用語の excerpt を差し込む（excerpt は `data-saai-tooltip` 属性に `esc_attr` で埋め込み。JSON を script タグで持たない）。footer 出力・スクリプトモジュール（`saai-knowledge/tooltip`）・スタイルの enqueue は、`Autolinker::has_rendered_links()`（そのリクエストで実際にリンクを1件でも生成したか）が true の場合のみ行う — ほとんどのページは自動リンクを生成しないため。
+- `data-wp-on--click="actions.handleClick"`: ツールチップが非表示の状態でのクリックは `preventDefault()` してまず表示のみ行う（タッチデバイスの1タップ目相当）。既に表示中のクリックはそのまま遷移させる（デスクトップの hover→click、タッチの2タップ目の両方をこの1つの分岐でカバーする）。
+- `data-wp-init="callbacks.initTooltipListeners"`: ページ内のどれか1つの用語リンクがハイドレートした時点で、`document` への Esc キー（`keydown`）リスナーを1度だけ登録する（モジュールスコープのフラグで重複登録を防止）。押下時はシングルトン要素を非表示に戻す。
+- `prefers-reduced-motion` でアニメーション（`opacity` の transition）を無効化する。
 
 ## 4. HTML 安全な走査（タグを壊さない）
 

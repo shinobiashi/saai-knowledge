@@ -110,6 +110,18 @@ final class Autolinker {
 	private $compiled_cache = array();
 
 	/**
+	 * Whether process() has returned HTML containing at least one term link
+	 * during the current request, checked by Tooltip::render() to decide
+	 * whether the singleton tooltip element and its script module are
+	 * needed. Tracked here rather than in Tooltip itself because a cache
+	 * hit in process() never calls build_anchor() again, so only the final
+	 * returned HTML (cached or freshly built) can tell.
+	 *
+	 * @var bool
+	 */
+	private $has_rendered_links = false;
+
+	/**
 	 * Hooks the auto-link engine into WordPress.
 	 */
 	public function register(): void {
@@ -218,14 +230,40 @@ final class Autolinker {
 		$cached    = wp_cache_get( $cache_key, self::CACHE_GROUP );
 
 		if ( is_string( $cached ) ) {
+			$this->note_rendered_links( $cached );
+
 			return $cached;
 		}
 
 		$result = $this->replace_in_html( $html, $entries );
 
 		wp_cache_set( $cache_key, $result, self::CACHE_GROUP, HOUR_IN_SECONDS );
+		$this->note_rendered_links( $result );
 
 		return $result;
+	}
+
+	/**
+	 * Whether process() has produced at least one term link so far during
+	 * the current request. Read by Tooltip::render() to skip the singleton
+	 * tooltip element and script module on pages with no auto-links.
+	 *
+	 * @return bool
+	 */
+	public function has_rendered_links(): bool {
+		return $this->has_rendered_links;
+	}
+
+	/**
+	 * Records whether a piece of processed HTML contains a term link, per
+	 * has_rendered_links().
+	 *
+	 * @param string $html Processed HTML (cached or freshly built).
+	 */
+	private function note_rendered_links( string $html ): void {
+		if ( ! $this->has_rendered_links && false !== strpos( $html, 'data-wp-interactive="saai-knowledge/tooltip"' ) ) {
+			$this->has_rendered_links = true;
+		}
 	}
 
 	/**
@@ -1219,6 +1257,11 @@ final class Autolinker {
 	 * The tooltip is rendered by the saai-knowledge/tooltip Interactivity API
 	 * store (M3-4): the excerpt travels in data-saai-tooltip so the
 	 * singleton tooltip element can be populated without a JSON script tag.
+	 * data-wp-on--click intercepts a touch device's first tap (tooltip not
+	 * shown yet) to reveal the tooltip instead of navigating; a second tap
+	 * (tooltip already visible) navigates normally. data-wp-init attaches
+	 * the store's single document-level Escape-to-close listener the first
+	 * time any term link on the page hydrates.
 	 *
 	 * @param array<string, mixed> $entry        The matched dictionary entry.
 	 * @param string               $matched_text The original text to keep as the link's visible text.
@@ -1226,7 +1269,7 @@ final class Autolinker {
 	 */
 	private function build_anchor( array $entry, string $matched_text ): string {
 		return sprintf(
-			'<a href="%1$s" class="saai-term" data-wp-interactive="saai-knowledge/tooltip" data-wp-on--mouseenter="actions.show" data-wp-on--focus="actions.show" data-wp-on--mouseleave="actions.hide" data-wp-on--blur="actions.hide" data-saai-term-id="%2$d" data-saai-tooltip="%3$s" aria-describedby="saai-tooltip">%4$s</a>',
+			'<a href="%1$s" class="saai-term" data-wp-interactive="saai-knowledge/tooltip" data-wp-init="callbacks.initTooltipListeners" data-wp-on--mouseenter="actions.show" data-wp-on--focus="actions.show" data-wp-on--mouseleave="actions.hide" data-wp-on--blur="actions.hide" data-wp-on--click="actions.handleClick" data-saai-term-id="%2$d" data-saai-tooltip="%3$s" aria-describedby="saai-tooltip">%4$s</a>',
 			esc_url( $entry['url'] ),
 			(int) $entry['post_id'],
 			esc_attr( $entry['excerpt'] ),

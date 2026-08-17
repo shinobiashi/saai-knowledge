@@ -605,6 +605,66 @@ class Test_Autolinker extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The anchor markup carries the touch-tap and Escape-to-close directives
+	 * the tooltip's Interactivity API store (M3-4) expects, alongside the
+	 * hover/focus ones.
+	 */
+	public function test_anchor_carries_tooltip_interactivity_directives() {
+		$this->create_term( 'API' );
+
+		$result = $this->autolinker->process( 'This mentions API directly.' );
+
+		$this->assertStringContainsString( 'data-wp-init="callbacks.initTooltipListeners"', $result );
+		$this->assertStringContainsString( 'data-wp-on--click="actions.handleClick"', $result );
+		$this->assertStringContainsString( 'aria-describedby="saai-tooltip"', $result );
+	}
+
+	/**
+	 * Has_rendered_links() is false until process() actually inserts a term
+	 * link, per Tooltip::render()'s guard against printing the singleton
+	 * tooltip element on pages with no auto-links.
+	 */
+	public function test_has_rendered_links_reflects_whether_a_link_was_inserted() {
+		$this->assertFalse( $this->autolinker->has_rendered_links() );
+
+		$this->autolinker->process( 'Nothing to link here.' );
+		$this->assertFalse( $this->autolinker->has_rendered_links() );
+
+		$this->create_term( 'API' );
+		$this->autolinker->process( 'This mentions API directly.' );
+		$this->assertTrue( $this->autolinker->has_rendered_links() );
+	}
+
+	/**
+	 * Has_rendered_links() must also report true on a cache hit: process()
+	 * skips replace_in_html() (and therefore build_anchor()) entirely on a
+	 * cache hit, so the flag has to come from inspecting the cached result
+	 * itself rather than only being set inside build_anchor().
+	 */
+	public function test_has_rendered_links_is_true_on_a_cache_hit() {
+		$post_id = $this->create_kb_post( '<p>This mentions API directly.</p>' );
+		$this->create_term( 'API' );
+
+		$html    = get_post( $post_id )->post_content;
+		$context = array(
+			'post_id'   => $post_id,
+			'post_type' => 'saai_kb',
+		);
+
+		// First call: cache miss, warms the object cache entry.
+		$this->autolinker->process( $html, $context );
+
+		$fresh_autolinker = new \SAAI\Knowledge\Autolinker();
+		$this->assertFalse( $fresh_autolinker->has_rendered_links() );
+
+		// Second call with identical html/context: cache hit, so
+		// build_anchor() never runs on this instance.
+		$fresh_autolinker->process( $html, $context );
+
+		$this->assertTrue( $fresh_autolinker->has_rendered_links() );
+	}
+
+	/**
 	 * Process() with no matching entries returns the original HTML unchanged.
 	 */
 	public function test_process_returns_original_on_preg_failure_fallback_path() {
