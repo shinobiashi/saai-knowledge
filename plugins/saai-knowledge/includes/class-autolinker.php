@@ -79,10 +79,13 @@ final class Autolinker {
 
 	/**
 	 * The data-wp-interactive attribute build_anchor() stamps onto every
-	 * term link. note_rendered_links() greps rendered HTML for this exact
-	 * string to detect whether a link was inserted (including on a cache
-	 * hit, where build_anchor() itself never runs) — kept as one constant so
-	 * the two stay in sync if the anchor markup ever changes.
+	 * term link. Kept as a constant purely so the tooltip's Interactivity
+	 * API store id (referenced in docs/DESIGN-AUTOLINK.md) can't drift out
+	 * of sync with the anchor markup — has_rendered_links() no longer
+	 * derives its answer from this string (see process()'s `$link_count`
+	 * tracking below): grepping rendered HTML for this literal text is
+	 * unreliable, since ordinary content that quotes this plugin's own
+	 * anchor markup as a documentation/code example would false-positive.
 	 *
 	 * @var string
 	 */
@@ -124,9 +127,11 @@ final class Autolinker {
 	 * Whether process() has returned HTML containing at least one term link
 	 * during the current request, checked by Tooltip::render() to decide
 	 * whether the singleton tooltip element and its script module are
-	 * needed. Tracked here rather than in Tooltip itself because a cache
-	 * hit in process() never calls build_anchor() again, so only the final
-	 * returned HTML (cached or freshly built) can tell.
+	 * needed. Set from the real link count replace_in_html() computes on a
+	 * fresh build, or from the `has_links` flag stored alongside the cached
+	 * HTML on a cache hit — never derived by inspecting rendered HTML text,
+	 * so it can't be fooled by content that merely quotes the anchor
+	 * markup (e.g. a documentation example).
 	 *
 	 * @var bool
 	 */
@@ -240,16 +245,30 @@ final class Autolinker {
 		$cache_key = $this->cache_key( $html, $post );
 		$cached    = wp_cache_get( $cache_key, self::CACHE_GROUP );
 
-		if ( is_string( $cached ) ) {
-			$this->note_rendered_links( $cached );
+		if ( is_array( $cached ) && isset( $cached['html'] ) && is_string( $cached['html'] ) ) {
+			if ( ! empty( $cached['has_links'] ) ) {
+				$this->has_rendered_links = true;
+			}
 
-			return $cached;
+			return $cached['html'];
 		}
 
-		$result = $this->replace_in_html( $html, $entries );
+		$link_count = 0;
+		$result     = $this->replace_in_html( $html, $entries, $link_count );
 
-		wp_cache_set( $cache_key, $result, self::CACHE_GROUP, HOUR_IN_SECONDS );
-		$this->note_rendered_links( $result );
+		wp_cache_set(
+			$cache_key,
+			array(
+				'html'      => $result,
+				'has_links' => $link_count > 0,
+			),
+			self::CACHE_GROUP,
+			HOUR_IN_SECONDS
+		);
+
+		if ( $link_count > 0 ) {
+			$this->has_rendered_links = true;
+		}
 
 		return $result;
 	}
@@ -263,18 +282,6 @@ final class Autolinker {
 	 */
 	public function has_rendered_links(): bool {
 		return $this->has_rendered_links;
-	}
-
-	/**
-	 * Records whether a piece of processed HTML contains a term link, per
-	 * has_rendered_links().
-	 *
-	 * @param string $html Processed HTML (cached or freshly built).
-	 */
-	private function note_rendered_links( string $html ): void {
-		if ( ! $this->has_rendered_links && false !== strpos( $html, self::TOOLTIP_INTERACTIVE_MARKER ) ) {
-			$this->has_rendered_links = true;
-		}
 	}
 
 	/**
@@ -716,12 +723,20 @@ final class Autolinker {
 	 * with term links. Fails safe: any preg error at any stage discards the
 	 * partial result and returns the original, untouched HTML.
 	 *
-	 * @param string                           $html    HTML to auto-link.
-	 * @param array<int, array<string, mixed>> $entries Dictionary entries.
+	 * @param string                           $html       HTML to auto-link.
+	 * @param array<int, array<string, mixed>> $entries    Dictionary entries.
+	 * @param int                              $link_count Out param: set to the number of
+	 *                                                      term links actually inserted (0 on
+	 *                                                      any early/fail-safe return, since
+	 *                                                      those return $html untouched). Lets
+	 *                                                      process() learn whether a link was
+	 *                                                      produced without re-scanning the
+	 *                                                      returned HTML for a marker string.
 	 * @return string
 	 */
-	private function replace_in_html( string $html, array $entries ): string {
-		$compiled = $this->compiled_groups_for( $entries );
+	private function replace_in_html( string $html, array $entries, int &$link_count = 0 ): string {
+		$link_count = 0;
+		$compiled   = $this->compiled_groups_for( $entries );
 
 		if ( ! $compiled ) {
 			return $html;
@@ -788,6 +803,8 @@ final class Autolinker {
 
 			return $html;
 		}
+
+		$link_count = $link_state['count'];
 
 		return $this->unstash( $output, $stashed );
 	}
@@ -1280,8 +1297,10 @@ final class Autolinker {
 	 * on the page hydrates.
 	 *
 	 * TOOLTIP_INTERACTIVE_MARKER's exact string must appear in this markup —
-	 * Autolinker::note_rendered_links() greps the rendered HTML for it to
-	 * decide whether Tooltip::render() has anything to show.
+	 * it's the single source of truth for the Interactivity API store id, so
+	 * the tooltip's view.js store() call and Tooltip::register_assets()'s
+	 * module id stay in sync with it (has_rendered_links() itself is tracked
+	 * separately from real replace_in_html() link counts — see process()).
 	 *
 	 * @param array<string, mixed> $entry        The matched dictionary entry.
 	 * @param string               $matched_text The original text to keep as the link's visible text.

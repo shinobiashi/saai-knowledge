@@ -9,53 +9,102 @@ let escapeListenerAttached = false;
 let anchorIdCounter = 0;
 
 function getTooltipElement() {
-	return document.getElementById( TOOLTIP_ID );
+	const tooltip = document.getElementById( TOOLTIP_ID );
+
+	// Tooltip::render() echoes this element wherever the active theme
+	// happens to place wp_footer() output. `.saai-tooltip` is
+	// `position: absolute`, so if the theme wraps that output in a
+	// positioned/transformed ancestor (e.g. a sticky footer wrapper), that
+	// ancestor — not the document — becomes its containing block, which
+	// breaks positionTooltip()'s document-relative coordinate math.
+	// Reparenting it to be a direct child of <body> the first time it's
+	// looked up guarantees a predictable containing block regardless of
+	// where the theme placed it; cheap on every later call since the
+	// parentElement check short-circuits once it's already there.
+	if ( tooltip && tooltip.parentElement !== document.body ) {
+		document.body.appendChild( tooltip );
+	}
+
+	return tooltip;
 }
 
 // data-saai-term-id repeats across anchors on pages that loop the same post
 // more than once (e.g. an archive linking the same glossary term from two
 // different articles' excerpts) — an id derived from it alone could collide,
 // so each anchor gets its own id from a page-wide counter the first time
-// it's shown.
+// it's shown. The counter alone doesn't guarantee uniqueness against ids
+// that already exist elsewhere in the DOM (authored content, another
+// plugin/theme), so each candidate is checked before it's assigned.
 function ensureAnchorId( anchor ) {
 	if ( ! anchor.id ) {
-		anchor.id = `saai-term-${ ++anchorIdCounter }`;
+		let candidate = `saai-term-${ ++anchorIdCounter }`;
+
+		while ( document.getElementById( candidate ) ) {
+			candidate = `saai-term-${ ++anchorIdCounter }`;
+		}
+
+		anchor.id = candidate;
 	}
 
 	return anchor.id;
 }
 
 // Must run after the tooltip is unhidden: an element with the `hidden`
-// attribute has no layout box, so getBoundingClientRect() on it would
-// report zero size and defeat the overflow check below.
+// attribute has no layout box, so offsetWidth/offsetHeight would report
+// zero and defeat the clamping below. Both axes are clamped from a single
+// size read, computed entirely in JS, and written once — reading the
+// tooltip's size again after each write (as a naive write→measure→correct
+// pass would) would force an extra synchronous layout reflow per show().
 function positionTooltip( tooltip, anchor ) {
-	const rect = anchor.getBoundingClientRect();
+	const anchorRect = anchor.getBoundingClientRect();
 	const scrollX = window.scrollX || document.documentElement.scrollLeft;
 	const scrollY = window.scrollY || document.documentElement.scrollTop;
+	const viewportWidth = document.documentElement.clientWidth;
+	const viewportHeight = window.innerHeight;
+	const tooltipWidth = tooltip.offsetWidth;
+	const tooltipHeight = tooltip.offsetHeight;
 
-	tooltip.style.left = `${ rect.left + scrollX }px`;
-	tooltip.style.top = `${ rect.bottom + scrollY + VIEWPORT_MARGIN }px`;
+	let left = anchorRect.left + scrollX;
+	let top = anchorRect.bottom + scrollY + VIEWPORT_MARGIN;
 
-	const tooltipRect = tooltip.getBoundingClientRect();
-	const overflowRight =
-		tooltipRect.right - document.documentElement.clientWidth;
+	const overflowRight = left + tooltipWidth - ( scrollX + viewportWidth );
 
 	if ( overflowRight > 0 ) {
-		tooltip.style.left = `${
-			rect.left + scrollX - overflowRight - VIEWPORT_MARGIN
-		}px`;
+		left -= overflowRight + VIEWPORT_MARGIN;
 	}
 
-	if ( tooltip.getBoundingClientRect().left < 0 ) {
-		tooltip.style.left = `${ scrollX + VIEWPORT_MARGIN }px`;
+	if ( left < scrollX ) {
+		left = scrollX + VIEWPORT_MARGIN;
 	}
+
+	// Flip above the anchor when there's no room below in the viewport,
+	// but only when there IS room above — otherwise leave it below (the
+	// user can scroll to read it) rather than clamp it somewhere that
+	// hides it behind the anchor.
+	const overflowBottom = top + tooltipHeight - ( scrollY + viewportHeight );
+
+	if ( overflowBottom > 0 ) {
+		const above =
+			anchorRect.top + scrollY - tooltipHeight - VIEWPORT_MARGIN;
+
+		if ( above >= scrollY ) {
+			top = above;
+		}
+	}
+
+	tooltip.style.left = `${ left }px`;
+	tooltip.style.top = `${ top }px`;
 }
 
+// Returns the anchor that WAS shown (before this call hid it), or null if
+// the tooltip was already hidden — callers decide what "ending this
+// anchor's shown episode" should do to its saaiTapConfirmed flag (see the
+// two call sites below; they can't share one rule).
 function hideTooltip() {
 	const tooltip = getTooltipElement();
 
 	if ( ! tooltip || tooltip.hasAttribute( 'hidden' ) ) {
-		return;
+		return null;
 	}
 
 	tooltip.setAttribute( 'hidden', '' );
@@ -68,6 +117,8 @@ function hideTooltip() {
 	}
 
 	tooltip.removeAttribute( 'data-saai-shown-for' );
+
+	return anchor;
 }
 
 const { actions } = store( 'saai-knowledge/tooltip', {
@@ -81,8 +132,18 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 			}
 
 			// A singleton tooltip can only describe one anchor at a time;
-			// hovering/focusing a new term reassigns it.
-			hideTooltip();
+			// hovering/focusing a new term reassigns it. Only clear the
+			// PREVIOUS anchor's tap-confirmed flag when it's a genuinely
+			// different anchor: handleClick's own show() call re-enters
+			// here for the SAME anchor it just marked tap-confirmed (a
+			// mobile browser that also synthesizes mouseenter before click
+			// already showed it once), and clearing that flag on itself
+			// would defeat the second-tap-navigates behavior entirely.
+			const previousAnchor = hideTooltip();
+
+			if ( previousAnchor && previousAnchor !== ref ) {
+				delete previousAnchor.dataset.saaiTapConfirmed;
+			}
 
 			tooltip.textContent = ref.getAttribute( 'data-saai-tooltip' ) || '';
 			tooltip.setAttribute(
@@ -94,14 +155,35 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 			ref.setAttribute( 'aria-expanded', 'true' );
 		},
 		hide() {
-			hideTooltip();
+			// An explicit dismiss (mouseleave/blur) ends this anchor's
+			// shown episode outright, unlike show()'s hand-off to a new
+			// anchor — so the next tap on it is always a fresh first tap.
+			const anchor = hideTooltip();
+
+			if ( anchor ) {
+				delete anchor.dataset.saaiTapConfirmed;
+			}
 		},
 		handleTouchStart() {
 			const { ref } = getElement();
 
-			if ( ref ) {
-				ref.dataset.saaiTouchStarted = 'true';
+			if ( ! ref ) {
+				return;
 			}
+
+			ref.dataset.saaiTouchStarted = 'true';
+
+			// A real tap's synthesized click always follows touchstart on
+			// the same anchor within well under a second on every mobile
+			// browser. If it never arrives — the touch turned into a
+			// scroll/drag, or a multi-touch gesture cancelled it — nothing
+			// else would clear this flag, and a later mouse click or
+			// keyboard Enter on the same anchor would be misidentified as
+			// a touch tap (silently swallowed by preventDefault() instead
+			// of navigating). Self-expiring it bounds that window.
+			window.setTimeout( () => {
+				delete ref.dataset.saaiTouchStarted;
+			}, 750 );
 		},
 		handleClick( event ) {
 			const { ref } = getElement();
@@ -138,7 +220,11 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 
 			window.addEventListener( 'keydown', ( event ) => {
 				if ( 'Escape' === event.key ) {
-					hideTooltip();
+					const anchor = hideTooltip();
+
+					if ( anchor ) {
+						delete anchor.dataset.saaiTapConfirmed;
+					}
 				}
 			} );
 		},

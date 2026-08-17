@@ -77,8 +77,20 @@ final class Tooltip {
 	 * Registers the tooltip script module and stylesheet from their build/
 	 * metadata. Registration doesn't enqueue: render() only enqueues once it
 	 * knows the current page actually contains a term link.
+	 *
+	 * Skips the file_exists()/include work entirely on requests that can
+	 * never reach render()'s wp_footer callback: wp-admin uses
+	 * admin_footer, not wp_footer, and cron requests don't render a
+	 * front-end template at all. (A REST API request also never reaches
+	 * wp_footer(), but REST_REQUEST isn't defined yet this early at
+	 * `init` — see is_rest_request() in class-autolinker.php — so it can't
+	 * be reliably excluded here and is left unguarded.)
 	 */
 	public function register_assets(): void {
+		if ( is_admin() || wp_doing_cron() ) {
+			return;
+		}
+
 		$asset_file = SAAI_KNOWLEDGE_DIR . 'build/tooltip/view.asset.php';
 
 		if ( ! file_exists( $asset_file ) ) {
