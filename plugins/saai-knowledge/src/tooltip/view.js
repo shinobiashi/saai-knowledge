@@ -117,9 +117,10 @@ function positionTooltip( tooltip, anchor ) {
 // show() needs to keep it when re-entering for the SAME anchor (see its own
 // comment), so only dismissTooltip() — used by every OTHER caller, which
 // all want the same "this anchor's episode is over" behavior — clears it.
-function hideTooltip() {
-	const tooltip = getTooltipElement();
-
+// Accepts an already-resolved tooltip element so callers that fetched one
+// themselves (show(), hide()) don't force a second getElementById() lookup
+// and reparent check for the same element within the same event handler.
+function hideTooltip( tooltip = getTooltipElement() ) {
 	if ( ! tooltip || tooltip.hasAttribute( 'hidden' ) ) {
 		return null;
 	}
@@ -141,12 +142,20 @@ function hideTooltip() {
 // An explicit dismiss (mouseleave/blur/Escape) ends the shown anchor's
 // episode outright, unlike show()'s hand-off to a new anchor — so the next
 // tap on it is always treated as a fresh first tap.
-function dismissTooltip() {
-	const anchor = hideTooltip();
+function dismissTooltip( tooltip = getTooltipElement() ) {
+	const anchor = hideTooltip( tooltip );
 
 	if ( anchor ) {
 		delete anchor.dataset.saaiTapConfirmed;
 	}
+}
+
+// Whether an anchor has anything to preview. Shared by show() (skip
+// displaying an empty bubble) and handleClick() (skip intercepting a tap
+// that would otherwise navigate nowhere) so the "empty" definition can't
+// drift between the two call sites.
+function hasPreview( anchor ) {
+	return '' !== ( anchor.getAttribute( 'data-saai-tooltip' ) || '' ).trim();
 }
 
 const { actions } = store( 'saai-knowledge/tooltip', {
@@ -158,8 +167,6 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 			if ( ! ref || ! tooltip ) {
 				return;
 			}
-
-			const text = ref.getAttribute( 'data-saai-tooltip' ) || '';
 
 			// A singleton tooltip can only describe one anchor at a time;
 			// hovering/focusing ANY new anchor ends the previous one's
@@ -175,7 +182,7 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 			// that also synthesizes mouseenter before click already showed
 			// it once), and clearing that flag on itself would defeat the
 			// second-tap-navigates behavior entirely.
-			const previousAnchor = hideTooltip();
+			const previousAnchor = hideTooltip( tooltip );
 
 			if ( previousAnchor && previousAnchor !== ref ) {
 				delete previousAnchor.dataset.saaiTapConfirmed;
@@ -187,11 +194,11 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 			// (handleClick separately avoids treating this as an
 			// interceptable tap in the first place, so this mainly guards
 			// the hover/focus path).
-			if ( '' === text.trim() ) {
+			if ( ! hasPreview( ref ) ) {
 				return;
 			}
 
-			tooltip.textContent = text;
+			tooltip.textContent = ref.getAttribute( 'data-saai-tooltip' );
 			tooltip.setAttribute(
 				'data-saai-shown-for',
 				ensureAnchorId( ref )
@@ -219,7 +226,7 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 				return;
 			}
 
-			dismissTooltip();
+			dismissTooltip( tooltip );
 		},
 		handleTouchStart() {
 			const { ref } = getElement();
@@ -265,13 +272,11 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 				return; // Second tap on this anchor: let it navigate.
 			}
 
-			// Nothing to preview (see show()'s same check) — don't
-			// intercept the tap at all, or it'd navigate nowhere: no
-			// tooltip appears (show() no-ops) and the link never gets a
+			// Nothing to preview (see show()'s same check via hasPreview())
+			// — don't intercept the tap at all, or it'd navigate nowhere:
+			// no tooltip appears (show() no-ops) and the link never gets a
 			// second tap to complete the navigation it just swallowed.
-			if (
-				'' === ( ref.getAttribute( 'data-saai-tooltip' ) || '' ).trim()
-			) {
+			if ( ! hasPreview( ref ) ) {
 				return;
 			}
 
@@ -294,7 +299,15 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 				delete ref.dataset.saaiTapConfirmed;
 			}, TAP_CONFIRMED_EXPIRY_MS );
 
+			// stopPropagation(), not just preventDefault(): preventDefault()
+			// only cancels the anchor's OWN navigation, but a theme/page
+			// builder sometimes wraps prose in a click-to-navigate container
+			// (e.g. a card div with its own click listener) — without this,
+			// intercepting the anchor's first tap would still let that
+			// wrapper's click handler fire and navigate away underneath the
+			// tooltip it just opened.
 			event.preventDefault();
+			event.stopPropagation();
 			actions.show();
 		},
 	},

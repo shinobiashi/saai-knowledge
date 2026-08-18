@@ -267,9 +267,9 @@ final class Autolinker {
 
 		// Single assignment site for both the cache-hit and cache-miss paths
 		// above, rather than duplicating the `= true` write in each branch.
-		if ( $has_links ) {
-			$this->has_rendered_links = true;
-		}
+		// Never flips a true back to false: has_rendered_links() only needs
+		// to know whether ANY call this request produced a link.
+		$this->has_rendered_links = $this->has_rendered_links || $has_links;
 
 		return $result;
 	}
