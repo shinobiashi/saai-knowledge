@@ -265,27 +265,27 @@ final class Autolinker {
 		$cached    = wp_cache_get( $cache_key, self::CACHE_GROUP );
 
 		if ( is_array( $cached ) && isset( $cached['html'] ) && is_string( $cached['html'] ) ) {
-			if ( ! empty( $cached['has_links'] ) ) {
-				$this->has_rendered_links = true;
-			}
+			$result    = $cached['html'];
+			$has_links = ! empty( $cached['has_links'] );
+		} else {
+			$link_count = 0;
+			$result     = $this->replace_in_html( $html, $entries, $link_count );
+			$has_links  = $link_count > 0;
 
-			return $cached['html'];
+			wp_cache_set(
+				$cache_key,
+				array(
+					'html'      => $result,
+					'has_links' => $has_links,
+				),
+				self::CACHE_GROUP,
+				HOUR_IN_SECONDS
+			);
 		}
 
-		$link_count = 0;
-		$result     = $this->replace_in_html( $html, $entries, $link_count );
-
-		wp_cache_set(
-			$cache_key,
-			array(
-				'html'      => $result,
-				'has_links' => $link_count > 0,
-			),
-			self::CACHE_GROUP,
-			HOUR_IN_SECONDS
-		);
-
-		if ( $link_count > 0 ) {
+		// Single assignment site for both the cache-hit and cache-miss paths
+		// above, rather than duplicating the `= true` write in each branch.
+		if ( $has_links ) {
 			$this->has_rendered_links = true;
 		}
 

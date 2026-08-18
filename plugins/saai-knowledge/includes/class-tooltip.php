@@ -162,7 +162,7 @@ final class Tooltip {
 		// empty string `(string) false` would produce — an empty $ver
 		// tells wp_register_style() "no version", disabling cache-busting
 		// for style-view.css until the next successful registration.
-		$style_mtime   = file_exists( $style_file ) ? filemtime( $style_file ) : false;
+		$style_mtime   = @filemtime( $style_file ); // phpcs:ignore WordPress.PHP.NoSilencedErrors -- avoids the file_exists()+filemtime() TOCTOU window described above; filemtime()'s own false return (checked below) already covers a missing file.
 		$style_version = false !== $style_mtime ? (string) $style_mtime : $version;
 
 		wp_register_style(

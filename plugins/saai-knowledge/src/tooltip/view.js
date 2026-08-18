@@ -201,6 +201,24 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 			ref.setAttribute( 'aria-expanded', 'true' );
 		},
 		hide() {
+			const { ref } = getElement();
+			const tooltip = getTooltipElement();
+
+			// mouseleave/blur can arrive for an anchor that ISN'T the one the
+			// singleton tooltip is currently describing (e.g. pointer-order
+			// races between adjacent term links, or an anchor that never
+			// actually triggered show() in the first place). Hiding
+			// unconditionally would then dismiss a DIFFERENT anchor's
+			// just-shown tooltip out from under it; only end the episode when
+			// this anchor is actually the one described.
+			if (
+				! ref ||
+				! tooltip ||
+				ref.id !== tooltip.getAttribute( 'data-saai-shown-for' )
+			) {
+				return;
+			}
+
 			dismissTooltip();
 		},
 		handleTouchStart() {

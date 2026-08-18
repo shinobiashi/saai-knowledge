@@ -16,12 +16,22 @@ class Test_Tooltip extends WP_UnitTestCase {
 	 * are process-global singletons WP_UnitTestCase does not reset between
 	 * tests. Deregistering before each test keeps that check false-by-default
 	 * regardless of run order, matching a real request's first-boot state.
+	 *
+	 * Deregistering alone does not clear the enqueue queue (a handle can be
+	 * queued without being registered), so a test that asserts "not enqueued"
+	 * — test_render_is_a_no_op_when_no_links_were_rendered() — would only
+	 * pass by accident of declaration order if a later test's enqueue leaked
+	 * into it. Dequeuing here makes that assertion true regardless of the
+	 * order tests run in (declaration order, --order-by=random, a new test
+	 * inserted earlier, etc).
 	 */
 	public function set_up() {
 		parent::set_up();
 
 		wp_deregister_style( 'saai-knowledge-tooltip' );
+		wp_dequeue_style( 'saai-knowledge-tooltip' );
 		wp_deregister_script_module( 'saai-knowledge/tooltip' );
+		wp_dequeue_script_module( 'saai-knowledge/tooltip' );
 	}
 
 	/**
