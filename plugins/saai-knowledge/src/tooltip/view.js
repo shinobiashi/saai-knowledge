@@ -4,8 +4,8 @@ import './style.scss';
 
 const TOOLTIP_ID = 'saai-tooltip';
 const VIEWPORT_MARGIN = 8;
-const TOUCH_START_EXPIRY_MS = 750;
-const TAP_CONFIRMED_EXPIRY_MS = 5000;
+const TOUCH_START_EXPIRY_MS = 1500;
+const TAP_CONFIRMED_EXPIRY_MS = 15000;
 
 let escapeListenerAttached = false;
 let anchorIdCounter = 0;
@@ -230,14 +230,17 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 
 			ref.dataset.saaiTouchStarted = 'true';
 
-			// A real tap's synthesized click always follows touchstart on
-			// the same anchor within well under a second on every mobile
-			// browser. If it never arrives — the touch turned into a
-			// scroll/drag, or a multi-touch gesture cancelled it — nothing
-			// else would clear this flag, and a later mouse click or
-			// keyboard Enter on the same anchor would be misidentified as
-			// a touch tap (silently swallowed by preventDefault() instead
-			// of navigating). Self-expiring it bounds that window.
+			// A real tap's synthesized click follows touchstart on the same
+			// anchor once the finger lifts — which can be over a second
+			// after touchstart for a deliberate, unhurried tap that never
+			// moves (not a drag), so the window has to be generous enough
+			// to still cover that click when it arrives. If click never
+			// arrives at all — the touch turned into a scroll/drag, or a
+			// multi-touch gesture cancelled it — nothing else would clear
+			// this flag, and a later mouse click or keyboard Enter on the
+			// same anchor would be misidentified as a touch tap (silently
+			// swallowed by preventDefault() instead of navigating).
+			// Self-expiring it bounds that window.
 			window.setTimeout( () => {
 				delete ref.dataset.saaiTouchStarted;
 			}, TOUCH_START_EXPIRY_MS );
@@ -282,6 +285,11 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 			// and blur only if something else takes focus), so a tap
 			// returning much later would otherwise still read as stale
 			// confirmation and navigate without ever re-showing the tooltip.
+			// Long enough to cover actually reading the excerpt (up to the
+			// ~55-word fallback Autolinker::entry_excerpt() can produce)
+			// before a deliberate second tap — a short window here would
+			// make a normal "read it, then tap again to go" interaction
+			// misfire as a fresh first tap instead of navigating.
 			window.setTimeout( () => {
 				delete ref.dataset.saaiTapConfirmed;
 			}, TAP_CONFIRMED_EXPIRY_MS );

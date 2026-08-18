@@ -75,6 +75,11 @@ final class Tooltip {
 	 * plugins_loaded — is registered before core's (fired from
 	 * after_setup_theme, later in the request), so render() still runs
 	 * first within that bucket and its enqueue calls are seen in time.
+	 * This is not a coin-flip on registration order: WP_Hook's own
+	 * contract (wp-includes/class-wp-hook.php) guarantees "functions with
+	 * the same priority are executed in the order in which they were added
+	 * to the filter," and PHP's array insertion order backs that guarantee
+	 * deterministically — verified against core source, not assumed.
 	 * This does mean a link an unusually late (later-priority) wp_footer
 	 * callback produces after render() already ran won't get a tooltip;
 	 * that's an accepted trade-off against actually breaking the common case.
@@ -161,9 +166,13 @@ final class Tooltip {
 		// version falls back to $version instead of silently becoming the
 		// empty string `(string) false` would produce — an empty $ver
 		// tells wp_register_style() "no version", disabling cache-busting
-		// for style-view.css until the next successful registration.
+		// for style-view.css until the next successful registration. A
+		// literal epoch-0 mtime (e.g. a reproducible-build pipeline that
+		// normalizes timestamps to `SOURCE_DATE_EPOCH=0`) is treated the
+		// same as a missing file rather than becoming a permanently frozen
+		// version string of '0' that could never cache-bust again.
 		$style_mtime   = @filemtime( $style_file ); // phpcs:ignore WordPress.PHP.NoSilencedErrors -- avoids the file_exists()+filemtime() TOCTOU window described above; filemtime()'s own false return (checked below) already covers a missing file.
-		$style_version = false !== $style_mtime ? (string) $style_mtime : $version;
+		$style_version = $style_mtime > 0 ? (string) $style_mtime : $version;
 
 		wp_register_style(
 			self::STYLE_HANDLE,

@@ -93,24 +93,6 @@ final class Autolinker {
 	private const DEFAULT_POST_TYPES = array( 'post', 'page', 'saai_kb', 'saai_faq' );
 
 	/**
-	 * The data-wp-interactive attribute build_anchor() stamps onto every
-	 * term link, naming the saai-knowledge/tooltip Interactivity API store
-	 * (docs/DESIGN-AUTOLINK.md section 3.3). Named as a constant purely for
-	 * readability at its one use site in build_anchor() — it is NOT a
-	 * cross-file source of truth: the store id also appears as independent
-	 * literals in Tooltip::MODULE_ID (class-tooltip.php) and view.js's own
-	 * store() call, and this constant can't keep those in sync if one of
-	 * the three ever changes without the others. has_rendered_links() does
-	 * not derive its answer from this string (see process()'s `$link_count`
-	 * tracking below) precisely because grepping rendered HTML for it is
-	 * unreliable — ordinary content that quotes this plugin's own anchor
-	 * markup as a documentation/code example would false-positive.
-	 *
-	 * @var string
-	 */
-	private const TOOLTIP_INTERACTIVE_MARKER = 'data-wp-interactive="saai-knowledge/tooltip"';
-
-	/**
 	 * Tag names whose rendered text content is never auto-linked: headings
 	 * (a term shouldn't link inside its own section title), existing links
 	 * (no links inside links), code-ish elements, and interactive controls.
@@ -753,7 +735,7 @@ final class Autolinker {
 	 *                                                      returned HTML for a marker string.
 	 * @return string
 	 */
-	private function replace_in_html( string $html, array $entries, int &$link_count = 0 ): string {
+	private function replace_in_html( string $html, array $entries, int &$link_count ): string {
 		$link_count = 0;
 		$compiled   = $this->compiled_groups_for( $entries );
 
@@ -1315,11 +1297,10 @@ final class Autolinker {
 	 * document-level Escape-to-close listener the first time any term link
 	 * on the page hydrates.
 	 *
-	 * TOOLTIP_INTERACTIVE_MARKER names the store this markup's directives
-	 * target; see its own docblock for why that constant is only a
-	 * readability aid here, not something the other two independent copies
-	 * of the same store id (Tooltip::MODULE_ID, view.js's store() call)
-	 * actually stay in sync with. has_rendered_links() is tracked
+	 * The `saai-knowledge/tooltip` store id in data-wp-interactive below is
+	 * an independent literal from Tooltip::MODULE_ID (class-tooltip.php) and
+	 * view.js's own store() call — nothing keeps the three in sync if one
+	 * changes without the others. has_rendered_links() is tracked
 	 * separately from real replace_in_html() link counts — see process().
 	 *
 	 * @param array<string, mixed> $entry        The matched dictionary entry.
@@ -1328,12 +1309,11 @@ final class Autolinker {
 	 */
 	private function build_anchor( array $entry, string $matched_text ): string {
 		return sprintf(
-			'<a href="%1$s" class="saai-term" %5$s data-wp-init="callbacks.initTooltipListeners" data-wp-on--mouseenter="actions.show" data-wp-on--focus="actions.show" data-wp-on--mouseleave="actions.hide" data-wp-on--blur="actions.hide" data-wp-on--touchstart="actions.handleTouchStart" data-wp-on--click="actions.handleClick" data-saai-term-id="%2$d" data-saai-tooltip="%3$s" aria-describedby="saai-tooltip">%4$s</a>',
+			'<a href="%1$s" class="saai-term" data-wp-interactive="saai-knowledge/tooltip" data-wp-init="callbacks.initTooltipListeners" data-wp-on--mouseenter="actions.show" data-wp-on--focus="actions.show" data-wp-on--mouseleave="actions.hide" data-wp-on--blur="actions.hide" data-wp-on--touchstart="actions.handleTouchStart" data-wp-on--click="actions.handleClick" data-saai-term-id="%2$d" data-saai-tooltip="%3$s" aria-describedby="saai-tooltip">%4$s</a>',
 			esc_url( $entry['url'] ),
 			(int) $entry['post_id'],
 			esc_attr( $entry['excerpt'] ),
-			$matched_text,
-			self::TOOLTIP_INTERACTIVE_MARKER
+			$matched_text
 		);
 	}
 
