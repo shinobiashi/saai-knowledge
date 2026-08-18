@@ -40,6 +40,17 @@ final class Tooltip {
 	private $autolinker;
 
 	/**
+	 * Whether render() has already printed the singleton element this
+	 * request. Some themes/plugins call wp_footer() (or get_footer())
+	 * more than once per request; without this guard a second call would
+	 * print a second `#saai-tooltip` element, and duplicate ids break the
+	 * uniqueness `aria-describedby` relies on.
+	 *
+	 * @var bool
+	 */
+	private $rendered = false;
+
+	/**
 	 * Constructor.
 	 *
 	 * @param Autolinker $autolinker The auto-link engine service, consulted by render().
@@ -78,9 +89,11 @@ final class Tooltip {
 	 * this request — most pages never do, and shouldn't pay for either.
 	 */
 	public function render(): void {
-		if ( ! $this->autolinker->has_rendered_links() || ! $this->ensure_assets_registered() ) {
+		if ( $this->rendered || ! $this->autolinker->has_rendered_links() || ! $this->ensure_assets_registered() ) {
 			return;
 		}
+
+		$this->rendered = true;
 
 		wp_enqueue_script_module( self::MODULE_ID );
 		wp_enqueue_style( self::STYLE_HANDLE );
@@ -140,7 +153,17 @@ final class Tooltip {
 		// change (verified: rebuilding after a style.scss-only edit leaves
 		// view.asset.php's version identical). The CSS file's own mtime
 		// gives it an independent, correctly-changing version instead.
-		$style_version = file_exists( $style_file ) ? (string) filemtime( $style_file ) : $version;
+		//
+		// filemtime() alone (no separate file_exists() first) avoids a
+		// TOCTOU window where the file is removed/replaced between the two
+		// calls (e.g. an atomic deploy swap mid-request): filemtime()
+		// returns false in that case, which is checked explicitly so the
+		// version falls back to $version instead of silently becoming the
+		// empty string `(string) false` would produce — an empty $ver
+		// tells wp_register_style() "no version", disabling cache-busting
+		// for style-view.css until the next successful registration.
+		$style_mtime   = file_exists( $style_file ) ? filemtime( $style_file ) : false;
+		$style_version = false !== $style_mtime ? (string) $style_mtime : $version;
 
 		wp_register_style(
 			self::STYLE_HANDLE,

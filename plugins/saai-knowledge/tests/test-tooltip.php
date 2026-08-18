@@ -104,4 +104,22 @@ class Test_Tooltip extends WP_UnitTestCase {
 		$this->assertContains( 'saai-knowledge/tooltip', wp_script_modules()->get_queue() );
 		$this->assertTrue( wp_style_is( 'saai-knowledge-tooltip', 'enqueued' ) );
 	}
+
+	/**
+	 * Some themes/plugins call wp_footer() (or get_footer()) more than
+	 * once per request. Render() must print the singleton element only
+	 * once even so — a second `#saai-tooltip` would be a duplicate id,
+	 * breaking the uniqueness aria-describedby relies on.
+	 */
+	public function test_render_prints_the_singleton_element_only_once_per_request() {
+		$tooltip = $this->make_tooltip( true );
+
+		$this->fake_assets_registered();
+
+		$first_output  = get_echo( array( $tooltip, 'render' ) );
+		$second_output = get_echo( array( $tooltip, 'render' ) );
+
+		$this->assertStringContainsString( '<div id="saai-tooltip"', $first_output );
+		$this->assertSame( '', $second_output );
+	}
 }

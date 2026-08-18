@@ -68,6 +68,15 @@ function positionTooltip( tooltip, anchor ) {
 	// scrollbar's size whenever one is present.
 	const viewportWidth = document.documentElement.clientWidth;
 	const viewportHeight = document.documentElement.clientHeight;
+
+	// Enforces the same viewport-width cap the horizontal clamp below
+	// assumes, from the same clientWidth metric — a CSS `vw`-based
+	// max-width would disagree with clientWidth (and let the tooltip
+	// render wider than this clamp can then correct for) whenever a
+	// reserved-space vertical scrollbar is present. Written before reading
+	// offsetWidth so the measurement below reflects it.
+	tooltip.style.maxWidth = `${ viewportWidth - VIEWPORT_MARGIN * 2 }px`;
+
 	const tooltipWidth = tooltip.offsetWidth;
 	const tooltipHeight = tooltip.offsetHeight;
 
@@ -152,28 +161,34 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 
 			const text = ref.getAttribute( 'data-saai-tooltip' ) || '';
 
-			// A term with no excerpt and no body to fall back on (e.g. a
-			// stub glossary entry) has nothing to preview — showing an
-			// empty bubble would be confusing, so leave the tooltip as it
-			// was (handleClick separately avoids treating this as an
-			// interceptable tap in the first place, so this mainly guards
-			// the hover/focus path).
-			if ( '' === text.trim() ) {
-				return;
-			}
-
 			// A singleton tooltip can only describe one anchor at a time;
-			// hovering/focusing a new term reassigns it. Only clear the
-			// PREVIOUS anchor's tap-confirmed flag when it's a genuinely
-			// different anchor: handleClick's own show() call re-enters
-			// here for the SAME anchor it just marked tap-confirmed (a
-			// mobile browser that also synthesizes mouseenter before click
-			// already showed it once), and clearing that flag on itself
-			// would defeat the second-tap-navigates behavior entirely.
+			// hovering/focusing ANY new anchor ends the previous one's
+			// episode, even when this new anchor turns out to have nothing
+			// to preview (checked below) — otherwise a still-visible
+			// tooltip left over from a different anchor would keep
+			// describing that anchor while this one's aria-describedby now
+			// also points at it (e.g. tabbing from a term with an excerpt
+			// straight to a stub term with none). Only clear the PREVIOUS
+			// anchor's tap-confirmed flag when it's a genuinely different
+			// anchor: handleClick's own show() call re-enters here for the
+			// SAME anchor it just marked tap-confirmed (a mobile browser
+			// that also synthesizes mouseenter before click already showed
+			// it once), and clearing that flag on itself would defeat the
+			// second-tap-navigates behavior entirely.
 			const previousAnchor = hideTooltip();
 
 			if ( previousAnchor && previousAnchor !== ref ) {
 				delete previousAnchor.dataset.saaiTapConfirmed;
+			}
+
+			// A term with no excerpt and no body to fall back on (e.g. a
+			// stub glossary entry) has nothing to preview — showing an
+			// empty bubble would be confusing, so leave the tooltip hidden
+			// (handleClick separately avoids treating this as an
+			// interceptable tap in the first place, so this mainly guards
+			// the hover/focus path).
+			if ( '' === text.trim() ) {
+				return;
 			}
 
 			tooltip.textContent = text;
