@@ -35,6 +35,26 @@ class Test_Tooltip extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Fake_assets_registered() registers the real production handles under a
+	 * throwaway https://example.com src. Because those registries are the
+	 * same process-global singletons set_up() deregisters (see its own
+	 * docblock), leaving that fake registration in place after the last test
+	 * in this class runs would make it outlive this class for the rest of
+	 * the PHPUnit process: any later-running test that exercises the real
+	 * Tooltip::ensure_assets_registered() path would find the handle already
+	 * "registered" (via wp_style_is()) and skip registering the real
+	 * build/tooltip/ URLs, silently keeping the fake ones instead.
+	 */
+	public function tear_down() {
+		wp_deregister_style( 'saai-knowledge-tooltip' );
+		wp_dequeue_style( 'saai-knowledge-tooltip' );
+		wp_deregister_script_module( 'saai-knowledge/tooltip' );
+		wp_dequeue_script_module( 'saai-knowledge/tooltip' );
+
+		parent::tear_down();
+	}
+
+	/**
 	 * Builds a Tooltip whose Autolinker reports has_rendered_links() as
 	 * given, without needing a real glossary term/post to produce one (the
 	 * flag is a private property on Autolinker, set via reflection).

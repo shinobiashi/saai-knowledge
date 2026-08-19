@@ -10,6 +10,38 @@ const TAP_CONFIRMED_EXPIRY_MS = 15000;
 let escapeListenerAttached = false;
 let anchorIdCounter = 0;
 
+// Each anchor's touchstart/tap-confirmed expiry is a fresh setTimeout per
+// event, uncoalesced with any timer already pending for that same anchor.
+// Without cancelling the previous one, an earlier touchstart's (or tap's)
+// stale expiry timer still fires on schedule and deletes the flag a LATER,
+// unrelated touchstart/tap on the same anchor just (re-)armed — e.g. a
+// touch that turns into a drag/scroll (no click, flag left armed) followed
+// more than TOUCH_START_EXPIRY_MS later by a genuine tap on the same
+// anchor: the first timer deletes the flag the second touchstart just set,
+// so the second tap's click is misread as a plain (non-touch) click and
+// navigates immediately without ever showing the tooltip. Tracked outside
+// the anchor's own dataset (which only holds strings) so the previous
+// timer can be cancelled before arming a new one.
+const touchStartTimers = new WeakMap();
+const tapConfirmedTimers = new WeakMap();
+
+// Ends an anchor's tap-confirmed state, including the pending expiry timer
+// armed for it (if any) — not just the dataset flag. Every caller that ends
+// an anchor's tap-confirmed episode from OUTSIDE handleClick's own arming
+// site (dismissTooltip(), show()'s previous-anchor hand-off) must go
+// through this rather than deleting the dataset flag directly: otherwise
+// that still-pending timer outlives this clear and later fires on its
+// original schedule, deleting the flag a LATER, unrelated tap on the same
+// anchor may have re-armed by then — the same stale-timer race
+// handleTouchStart/handleClick's own arming sites already guard against for
+// themselves (see the WeakMaps' comment above), just triggered from a
+// different call site this time.
+function clearTapConfirmed( anchor ) {
+	window.clearTimeout( tapConfirmedTimers.get( anchor ) );
+	tapConfirmedTimers.delete( anchor );
+	delete anchor.dataset.saaiTapConfirmed;
+}
+
 function getTooltipElement() {
 	const tooltip = document.getElementById( TOOLTIP_ID );
 
@@ -146,7 +178,7 @@ function dismissTooltip( tooltip = getTooltipElement() ) {
 	const anchor = hideTooltip( tooltip );
 
 	if ( anchor ) {
-		delete anchor.dataset.saaiTapConfirmed;
+		clearTapConfirmed( anchor );
 	}
 }
 
@@ -185,7 +217,7 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 			const previousAnchor = hideTooltip( tooltip );
 
 			if ( previousAnchor && previousAnchor !== ref ) {
-				delete previousAnchor.dataset.saaiTapConfirmed;
+				clearTapConfirmed( previousAnchor );
 			}
 
 			// A term with no excerpt and no body to fall back on (e.g. a
@@ -237,6 +269,13 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 
 			ref.dataset.saaiTouchStarted = 'true';
 
+			// Cancel any timer still pending from an earlier touchstart on
+			// this same anchor (e.g. one that turned into a drag/scroll and
+			// never got a click) — otherwise its stale expiry could delete
+			// the flag THIS touchstart just set before this touch's own
+			// click arrives. See the WeakMap's own comment above.
+			window.clearTimeout( touchStartTimers.get( ref ) );
+
 			// A real tap's synthesized click follows touchstart on the same
 			// anchor once the finger lifts — which can be over a second
 			// after touchstart for a deliberate, unhurried tap that never
@@ -248,9 +287,13 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 			// same anchor would be misidentified as a touch tap (silently
 			// swallowed by preventDefault() instead of navigating).
 			// Self-expiring it bounds that window.
-			window.setTimeout( () => {
-				delete ref.dataset.saaiTouchStarted;
-			}, TOUCH_START_EXPIRY_MS );
+			touchStartTimers.set(
+				ref,
+				window.setTimeout( () => {
+					delete ref.dataset.saaiTouchStarted;
+					touchStartTimers.delete( ref );
+				}, TOUCH_START_EXPIRY_MS )
+			);
 		},
 		handleClick( event ) {
 			const { ref } = getElement();
@@ -267,7 +310,7 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 			delete ref.dataset.saaiTouchStarted;
 
 			if ( 'true' === ref.dataset.saaiTapConfirmed ) {
-				delete ref.dataset.saaiTapConfirmed;
+				clearTapConfirmed( ref );
 
 				return; // Second tap on this anchor: let it navigate.
 			}
@@ -282,6 +325,14 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 
 			ref.dataset.saaiTapConfirmed = 'true';
 
+			// Cancel any expiry timer still pending from an earlier tap on
+			// this same anchor (e.g. shown, then dismissed and re-shown
+			// within the window below) — otherwise its stale expiry could
+			// delete the flag THIS tap just set before the user's actual
+			// second tap arrives, forcing them to tap a third time to
+			// navigate. See the WeakMap's own comment above.
+			window.clearTimeout( tapConfirmedTimers.get( ref ) );
+
 			// Bounds how long a shown-but-forgotten tooltip keeps this
 			// anchor's next tap classified as "second tap, navigate" —
 			// mouseleave/blur/Escape/a different anchor's show() already
@@ -295,9 +346,13 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 			// before a deliberate second tap — a short window here would
 			// make a normal "read it, then tap again to go" interaction
 			// misfire as a fresh first tap instead of navigating.
-			window.setTimeout( () => {
-				delete ref.dataset.saaiTapConfirmed;
-			}, TAP_CONFIRMED_EXPIRY_MS );
+			tapConfirmedTimers.set(
+				ref,
+				window.setTimeout( () => {
+					delete ref.dataset.saaiTapConfirmed;
+					tapConfirmedTimers.delete( ref );
+				}, TAP_CONFIRMED_EXPIRY_MS )
+			);
 
 			// stopPropagation(), not just preventDefault(): preventDefault()
 			// only cancels the anchor's OWN navigation, but a theme/page
@@ -308,7 +363,26 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 			// tooltip it just opened.
 			event.preventDefault();
 			event.stopPropagation();
-			actions.show();
+
+			// On a browser that also synthesized mouseenter/focus for this
+			// same tap (the reason handleTouchStart/handleClick exist at
+			// all — see their own comments), show() already ran for this
+			// exact ref before this click arrived: re-running it would
+			// hide-then-reshow the same content, forcing a redundant
+			// style write + offsetWidth/offsetHeight layout read
+			// (positionTooltip()) for a tooltip that's already correctly
+			// displayed. ref.id is only ever set by a PRIOR show() call
+			// (ensureAnchorId()), so an unset id here correctly falls
+			// through to actions.show() for this anchor's actual first
+			// display.
+			const tooltip = getTooltipElement();
+
+			if (
+				! tooltip ||
+				ref.id !== tooltip.getAttribute( 'data-saai-shown-for' )
+			) {
+				actions.show();
+			}
 		},
 	},
 	callbacks: {

@@ -21,9 +21,16 @@ final class Tooltip {
 	/**
 	 * The saai-knowledge/tooltip script module id.
 	 *
+	 * By WordPress Script Modules convention this doubles as the module's
+	 * Interactivity API store namespace, so it's public: Autolinker::build_anchor()
+	 * (class-autolinker.php) reuses it as the anchor's data-wp-interactive
+	 * value instead of duplicating the string as its own literal, and
+	 * view.js's own store() call must keep matching it by hand (a JS build
+	 * can't reference a PHP const).
+	 *
 	 * @var string
 	 */
-	private const MODULE_ID = 'saai-knowledge/tooltip';
+	public const MODULE_ID = 'saai-knowledge/tooltip';
 
 	/**
 	 * The tooltip stylesheet's registered handle.
@@ -138,6 +145,18 @@ final class Tooltip {
 			return false;
 		}
 
+		$style_file = SAAI_KNOWLEDGE_DIR . 'build/tooltip/style-view.css';
+
+		// Checked up front, alongside $asset_file above, so a build that has
+		// landed view.asset.php/view.js but not yet style-view.css (e.g. an
+		// atomic deploy swap mid-transfer) fails this method entirely rather
+		// than registering wp_enqueue_style() against a file that 404s —
+		// render() then retries on the next request instead of leaving a
+		// broken <link> cached for the rest of this one.
+		if ( ! file_exists( $style_file ) ) {
+			return false;
+		}
+
 		$asset        = include $asset_file;
 		$dependencies = isset( $asset['dependencies'] ) && is_array( $asset['dependencies'] ) ? $asset['dependencies'] : array();
 		$version      = isset( $asset['version'] ) && is_string( $asset['version'] ) ? $asset['version'] : SAAI_KNOWLEDGE_VERSION;
@@ -148,8 +167,6 @@ final class Tooltip {
 			$dependencies,
 			$version
 		);
-
-		$style_file = SAAI_KNOWLEDGE_DIR . 'build/tooltip/style-view.css';
 
 		// The JS asset's version hash is computed from the JS bundle only
 		// (the CSS is a separately-extracted file); reusing it for the

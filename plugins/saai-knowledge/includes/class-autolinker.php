@@ -1297,11 +1297,13 @@ final class Autolinker {
 	 * document-level Escape-to-close listener the first time any term link
 	 * on the page hydrates.
 	 *
-	 * The `saai-knowledge/tooltip` store id in data-wp-interactive below is
-	 * an independent literal from Tooltip::MODULE_ID (class-tooltip.php) and
-	 * view.js's own store() call — nothing keeps the three in sync if one
-	 * changes without the others. has_rendered_links() is tracked
-	 * separately from real replace_in_html() link counts — see process().
+	 * The data-wp-interactive store id below is Tooltip::MODULE_ID
+	 * (class-tooltip.php), not a separate literal — that constant is public
+	 * specifically so this method can reuse it rather than duplicating the
+	 * string. view.js's own store() call still has to match it by hand (a
+	 * JS build can't reference a PHP const); nothing keeps that one in sync
+	 * if it changes. has_rendered_links() is tracked separately from real
+	 * replace_in_html() link counts — see process().
 	 *
 	 * @param array<string, mixed> $entry        The matched dictionary entry.
 	 * @param string               $matched_text The original text to keep as the link's visible text.
@@ -1309,11 +1311,12 @@ final class Autolinker {
 	 */
 	private function build_anchor( array $entry, string $matched_text ): string {
 		return sprintf(
-			'<a href="%1$s" class="saai-term" data-wp-interactive="saai-knowledge/tooltip" data-wp-init="callbacks.initTooltipListeners" data-wp-on--mouseenter="actions.show" data-wp-on--focus="actions.show" data-wp-on--mouseleave="actions.hide" data-wp-on--blur="actions.hide" data-wp-on--touchstart="actions.handleTouchStart" data-wp-on--click="actions.handleClick" data-saai-term-id="%2$d" data-saai-tooltip="%3$s" aria-describedby="saai-tooltip">%4$s</a>',
+			'<a href="%1$s" class="saai-term" data-wp-interactive="%5$s" data-wp-init="callbacks.initTooltipListeners" data-wp-on--mouseenter="actions.show" data-wp-on--focus="actions.show" data-wp-on--mouseleave="actions.hide" data-wp-on--blur="actions.hide" data-wp-on--touchstart="actions.handleTouchStart" data-wp-on--click="actions.handleClick" data-saai-term-id="%2$d" data-saai-tooltip="%3$s" aria-describedby="saai-tooltip">%4$s</a>',
 			esc_url( $entry['url'] ),
 			(int) $entry['post_id'],
 			esc_attr( $entry['excerpt'] ),
-			$matched_text
+			$matched_text,
+			Tooltip::MODULE_ID
 		);
 	}
 
