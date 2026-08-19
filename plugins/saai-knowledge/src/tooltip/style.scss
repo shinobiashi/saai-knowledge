@@ -1,6 +1,15 @@
 .saai-tooltip {
 	position: absolute;
 	z-index: 100000;
+	// Without this, a theme that doesn't reset box-sizing globally leaves
+	// this element at the browser default content-box, where max-width
+	// caps the content area only — offsetWidth (content + this padding)
+	// then exceeds both this static max-width and positionTooltip()'s
+	// inline max-width by the padding's own size, which the horizontal
+	// overflow clamp doesn't account for and lets the tooltip render past
+	// the viewport's right edge on narrow screens whenever the excerpt is
+	// long enough to hit the cap.
+	box-sizing: border-box;
 	// Static fallback cap for the instant between injection and the first
 	// positionTooltip() call. The real viewport-width cap is applied as an
 	// inline style by positionTooltip() itself, from document.documentElement
