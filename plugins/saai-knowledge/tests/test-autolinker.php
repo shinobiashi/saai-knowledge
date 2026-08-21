@@ -449,6 +449,11 @@ class Test_Autolinker extends WP_UnitTestCase {
 						'patterns' => array( 'NoUrl' ),
 					),
 					array(
+						'post_id'  => 999995,
+						'url'      => 'javascript:alert(1)',
+						'patterns' => array( 'BadProtocol' ),
+					),
+					array(
 						'post_id'  => 999996,
 						'url'      => 'https://example.com/valid/',
 						'label'    => 'ValidInjected',
@@ -459,13 +464,17 @@ class Test_Autolinker extends WP_UnitTestCase {
 			}
 		);
 
-		$post_id = $this->create_kb_post( '<p>BadId, NoUrl, and ValidInjected are mentioned.</p>' );
+		$post_id = $this->create_kb_post( '<p>BadId, NoUrl, BadProtocol, and ValidInjected are mentioned.</p>' );
 
 		$content = $this->render( $post_id );
 
 		$this->assertStringContainsString( 'ValidInjected</a>', $content );
 		$this->assertStringNotContainsString( 'BadId</a>', $content );
 		$this->assertStringNotContainsString( 'NoUrl</a>', $content );
+		// A disallowed-protocol URL must be dropped by sanitize_dictionary_entries()
+		// (esc_url_raw() collapses it to '') rather than reach build_anchor(),
+		// which would otherwise silently emit href="" for it.
+		$this->assertStringNotContainsString( 'BadProtocol</a>', $content );
 	}
 
 	/**

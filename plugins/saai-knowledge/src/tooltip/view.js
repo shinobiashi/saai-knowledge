@@ -169,6 +169,16 @@ function positionTooltip( tooltip, anchor ) {
 	let effectiveMaxWidth = designMaxWidth;
 
 	if ( null === effectiveMaxWidth ) {
+		// Clear any inline max-width a previous call left behind before
+		// reading: getComputedStyle() reports the resolved value, and an
+		// inline style always wins the cascade over the external class
+		// rule regardless of load order. Without this reset, once any
+		// call below writes an inline px value, every later call here
+		// (while still uncached) would read that stale inline value back
+		// instead of the stylesheet's real 20rem design cap — silently
+		// pinning designMaxWidth to a viewport-derived number forever.
+		tooltip.style.maxWidth = '';
+
 		const parsed = parseFloat( getComputedStyle( tooltip ).maxWidth );
 
 		effectiveMaxWidth = Number.isFinite( parsed ) ? parsed : Infinity;

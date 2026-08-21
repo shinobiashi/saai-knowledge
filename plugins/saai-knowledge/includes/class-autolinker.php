@@ -439,7 +439,13 @@ final class Autolinker {
 			$url      = $entry['url'] ?? null;
 			$patterns = $entry['patterns'] ?? null;
 
-			if ( ! is_int( $post_id ) || $post_id <= 0 || ! is_string( $url ) || '' === $url || ! is_array( $patterns ) ) {
+			// Sanitize before testing: esc_url_raw() reduces a value carrying a
+			// disallowed protocol (javascript:, data:, ...) to an empty string,
+			// which must not pass this presence check only to reach
+			// build_anchor()'s esc_url() and silently become href="".
+			$url = is_string( $url ) ? esc_url_raw( $url ) : '';
+
+			if ( ! is_int( $post_id ) || $post_id <= 0 || '' === $url || ! is_array( $patterns ) ) {
 				continue;
 			}
 
