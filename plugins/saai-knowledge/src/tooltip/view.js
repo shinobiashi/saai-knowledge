@@ -57,8 +57,13 @@ function clearTapConfirmed( anchor ) {
 // that clears both the flag and its own WeakMap entry after `ms`. Shared by
 // handleTouchStart() (saaiTouchStarted) and handleClick()'s tap-confirm
 // arming (saaiTapConfirmed) so this arm/cancel-previous/self-expire
-// discipline only has to be implemented once.
-function armExpiringFlag( timerMap, anchor, datasetKey, ms ) {
+// discipline only has to be implemented once. `onExpire`, when given, runs
+// right after the flag/timer are cleared by the timeout itself (not on a
+// cancellation from a later re-arm) — used by the tap-confirmed timer to
+// also close a tooltip that's still open when its confirmation window lapses
+// (see that call site's own comment for why a silent flag clear alone
+// strands an open tooltip that then swallows the next tap).
+function armExpiringFlag( timerMap, anchor, datasetKey, ms, onExpire ) {
 	window.clearTimeout( timerMap.get( anchor ) );
 
 	anchor.dataset[ datasetKey ] = 'true';
@@ -68,6 +73,10 @@ function armExpiringFlag( timerMap, anchor, datasetKey, ms ) {
 		window.setTimeout( () => {
 			delete anchor.dataset[ datasetKey ];
 			timerMap.delete( anchor );
+
+			if ( onExpire ) {
+				onExpire();
+			}
 		}, ms )
 	);
 }
@@ -119,6 +128,14 @@ function ensureAnchorId( anchor ) {
 // otherwise shadow the CSS value for every getComputedStyle() call after
 // the first. Cached at module scope so later calls compare against the
 // ORIGINAL design cap, not a previous call's own inline override.
+//
+// Only a successfully-parsed finite value is cached here — see
+// positionTooltip()'s own comment for why an unparseable read (e.g. the
+// stylesheet hasn't finished loading/applying yet on this call) is used
+// just for this one call instead of being written back to this module-scope
+// variable, so a later call — once the stylesheet has actually applied —
+// gets a chance to read and cache the real design cap instead of being
+// stuck with a bogus one for the rest of the page's lifetime.
 let designMaxWidth = null;
 
 // Must run after the tooltip is unhidden: an element with the `hidden`
@@ -139,9 +156,26 @@ function positionTooltip( tooltip, anchor ) {
 	const viewportWidth = document.documentElement.clientWidth;
 	const viewportHeight = document.documentElement.clientHeight;
 
-	if ( null === designMaxWidth ) {
-		designMaxWidth =
-			parseFloat( getComputedStyle( tooltip ).maxWidth ) || Infinity;
+	// If the tooltip stylesheet hasn't finished loading/applying yet at the
+	// very first call (the script module can hydrate and this can run
+	// before a late-enqueued <link> finishes), getComputedStyle() falls
+	// back to the browser default `none`, which parseFloat() can't turn
+	// into a finite number. Using Infinity for just THIS call (rather than
+	// caching it into designMaxWidth) means the viewport-width half of the
+	// cap below still applies now, while a later call — once the
+	// stylesheet has actually applied — gets to read and cache the real
+	// 20rem design cap instead of being stuck with Infinity for the rest of
+	// the page's lifetime.
+	let effectiveMaxWidth = designMaxWidth;
+
+	if ( null === effectiveMaxWidth ) {
+		const parsed = parseFloat( getComputedStyle( tooltip ).maxWidth );
+
+		effectiveMaxWidth = Number.isFinite( parsed ) ? parsed : Infinity;
+
+		if ( Number.isFinite( effectiveMaxWidth ) ) {
+			designMaxWidth = effectiveMaxWidth;
+		}
 	}
 
 	// Caps the tooltip at the SMALLER of the design's own max-width and the
@@ -158,7 +192,7 @@ function positionTooltip( tooltip, anchor ) {
 	// before reading offsetWidth so the measurement below reflects it.
 	tooltip.style.maxWidth = `${ Math.min(
 		viewportWidth - VIEWPORT_MARGIN * 2,
-		designMaxWidth
+		effectiveMaxWidth
 	) }px`;
 
 	const tooltipWidth = tooltip.offsetWidth;
@@ -390,11 +424,33 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 			// before a deliberate second tap — a short window here would
 			// make a normal "read it, then tap again to go" interaction
 			// misfire as a fresh first tap instead of navigating.
+			//
+			// onExpire also closes the tooltip if it's still open for THIS
+			// anchor when the window lapses: without this, a reader who
+			// takes longer than TAP_CONFIRMED_EXPIRY_MS to finish reading
+			// (tooltip still visibly open, no mouseleave/blur to close it on
+			// touch) has the confirmed-flag cleared out from under an
+			// otherwise-unchanged tooltip. Their next tap is then read as a
+			// fresh first tap — intercepted (preventDefault/stopPropagation)
+			// — but show() is skipped too, since the tooltip already shows
+			// this ref, so the tap visibly does nothing and a THIRD tap is
+			// needed to navigate. Proactively closing it here instead makes
+			// the next tap unambiguous: nothing shown -> show() runs again.
 			armExpiringFlag(
 				tapConfirmedTimers,
 				ref,
 				'saaiTapConfirmed',
-				TAP_CONFIRMED_EXPIRY_MS
+				TAP_CONFIRMED_EXPIRY_MS,
+				() => {
+					const tooltip = getTooltipElement();
+
+					if (
+						tooltip &&
+						ref.id === tooltip.getAttribute( 'data-saai-shown-for' )
+					) {
+						dismissTooltip( tooltip );
+					}
+				}
 			);
 
 			// stopPropagation(), not just preventDefault(): preventDefault()
