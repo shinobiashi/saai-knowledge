@@ -151,11 +151,22 @@ final class Autolinker {
 	/**
 	 * The `the_content` callback: auto-links the current post's own content.
 	 *
+	 * Skipped while `wp_trim_excerpt()` is running (detected via
+	 * `doing_filter( 'get_the_excerpt' )` — core hooks wp_trim_excerpt()
+	 * onto the `get_the_excerpt` filter, and it applies `the_content` to the
+	 * full post content internally just to strip shortcodes/blocks before
+	 * `wp_trim_words()` discards all tags, including any term link this
+	 * method would insert): auto-linking that content would set
+	 * has_rendered_links() true from links nothing ever renders, causing
+	 * Tooltip::render() to needlessly enqueue its module/style/singleton
+	 * element on archive/listing pages whose only auto-linkable content is
+	 * an automatic excerpt.
+	 *
 	 * @param string $content Rendered post content.
 	 * @return string
 	 */
 	public function process_content( string $content ): string {
-		if ( is_admin() || is_feed() || $this->is_rest_request() ) {
+		if ( is_admin() || is_feed() || $this->is_rest_request() || doing_filter( 'get_the_excerpt' ) ) {
 			return $content;
 		}
 

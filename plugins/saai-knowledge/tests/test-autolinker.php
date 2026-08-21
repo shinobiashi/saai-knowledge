@@ -666,6 +666,50 @@ class Test_Autolinker extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Wp_trim_excerpt() (which get_the_excerpt() calls internally whenever a
+	 * post has no manual excerpt) runs the full post content through
+	 * `the_content` — same filter process_content() hooks — purely to strip
+	 * shortcodes/blocks, then wp_trim_words() strips every tag, including
+	 * any term link build_anchor() would have inserted, before the excerpt
+	 * ever reaches the page. Without process_content()'s
+	 * doing_filter( 'get_the_excerpt' ) guard, that discarded link would
+	 * still flip has_rendered_links() true, making Tooltip::render()
+	 * enqueue its module/style/singleton element on pages whose only
+	 * auto-linkable content is an automatic excerpt.
+	 */
+	public function test_has_rendered_links_stays_false_for_a_wp_trim_excerpt_pass() {
+		$post_id = $this->create_kb_post( 'This mentions API directly.' );
+		$this->create_term( 'API' );
+
+		// process_content() reads the current post via get_post() (no
+		// args), i.e. the global $post — mirrors how the Loop has it set
+		// while rendering an archive listing's excerpts.
+		global $post;
+		$post = get_post( $post_id );
+
+		// Calling $this->autolinker->register() here (instead of driving
+		// this through a real wp_trim_excerpt()/get_the_excerpt() call)
+		// would hook a SECOND process_content() onto `the_content` — this
+		// plugin's own already-booted Plugin::boot() instance (fired once
+		// per test process on `plugins_loaded`, per this file's set_up()
+		// docblock) has already hooked its own — so directly invoking
+		// process_content() while a real `get_the_excerpt` filter run is in
+		// progress reproduces `doing_filter( 'get_the_excerpt' )` being true
+		// without that double registration.
+		add_filter(
+			'get_the_excerpt',
+			function () use ( $post_id ) {
+				return $this->autolinker->process_content( 'This mentions API directly.' );
+			}
+		);
+
+		$result = apply_filters( 'get_the_excerpt', '', get_post( $post_id ) );
+
+		$this->assertSame( 'This mentions API directly.', $result );
+		$this->assertFalse( $this->autolinker->has_rendered_links() );
+	}
+
+	/**
 	 * Process() with no matching entries returns the original HTML unchanged.
 	 */
 	public function test_process_returns_original_on_preg_failure_fallback_path() {

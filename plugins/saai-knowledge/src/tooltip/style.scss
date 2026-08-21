@@ -19,6 +19,14 @@
 	// wider than the JS horizontal clamp assumes) on any desktop browser
 	// with a classic (non-overlay) scrollbar.
 	max-width: 20rem;
+	// Without this, a single unbreakable token wider than max-width (a long
+	// URL, a hyphen-less compound word) doesn't grow the box — max-width
+	// still caps offsetWidth, which positionTooltip()'s horizontal clamp
+	// reads to keep the box itself on-screen — but the overflowing text
+	// still paints past the box's own right edge under the default
+	// `overflow: visible`, defeating the clamp visually even though the
+	// JS math reports success.
+	overflow-wrap: break-word;
 	padding: 0.5em 0.75em;
 	border-radius: 4px;
 	background: #1e1e1e;
