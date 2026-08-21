@@ -25,21 +25,29 @@ let anchorIdCounter = 0;
 const touchStartTimers = new WeakMap();
 const tapConfirmedTimers = new WeakMap();
 
-// Ends an anchor's tap-confirmed state, including the pending expiry timer
-// armed for it (if any) — not just the dataset flag. Every caller that ends
-// an anchor's tap-confirmed episode from OUTSIDE handleClick's own arming
-// site (dismissTooltip(), show()'s previous-anchor hand-off) must go
-// through this rather than deleting the dataset flag directly: otherwise
-// that still-pending timer outlives this clear and later fires on its
-// original schedule, deleting the flag a LATER, unrelated tap on the same
-// anchor may have re-armed by then — the same stale-timer race
-// handleTouchStart/handleClick's own arming sites already guard against for
-// themselves (see the WeakMaps' comment above), just triggered from a
-// different call site this time.
+// Clears an anchor's self-expiring dataset flag, including the pending
+// expiry timer armed for it (if any) — not just the dataset flag. Any
+// caller that ends an anchor's flagged state from OUTSIDE the arming call's
+// own timeout callback must go through this rather than deleting the
+// dataset flag directly: otherwise that still-pending timer outlives this
+// clear and later fires on its original schedule, deleting the flag a
+// LATER, unrelated event on the same anchor may have re-armed by then.
+// Shared by clearTapConfirmed() and handleClick()'s own touchStarted clear
+// so this arm/clear discipline (see armExpiringFlag() below) only has to be
+// implemented once for both flags.
+function clearExpiringFlag( timerMap, anchor, datasetKey ) {
+	window.clearTimeout( timerMap.get( anchor ) );
+	timerMap.delete( anchor );
+	delete anchor.dataset[ datasetKey ];
+}
+
+// Ends an anchor's tap-confirmed state. Every caller that ends an anchor's
+// tap-confirmed episode from OUTSIDE handleClick's own arming site
+// (dismissTooltip(), show()'s previous-anchor hand-off) must go through
+// this rather than clearing the dataset flag directly — see
+// clearExpiringFlag()'s own comment for why.
 function clearTapConfirmed( anchor ) {
-	window.clearTimeout( tapConfirmedTimers.get( anchor ) );
-	tapConfirmedTimers.delete( anchor );
-	delete anchor.dataset.saaiTapConfirmed;
+	clearExpiringFlag( tapConfirmedTimers, anchor, 'saaiTapConfirmed' );
 }
 
 // Arms an anchor's self-expiring dataset flag: cancels any timer already
@@ -351,11 +359,9 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 			// otherwise it outlives this click and fires later on its
 			// original schedule against whatever this WeakMap entry has
 			// been reused for by then, the same stale-timer discipline
-			// armExpiringFlag()/clearTapConfirmed() already apply
+			// clearExpiringFlag()/armExpiringFlag() already apply
 			// everywhere else in this file.
-			window.clearTimeout( touchStartTimers.get( ref ) );
-			touchStartTimers.delete( ref );
-			delete ref.dataset.saaiTouchStarted;
+			clearExpiringFlag( touchStartTimers, ref, 'saaiTouchStarted' );
 
 			if ( 'true' === ref.dataset.saaiTapConfirmed ) {
 				clearTapConfirmed( ref );
