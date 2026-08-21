@@ -151,22 +151,18 @@ final class Autolinker {
 	/**
 	 * The `the_content` callback: auto-links the current post's own content.
 	 *
-	 * Skipped while `wp_trim_excerpt()` is running (detected via
-	 * `doing_filter( 'get_the_excerpt' )` — core hooks wp_trim_excerpt()
-	 * onto the `get_the_excerpt` filter, and it applies `the_content` to the
-	 * full post content internally just to strip shortcodes/blocks before
-	 * `wp_trim_words()` discards all tags, including any term link this
-	 * method would insert): auto-linking that content would set
-	 * has_rendered_links() true from links nothing ever renders, causing
-	 * Tooltip::render() to needlessly enqueue its module/style/singleton
-	 * element on archive/listing pages whose only auto-linkable content is
-	 * an automatic excerpt.
+	 * The `wp_trim_excerpt()`-in-progress guard that used to live here (see
+	 * process()'s own docblock for what it does and why) now lives in
+	 * process() itself instead, since process() is the documented public
+	 * entry point (docs/DESIGN-HOOKS-API.md §5) other callers — including a
+	 * paid add-on — invoke directly without going through this method, and
+	 * they need the same protection this hook's own the_content pass gets.
 	 *
 	 * @param string $content Rendered post content.
 	 * @return string
 	 */
 	public function process_content( string $content ): string {
-		if ( is_admin() || is_feed() || $this->is_rest_request() || doing_filter( 'get_the_excerpt' ) ) {
+		if ( is_admin() || is_feed() || $this->is_rest_request() ) {
 			return $content;
 		}
 
@@ -196,6 +192,21 @@ final class Autolinker {
 	 * supported way to apply auto-linking outside the free version's own
 	 * post types (e.g. a WooCommerce product description filter).
 	 *
+	 * Skipped while `wp_trim_excerpt()` is running (detected via
+	 * `doing_filter( 'get_the_excerpt' )` — core hooks wp_trim_excerpt() onto
+	 * the `get_the_excerpt` filter, and it applies `the_content` to the full
+	 * post content internally just to strip shortcodes/blocks before
+	 * `wp_trim_words()` discards all tags, including any term link this
+	 * service would insert): auto-linking that content would set
+	 * has_rendered_links() true from links nothing ever renders, causing
+	 * Tooltip::render() to needlessly enqueue its module/style/singleton
+	 * element on archive/listing pages whose only auto-linkable content is
+	 * an automatic excerpt. Checked here rather than only in
+	 * process_content() (the free version's own `the_content` callback) so
+	 * every caller of this public entry point — including a paid add-on
+	 * invoking it directly from its own excerpt-style rendering — gets the
+	 * same protection.
+	 *
 	 * @param string               $html    HTML to auto-link.
 	 * @param array<string, mixed> $context Context: `post_id` (int, optional) and
 	 *                                      `post_type` (string, optional). Passed through
@@ -203,7 +214,7 @@ final class Autolinker {
 	 * @return string
 	 */
 	public function process( string $html, array $context = array() ): string {
-		if ( '' === $html ) {
+		if ( '' === $html || doing_filter( 'get_the_excerpt' ) ) {
 			return $html;
 		}
 
@@ -1316,13 +1327,18 @@ final class Autolinker {
 	 * if it changes. has_rendered_links() is tracked separately from real
 	 * replace_in_html() link counts — see process().
 	 *
+	 * aria-expanded="false" is the anchor's baseline: view.js's show()/
+	 * hideTooltip() flip it to "true"/remove it at runtime, but without a
+	 * baseline here a screen reader has no expanded/collapsed state to
+	 * announce for an anchor tabbed to before it's ever been hovered/tapped.
+	 *
 	 * @param array<string, mixed> $entry        The matched dictionary entry.
 	 * @param string               $matched_text The original text to keep as the link's visible text.
 	 * @return string
 	 */
 	private function build_anchor( array $entry, string $matched_text ): string {
 		return sprintf(
-			'<a href="%1$s" class="saai-term" data-wp-interactive="%5$s" data-wp-init="callbacks.initTooltipListeners" data-wp-on--mouseenter="actions.show" data-wp-on--focus="actions.show" data-wp-on--mouseleave="actions.hide" data-wp-on--blur="actions.hide" data-wp-on--touchstart="actions.handleTouchStart" data-wp-on--click="actions.handleClick" data-saai-term-id="%2$d" data-saai-tooltip="%3$s" aria-describedby="saai-tooltip">%4$s</a>',
+			'<a href="%1$s" class="saai-term" data-wp-interactive="%5$s" data-wp-init="callbacks.initTooltipListeners" data-wp-on--mouseenter="actions.show" data-wp-on--focus="actions.show" data-wp-on--mouseleave="actions.hide" data-wp-on--blur="actions.hide" data-wp-on--touchstart="actions.handleTouchStart" data-wp-on--click="actions.handleClick" data-saai-term-id="%2$d" data-saai-tooltip="%3$s" aria-describedby="saai-tooltip" aria-expanded="false">%4$s</a>',
 			esc_url( $entry['url'] ),
 			(int) $entry['post_id'],
 			esc_attr( $entry['excerpt'] ),

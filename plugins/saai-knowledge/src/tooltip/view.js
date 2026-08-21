@@ -42,6 +42,28 @@ function clearTapConfirmed( anchor ) {
 	delete anchor.dataset.saaiTapConfirmed;
 }
 
+// Arms an anchor's self-expiring dataset flag: cancels any timer already
+// pending for this anchor in `timerMap` (see the WeakMaps' own comment
+// above — an earlier stale timer must not delete a flag a LATER event just
+// (re-)armed), sets `anchor.dataset[ datasetKey ]`, and schedules a timeout
+// that clears both the flag and its own WeakMap entry after `ms`. Shared by
+// handleTouchStart() (saaiTouchStarted) and handleClick()'s tap-confirm
+// arming (saaiTapConfirmed) so this arm/cancel-previous/self-expire
+// discipline only has to be implemented once.
+function armExpiringFlag( timerMap, anchor, datasetKey, ms ) {
+	window.clearTimeout( timerMap.get( anchor ) );
+
+	anchor.dataset[ datasetKey ] = 'true';
+
+	timerMap.set(
+		anchor,
+		window.setTimeout( () => {
+			delete anchor.dataset[ datasetKey ];
+			timerMap.delete( anchor );
+		}, ms )
+	);
+}
+
 function getTooltipElement() {
 	const tooltip = document.getElementById( TOOLTIP_ID );
 
@@ -83,6 +105,14 @@ function ensureAnchorId( anchor ) {
 	return anchor.id;
 }
 
+// The tooltip's design-intended cap (style.scss's `max-width: 20rem`),
+// read once from the stylesheet the first time positionTooltip() runs —
+// i.e. before it ever writes its own inline max-width below, which would
+// otherwise shadow the CSS value for every getComputedStyle() call after
+// the first. Cached at module scope so later calls compare against the
+// ORIGINAL design cap, not a previous call's own inline override.
+let designMaxWidth = null;
+
 // Must run after the tooltip is unhidden: an element with the `hidden`
 // attribute has no layout box, so offsetWidth/offsetHeight would report
 // zero and defeat the clamping below. Both axes are clamped from a single
@@ -101,13 +131,27 @@ function positionTooltip( tooltip, anchor ) {
 	const viewportWidth = document.documentElement.clientWidth;
 	const viewportHeight = document.documentElement.clientHeight;
 
-	// Enforces the same viewport-width cap the horizontal clamp below
-	// assumes, from the same clientWidth metric — a CSS `vw`-based
-	// max-width would disagree with clientWidth (and let the tooltip
-	// render wider than this clamp can then correct for) whenever a
-	// reserved-space vertical scrollbar is present. Written before reading
-	// offsetWidth so the measurement below reflects it.
-	tooltip.style.maxWidth = `${ viewportWidth - VIEWPORT_MARGIN * 2 }px`;
+	if ( null === designMaxWidth ) {
+		designMaxWidth =
+			parseFloat( getComputedStyle( tooltip ).maxWidth ) || Infinity;
+	}
+
+	// Caps the tooltip at the SMALLER of the design's own max-width and the
+	// viewport's available width — not the viewport width alone, which on
+	// an ordinary desktop viewport is far wider than the compact bubble the
+	// design intends and would let a long excerpt stretch the tooltip
+	// across most of the screen instead of wrapping within ~20rem. The
+	// viewport half of this cap still has to be written as a `px` inline
+	// style computed from `clientWidth` rather than left to a CSS `vw`
+	// unit: `100vw` includes a reserved-space vertical scrollbar's width
+	// while `clientWidth` excludes it, so the two would disagree (and let
+	// the tooltip render wider than the horizontal clamp below assumes) on
+	// any desktop browser with a classic (non-overlay) scrollbar. Written
+	// before reading offsetWidth so the measurement below reflects it.
+	tooltip.style.maxWidth = `${ Math.min(
+		viewportWidth - VIEWPORT_MARGIN * 2,
+		designMaxWidth
+	) }px`;
 
 	const tooltipWidth = tooltip.offsetWidth;
 	const tooltipHeight = tooltip.offsetHeight;
@@ -162,8 +206,13 @@ function hideTooltip( tooltip = getTooltipElement() ) {
 	const shownFor = tooltip.getAttribute( 'data-saai-shown-for' );
 	const anchor = shownFor ? document.getElementById( shownFor ) : null;
 
+	// Set back to "false" rather than removed: build_anchor() (class-autolinker.php)
+	// now renders aria-expanded="false" as the anchor's baseline specifically so an
+	// anchor tabbed to before ever being hovered/tapped still has an expanded/collapsed
+	// state to announce — removing the attribute here would return the anchor to that
+	// same state-less condition after its first show/hide cycle, undoing that baseline.
 	if ( anchor ) {
-		anchor.removeAttribute( 'aria-expanded' );
+		anchor.setAttribute( 'aria-expanded', 'false' );
 	}
 
 	tooltip.removeAttribute( 'data-saai-shown-for' );
@@ -267,15 +316,6 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 				return;
 			}
 
-			ref.dataset.saaiTouchStarted = 'true';
-
-			// Cancel any timer still pending from an earlier touchstart on
-			// this same anchor (e.g. one that turned into a drag/scroll and
-			// never got a click) — otherwise its stale expiry could delete
-			// the flag THIS touchstart just set before this touch's own
-			// click arrives. See the WeakMap's own comment above.
-			window.clearTimeout( touchStartTimers.get( ref ) );
-
 			// A real tap's synthesized click follows touchstart on the same
 			// anchor once the finger lifts — which can be over a second
 			// after touchstart for a deliberate, unhurried tap that never
@@ -287,12 +327,11 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 			// same anchor would be misidentified as a touch tap (silently
 			// swallowed by preventDefault() instead of navigating).
 			// Self-expiring it bounds that window.
-			touchStartTimers.set(
+			armExpiringFlag(
+				touchStartTimers,
 				ref,
-				window.setTimeout( () => {
-					delete ref.dataset.saaiTouchStarted;
-					touchStartTimers.delete( ref );
-				}, TOUCH_START_EXPIRY_MS )
+				'saaiTouchStarted',
+				TOUCH_START_EXPIRY_MS
 			);
 		},
 		handleClick( event ) {
@@ -307,6 +346,15 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 				return;
 			}
 
+			// Also cancels the still-pending expiry timer armed for this
+			// flag in handleTouchStart(), not just the flag itself —
+			// otherwise it outlives this click and fires later on its
+			// original schedule against whatever this WeakMap entry has
+			// been reused for by then, the same stale-timer discipline
+			// armExpiringFlag()/clearTapConfirmed() already apply
+			// everywhere else in this file.
+			window.clearTimeout( touchStartTimers.get( ref ) );
+			touchStartTimers.delete( ref );
 			delete ref.dataset.saaiTouchStarted;
 
 			if ( 'true' === ref.dataset.saaiTapConfirmed ) {
@@ -323,16 +371,6 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 				return;
 			}
 
-			ref.dataset.saaiTapConfirmed = 'true';
-
-			// Cancel any expiry timer still pending from an earlier tap on
-			// this same anchor (e.g. shown, then dismissed and re-shown
-			// within the window below) — otherwise its stale expiry could
-			// delete the flag THIS tap just set before the user's actual
-			// second tap arrives, forcing them to tap a third time to
-			// navigate. See the WeakMap's own comment above.
-			window.clearTimeout( tapConfirmedTimers.get( ref ) );
-
 			// Bounds how long a shown-but-forgotten tooltip keeps this
 			// anchor's next tap classified as "second tap, navigate" —
 			// mouseleave/blur/Escape/a different anchor's show() already
@@ -346,12 +384,11 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 			// before a deliberate second tap — a short window here would
 			// make a normal "read it, then tap again to go" interaction
 			// misfire as a fresh first tap instead of navigating.
-			tapConfirmedTimers.set(
+			armExpiringFlag(
+				tapConfirmedTimers,
 				ref,
-				window.setTimeout( () => {
-					delete ref.dataset.saaiTapConfirmed;
-					tapConfirmedTimers.delete( ref );
-				}, TAP_CONFIRMED_EXPIRY_MS )
+				'saaiTapConfirmed',
+				TAP_CONFIRMED_EXPIRY_MS
 			);
 
 			// stopPropagation(), not just preventDefault(): preventDefault()

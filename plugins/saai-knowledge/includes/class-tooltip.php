@@ -58,9 +58,21 @@ final class Tooltip {
 	private $rendered = false;
 
 	/**
+	 * Whether maybe_enqueue_assets() has already enqueued the module/style
+	 * this request. Tracked separately from $rendered: on a block theme
+	 * maybe_enqueue_assets() runs at wp_head (see register()'s docblock),
+	 * well before render() prints the singleton element at wp_footer, so
+	 * $rendered being false is not a reliable signal that the assets still
+	 * need enqueuing.
+	 *
+	 * @var bool
+	 */
+	private $enqueued = false;
+
+	/**
 	 * Constructor.
 	 *
-	 * @param Autolinker $autolinker The auto-link engine service, consulted by render().
+	 * @param Autolinker $autolinker The auto-link engine service, consulted by maybe_enqueue_assets().
 	 */
 	public function __construct( Autolinker $autolinker ) {
 		$this->autolinker = $autolinker;
@@ -69,59 +81,115 @@ final class Tooltip {
 	/**
 	 * Hooks the tooltip service into WordPress.
 	 *
-	 * Render() deliberately stays at wp_footer's default priority (10),
-	 * not a later one: WordPress core's own printers for what render()
-	 * enqueues — WP_Script_Modules::print_enqueued_script_modules()
-	 * (default priority) and script-loader.php's late-style capture
-	 * (priority 20) — are both hooked on wp_footer too, at fixed
-	 * priorities. Enqueuing from a later priority than those would queue
-	 * the module/style only after WordPress already printed everything
-	 * queued at that point, so they'd never reach the page (verified: this
-	 * broke real output when tried at PHP_INT_MAX). At the same default
-	 * priority, this plugin's own add_action() call — fired from
-	 * plugins_loaded — is registered before core's (fired from
-	 * after_setup_theme, later in the request), so render() still runs
-	 * first within that bucket and its enqueue calls are seen in time.
-	 * This is not a coin-flip on registration order: WP_Hook's own
-	 * contract (wp-includes/class-wp-hook.php) guarantees "functions with
-	 * the same priority are executed in the order in which they were added
-	 * to the filter," and PHP's array insertion order backs that guarantee
-	 * deterministically — verified against core source, not assumed.
-	 * This does mean a link an unusually late (later-priority) wp_footer
-	 * callback produces after render() already ran won't get a tooltip;
-	 * that's an accepted trade-off against actually breaking the common case.
+	 * Maybe_enqueue_assets() cannot always wait for wp_footer the way an
+	 * earlier version of this method did. As of WordPress 6.9.0 (this
+	 * plugin's declared minimum — verified against
+	 * wp-includes/class-wp-script-modules.php's `@since 6.9.0` tags, not
+	 * assumed), WP_Script_Modules::add_hooks() prints a SINGLE import map
+	 * once per request — at `wp_head` for a block theme, `wp_footer` for a
+	 * classic one — built from get_import_map(), which only pulls in the
+	 * DEPENDENCIES (e.g. `@wordpress/interactivity`, our module's static
+	 * import) of modules already sitting in the internal enqueue queue at
+	 * that exact moment; a module enqueued later doesn't retroactively
+	 * contribute to it, and only one importmap `<script>` is ever printed
+	 * (a second, later one wouldn't apply per the HTML spec anyway). Core's
+	 * `print_enqueued_script_modules()` still unconditionally prints our
+	 * module's own `<script type="module">` tag at `wp_footer` regardless
+	 * of theme (so the tag itself isn't silently dropped), but on a block
+	 * theme that's too late for the import map: if our module was enqueued
+	 * only at wp_footer, as before, and no OTHER script module already
+	 * needed `@wordpress/interactivity` by wp_head time, the browser has
+	 * no import-map entry to resolve view.js's own `import { store,
+	 * getElement } from '@wordpress/interactivity'` bare specifier against,
+	 * so the module throws and the store never registers — silently
+	 * breaking every tooltip on the page. A block theme's entire template
+	 * (including any term links our anchors carry) is rendered to a string
+	 * BEFORE wp_head() runs — wp-includes/template-canvas.php calls
+	 * get_the_block_template_html() first specifically so blocks can add
+	 * head output, per its own comment — so has_rendered_links() is already
+	 * known by wp_head time and there's no reason to wait for wp_footer. A
+	 * classic theme doesn't have this problem (its import map itself is
+	 * printed at wp_footer, by which point we've already enqueued) but has
+	 * the opposite one: at wp_head time its main content loop hasn't run
+	 * yet, so has_rendered_links() isn't known and it still has to enqueue
+	 * at wp_footer. wp_is_block_theme() is reliable this early: the active
+	 * theme is already loaded by the time plugins_loaded fires
+	 * Plugin::register_services() (which constructs and registers this
+	 * class), the same reasoning already established elsewhere in this
+	 * codebase (see Template_Loader).
+	 *
+	 * Both actions stay at their hook's default priority (10), not a later
+	 * one: at the same default priority, this plugin's own add_action()
+	 * calls — fired from plugins_loaded — are registered before core's own
+	 * wp_head/wp_footer printers (fired from after_setup_theme, later in
+	 * the request), so maybe_enqueue_assets()/render() still run first
+	 * within that bucket and their calls are seen in time (verified:
+	 * enqueuing from a later priority, e.g. PHP_INT_MAX, broke real
+	 * output). This is not a coin-flip on registration order: WP_Hook's
+	 * own contract (wp-includes/class-wp-hook.php) guarantees "functions
+	 * with the same priority are executed in the order in which they were
+	 * added to the filter," and PHP's array insertion order backs that
+	 * guarantee deterministically. This does mean a link an unusually late
+	 * (later-priority) wp_head/wp_footer callback produces after
+	 * maybe_enqueue_assets() already ran won't get a tooltip; that's an
+	 * accepted trade-off against actually breaking the common case.
 	 */
 	public function register(): void {
+		add_action( wp_is_block_theme() ? 'wp_head' : 'wp_footer', array( $this, 'maybe_enqueue_assets' ) );
 		add_action( 'wp_footer', array( $this, 'render' ) );
 	}
 
 	/**
-	 * Prints the singleton tooltip element and enqueues its module/style,
-	 * but only when the auto-link engine reports it actually linked a term
-	 * this request — most pages never do, and shouldn't pay for either.
+	 * Enqueues the tooltip module/style, but only when the auto-link engine
+	 * reports it actually linked a term this request — most pages never
+	 * do, and shouldn't pay for either. Idempotent and safe to call more
+	 * than once per request: register() hooks it directly for the
+	 * wp_head/wp_footer split described in its own docblock, and render()
+	 * also calls it so a classic theme (where nothing else calls this
+	 * before render() runs) still gets the assets enqueued before the
+	 * singleton element that depends on them is printed.
+	 */
+	public function maybe_enqueue_assets(): void {
+		if ( $this->enqueued || ! $this->autolinker->has_rendered_links() || ! $this->ensure_assets_registered() ) {
+			return;
+		}
+
+		$this->enqueued = true;
+
+		wp_enqueue_script_module( self::MODULE_ID );
+		wp_enqueue_style( self::STYLE_HANDLE );
+	}
+
+	/**
+	 * Prints the singleton tooltip element, once per request, once
+	 * maybe_enqueue_assets() confirms there's something for it to drive
+	 * (a term was actually linked, and the built assets are available).
 	 */
 	public function render(): void {
-		if ( $this->rendered || ! $this->autolinker->has_rendered_links() || ! $this->ensure_assets_registered() ) {
+		if ( $this->rendered ) {
+			return;
+		}
+
+		$this->maybe_enqueue_assets();
+
+		if ( ! $this->enqueued ) {
 			return;
 		}
 
 		$this->rendered = true;
-
-		wp_enqueue_script_module( self::MODULE_ID );
-		wp_enqueue_style( self::STYLE_HANDLE );
 
 		echo '<div id="saai-tooltip" class="saai-tooltip" role="tooltip" hidden></div>';
 	}
 
 	/**
 	 * Registers the tooltip module/style from their build/ metadata, unless
-	 * they're registered already. Called from render() instead of eagerly
-	 * on every request's `init` (a prior version did that): the
+	 * they're registered already. Called from maybe_enqueue_assets() instead
+	 * of eagerly on every request's `init` (a prior version did that): the
 	 * file_exists()/include/two registry writes this does only need to run
 	 * once per process, and only for requests that reach this — has
 	 * has_rendered_links() true — while every other front-end request
 	 * (the overwhelming majority; admin, cron, and REST requests never
-	 * reach wp_footer at all) skips it entirely.
+	 * reach wp_head/wp_footer at all) skips it entirely.
 	 *
 	 * The "already registered" check only asks wp_style_is() — not also
 	 * WP_Script_Modules::get_registered() for the module, which a prior
@@ -151,8 +219,8 @@ final class Tooltip {
 		// landed view.asset.php/view.js but not yet style-view.css (e.g. an
 		// atomic deploy swap mid-transfer) fails this method entirely rather
 		// than registering wp_enqueue_style() against a file that 404s —
-		// render() then retries on the next request instead of leaving a
-		// broken <link> cached for the rest of this one.
+		// maybe_enqueue_assets() then retries on the next request instead of
+		// leaving a broken <link> cached for the rest of this one.
 		if ( ! file_exists( $style_file ) ) {
 			return false;
 		}

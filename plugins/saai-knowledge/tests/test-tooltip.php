@@ -99,10 +99,44 @@ class Test_Tooltip extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Most pages never auto-link a term; render() must not print the
-	 * singleton element or enqueue anything on those pages. Registration
+	 * The WP core test suite's default theme is classic (wp_is_block_theme()
+	 * is false), so register() must hook maybe_enqueue_assets() onto
+	 * wp_footer rather than wp_head — see register()'s own docblock for why
+	 * a classic theme needs the opposite hook from a block theme (its main
+	 * content loop, and therefore has_rendered_links(), isn't known yet at
+	 * wp_head time). Exercising the block-theme branch needs a real block
+	 * theme switched in, which this PHP-only unit test does not attempt.
+	 */
+	public function test_register_hooks_maybe_enqueue_assets_on_wp_footer_for_classic_theme() {
+		$this->assertFalse( wp_is_block_theme() );
+
+		$tooltip = $this->make_tooltip( false );
+
+		$tooltip->register();
+
+		$this->assertSame( 10, has_action( 'wp_footer', array( $tooltip, 'maybe_enqueue_assets' ) ) );
+		$this->assertFalse( has_action( 'wp_head', array( $tooltip, 'maybe_enqueue_assets' ) ) );
+	}
+
+	/**
+	 * Most pages never auto-link a term; neither maybe_enqueue_assets() nor
+	 * render() should enqueue or print anything on those pages. Registration
 	 * state is irrelevant here: has_rendered_links() false short-circuits
 	 * before ensure_assets_registered() ever runs.
+	 */
+	public function test_maybe_enqueue_assets_is_a_no_op_when_no_links_were_rendered() {
+		$tooltip = $this->make_tooltip( false );
+
+		$this->fake_assets_registered();
+
+		$tooltip->maybe_enqueue_assets();
+
+		$this->assertFalse( wp_style_is( 'saai-knowledge-tooltip', 'enqueued' ) );
+	}
+
+	/**
+	 * Mirrors test_maybe_enqueue_assets_is_a_no_op_when_no_links_were_rendered()
+	 * for render() itself, which must still produce no output in that case.
 	 */
 	public function test_render_is_a_no_op_when_no_links_were_rendered() {
 		$tooltip = $this->make_tooltip( false );
@@ -111,6 +145,23 @@ class Test_Tooltip extends WP_UnitTestCase {
 
 		$this->assertSame( '', get_echo( array( $tooltip, 'render' ) ) );
 		$this->assertFalse( wp_style_is( 'saai-knowledge-tooltip', 'enqueued' ) );
+	}
+
+	/**
+	 * The one case maybe_enqueue_assets() should actually do something: a
+	 * term was linked and the assets are registered. Exercised directly here
+	 * (not via render()) since register() calls it on its own, independent
+	 * of render(), for a block theme (see register()'s own docblock).
+	 */
+	public function test_maybe_enqueue_assets_enqueues_when_a_link_was_rendered() {
+		$tooltip = $this->make_tooltip( true );
+
+		$this->fake_assets_registered();
+
+		$tooltip->maybe_enqueue_assets();
+
+		$this->assertContains( 'saai-knowledge/tooltip', wp_script_modules()->get_queue() );
+		$this->assertTrue( wp_style_is( 'saai-knowledge-tooltip', 'enqueued' ) );
 	}
 
 	/**
