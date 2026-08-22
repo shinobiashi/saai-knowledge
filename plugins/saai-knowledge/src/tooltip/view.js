@@ -145,7 +145,6 @@ let designMaxWidth = null;
 // tooltip's size again after each write (as a naive write→measure→correct
 // pass would) would force an extra synchronous layout reflow per show().
 function positionTooltip( tooltip, anchor ) {
-	const anchorRect = anchor.getBoundingClientRect();
 	const scrollX = window.scrollX || document.documentElement.scrollLeft;
 	const scrollY = window.scrollY || document.documentElement.scrollTop;
 	// Both from documentElement.client*, not window.inner*: the latter
@@ -207,6 +206,11 @@ function positionTooltip( tooltip, anchor ) {
 
 	const tooltipWidth = tooltip.offsetWidth;
 	const tooltipHeight = tooltip.offsetHeight;
+
+	// Read after the max-width write above (not at the top of the function)
+	// so it shares that write's forced layout with the offsetWidth/offsetHeight
+	// reads above instead of forcing a second, separate reflow of its own.
+	const anchorRect = anchor.getBoundingClientRect();
 
 	let left = anchorRect.left + scrollX;
 	let top = anchorRect.bottom + scrollY + VIEWPORT_MARGIN;

@@ -33,6 +33,19 @@ final class Tooltip {
 	public const MODULE_ID = 'saai-knowledge/tooltip';
 
 	/**
+	 * The singleton tooltip element's `id`, reused as-is for the value every
+	 * term anchor's `aria-describedby` points at.
+	 *
+	 * Public for the same reason as MODULE_ID above: Autolinker::build_anchor()
+	 * reuses it instead of duplicating the string as its own literal.
+	 * view.js's own TOOLTIP_ID constant still has to match it by hand (a JS
+	 * build can't reference a PHP const).
+	 *
+	 * @var string
+	 */
+	public const ELEMENT_ID = 'saai-tooltip';
+
+	/**
 	 * The tooltip stylesheet's registered handle.
 	 *
 	 * @var string
@@ -56,18 +69,6 @@ final class Tooltip {
 	 * @var bool
 	 */
 	private $rendered = false;
-
-	/**
-	 * Whether maybe_enqueue_assets() has already enqueued the module/style
-	 * this request. Tracked separately from $rendered: on a block theme
-	 * maybe_enqueue_assets() runs at wp_head (see register()'s docblock),
-	 * well before render() prints the singleton element at wp_footer, so
-	 * $rendered being false is not a reliable signal that the assets still
-	 * need enqueuing.
-	 *
-	 * @var bool
-	 */
-	private $enqueued = false;
 
 	/**
 	 * Constructor.
@@ -148,13 +149,18 @@ final class Tooltip {
 	 * also calls it so a classic theme (where nothing else calls this
 	 * before render() runs) still gets the assets enqueued before the
 	 * singleton element that depends on them is printed.
+	 *
+	 * No separate "already enqueued" instance flag: the style and module are
+	 * always enqueued together below, so — same precedent as
+	 * ensure_assets_registered() using the style's `registered` state as a
+	 * proxy for the module's — `wp_style_is( ..., 'enqueued' )` is a reliable,
+	 * already-available proxy for "this method already ran successfully",
+	 * without duplicating that state in a property that could drift from it.
 	 */
 	public function maybe_enqueue_assets(): void {
-		if ( $this->enqueued || ! $this->autolinker->has_rendered_links() || ! $this->ensure_assets_registered() ) {
+		if ( wp_style_is( self::STYLE_HANDLE, 'enqueued' ) || ! $this->autolinker->has_rendered_links() || ! $this->ensure_assets_registered() ) {
 			return;
 		}
-
-		$this->enqueued = true;
 
 		wp_enqueue_script_module( self::MODULE_ID );
 		wp_enqueue_style( self::STYLE_HANDLE );
@@ -172,13 +178,16 @@ final class Tooltip {
 
 		$this->maybe_enqueue_assets();
 
-		if ( ! $this->enqueued ) {
+		if ( ! wp_style_is( self::STYLE_HANDLE, 'enqueued' ) ) {
 			return;
 		}
 
 		$this->rendered = true;
 
-		echo '<div id="saai-tooltip" class="saai-tooltip" role="tooltip" hidden></div>';
+		printf(
+			'<div id="%s" class="saai-tooltip" role="tooltip" hidden></div>',
+			esc_attr( self::ELEMENT_ID )
+		);
 	}
 
 	/**

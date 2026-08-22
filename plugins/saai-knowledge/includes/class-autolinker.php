@@ -1325,13 +1325,14 @@ final class Autolinker {
 	 * document-level Escape-to-close listener the first time any term link
 	 * on the page hydrates.
 	 *
-	 * The data-wp-interactive store id below is Tooltip::MODULE_ID
-	 * (class-tooltip.php), not a separate literal — that constant is public
-	 * specifically so this method can reuse it rather than duplicating the
-	 * string. view.js's own store() call still has to match it by hand (a
-	 * JS build can't reference a PHP const); nothing keeps that one in sync
-	 * if it changes. has_rendered_links() is tracked separately from real
-	 * replace_in_html() link counts — see process().
+	 * The data-wp-interactive store id and aria-describedby value below are
+	 * Tooltip::MODULE_ID and Tooltip::ELEMENT_ID (class-tooltip.php), not
+	 * separate literals — both constants are public specifically so this
+	 * method can reuse them rather than duplicating the strings. view.js's
+	 * own store() call and TOOLTIP_ID constant still have to match them by
+	 * hand (a JS build can't reference a PHP const); nothing keeps those in
+	 * sync if either changes. has_rendered_links() is tracked separately
+	 * from real replace_in_html() link counts — see process().
 	 *
 	 * aria-expanded="false" is the anchor's baseline: view.js's show()/
 	 * hideTooltip() flip it to "true"/remove it at runtime, but without a
@@ -1344,12 +1345,13 @@ final class Autolinker {
 	 */
 	private function build_anchor( array $entry, string $matched_text ): string {
 		return sprintf(
-			'<a href="%1$s" class="saai-term" data-wp-interactive="%5$s" data-wp-init="callbacks.initTooltipListeners" data-wp-on--mouseenter="actions.show" data-wp-on--focus="actions.show" data-wp-on--mouseleave="actions.hide" data-wp-on--blur="actions.hide" data-wp-on--touchstart="actions.handleTouchStart" data-wp-on--click="actions.handleClick" data-saai-term-id="%2$d" data-saai-tooltip="%3$s" aria-describedby="saai-tooltip" aria-expanded="false">%4$s</a>',
+			'<a href="%1$s" class="saai-term" data-wp-interactive="%5$s" data-wp-init="callbacks.initTooltipListeners" data-wp-on--mouseenter="actions.show" data-wp-on--focus="actions.show" data-wp-on--mouseleave="actions.hide" data-wp-on--blur="actions.hide" data-wp-on--touchstart="actions.handleTouchStart" data-wp-on--click="actions.handleClick" data-saai-term-id="%2$d" data-saai-tooltip="%3$s" aria-describedby="%6$s" aria-expanded="false">%4$s</a>',
 			esc_url( $entry['url'] ),
 			(int) $entry['post_id'],
 			esc_attr( $entry['excerpt'] ),
 			$matched_text,
-			Tooltip::MODULE_ID
+			Tooltip::MODULE_ID,
+			esc_attr( Tooltip::ELEMENT_ID )
 		);
 	}
 
