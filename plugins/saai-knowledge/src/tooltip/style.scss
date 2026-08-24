@@ -1,0 +1,46 @@
+.saai-tooltip {
+	position: absolute;
+	z-index: 100000;
+	// Without this, a theme that doesn't reset box-sizing globally leaves
+	// this element at the browser default content-box, where max-width
+	// caps the content area only — offsetWidth (content + this padding)
+	// then exceeds both this static max-width and positionTooltip()'s
+	// inline max-width by the padding's own size, which the horizontal
+	// overflow clamp doesn't account for and lets the tooltip render past
+	// the viewport's right edge on narrow screens whenever the excerpt is
+	// long enough to hit the cap.
+	box-sizing: border-box;
+	// Static fallback cap for the instant between injection and the first
+	// positionTooltip() call. The real viewport-width cap is applied as an
+	// inline style by positionTooltip() itself, from document.documentElement
+	// .clientWidth — not from a CSS `vw` unit here, because `100vw` includes
+	// a reserved-space vertical scrollbar's width while `clientWidth`
+	// excludes it, so the two would disagree (and let the tooltip render
+	// wider than the JS horizontal clamp assumes) on any desktop browser
+	// with a classic (non-overlay) scrollbar.
+	max-width: 20rem;
+	// Without this, a single unbreakable token wider than max-width (a long
+	// URL, a hyphen-less compound word) doesn't grow the box — max-width
+	// still caps offsetWidth, which positionTooltip()'s horizontal clamp
+	// reads to keep the box itself on-screen — but the overflowing text
+	// still paints past the box's own right edge under the default
+	// `overflow: visible`, defeating the clamp visually even though the
+	// JS math reports success.
+	overflow-wrap: break-word;
+	padding: 0.5em 0.75em;
+	border-radius: 4px;
+	background: #1e1e1e;
+	color: #fff;
+	font-size: 0.8125rem;
+	line-height: 1.4;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+
+	&[hidden] {
+		display: none;
+	}
+}
+
+a.saai-term {
+	text-decoration: underline dotted;
+	text-underline-offset: 2px;
+}

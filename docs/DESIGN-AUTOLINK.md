@@ -80,15 +80,23 @@
 ```html
 <a href="{url}" class="saai-term"
    data-wp-interactive="saai-knowledge/tooltip"
+   data-wp-init="callbacks.initTooltipListeners"
    data-wp-on--mouseenter="actions.show" data-wp-on--focus="actions.show"
    data-wp-on--mouseleave="actions.hide" data-wp-on--blur="actions.hide"
-   data-saai-term-id="{post_id}"
+   data-wp-on--touchstart="actions.handleTouchStart"
+   data-wp-on--click="actions.handleClick"
+   data-saai-term-id="{post_id}" data-saai-tooltip="{excerpt}"
    aria-describedby="saai-tooltip">{元のテキストそのまま}</a>
 ```
 
-- ツールチップ本体はページに **1つのシングルトン要素**（`#saai-tooltip`, `role="tooltip"`）を footer に出力し、表示時に該当用語の excerpt を差し込む（excerpt は `data-saai-tooltip` 属性に `esc_attr` で埋め込み。JSON を script タグで持たない）。
-- タッチデバイス: 1タップ目でツールチップ表示、2タップ目で遷移（`click` を1回インターセプト）。
-- Esc キーで閉じる。`prefers-reduced-motion` でアニメーション無効。
+- ツールチップ本体はページに **1つのシングルトン要素**（`#saai-tooltip`, `role="tooltip"`, `hidden` 属性で初期非表示）を footer に出力し（`Tooltip::render()`、`wp_footer` の**既定優先度**）、表示時に該当用語の excerpt を差し込む（excerpt は `data-saai-tooltip` 属性に `esc_attr` で埋め込み。JSON を script タグで持たない）。footer 出力・スクリプトモジュール（`saai-knowledge/tooltip`）・スタイルの enqueue（`Tooltip::maybe_enqueue_assets()`）は、`Autolinker::has_rendered_links()`（そのリクエストで実際にリンクを1件でも生成したか）が true の場合のみ行う — ほとんどのページは自動リンクを生成しないため。優先度は既定のまま据え置く: いずれのフックでも、WordPress core 自身がこの enqueue を実際に印字する経路（`WP_Script_Modules` の各印字メソッド、スタイルの late-capture である `script-loader.php`）は既定〜優先度20に固定されており、より遅い優先度から enqueue するとどちらの印字経路にも間に合わず出力自体が消える（実機検証で確認済み）。
+  `maybe_enqueue_assets()` 自体のフック先はテーマ種別で分岐する（`wp_footer` 一本ではない）: ブロックテーマでは `wp_head`、クラシックテーマでは従来どおり `wp_footer`。WordPress 6.9.0（本プラグインの最低要件）の `WP_Script_Modules::add_hooks()` は importmap（`print_import_map()`）をリクエストにつき1回だけ、ブロックテーマなら `wp_head`、クラシックテーマなら `wp_footer` で印字し、その中身（`get_import_map()`）はその時点で enqueue 済みのモジュールが依存する `@wordpress/interactivity` 等のみを含む（enqueue が印字より後だと importmap に載らず、2つ目の importmap は仕様上ブラウザに無視される）。モジュール本体の `<script type="module">` タグ自体は `print_enqueued_script_modules()` がテーマ種別によらず常に `wp_footer` でも印字するため出力は消えないが、ブロックテーマで importmap 印字（`wp_head`）より後に enqueue すると、ページ内に他の Interactivity API ブロックが無い限り importmap に `@wordpress/interactivity` のエントリが無く、`view.js` の bare specifier import が解決できずツールチップ機能が丸ごと沈黙して壊れる（`wp-includes/class-wp-script-modules.php` のソースで確認済み）。ブロックテーマは `wp_head()` 実行前に `get_the_block_template_html()` でテンプレート全体（本文中の自動リンクを含む）を描画し終えている（`template-canvas.php`）ため `has_rendered_links()` は `wp_head` 時点で確定しており、待つ理由がない。クラシックテーマは逆に `wp_head` 時点でメインループ未実行のため `has_rendered_links()` が確定せず、従来どおり `wp_footer` を使う。`wp_is_block_theme()` は `plugins_loaded`（`Plugin::register_services()` のタイミング）でも信頼できる。
+- `data-wp-on--touchstart="actions.handleTouchStart"` + `data-wp-on--click="actions.handleClick"`: 一部のモバイルブラウザは1回のタップで `mouseenter`/`focus` も合成発火するため、クリック時点の「ツールチップが非表示か」だけでは実際のタップ起点かを判定できない。`touchstart`（実タップにしか発火せず、常に `click` より先に届く）でアンカーに一時マークを付け（1500ms で自己失効。`click` は指を離した時点で届くため、動かさずに1秒超保持する程度のゆっくりしたタップでも間に合う幅を確保しつつ、タッチがスクロール/ドラッグに化けて `click` が来ない場合の残留を打ち切る）、`click` はそのマークの有無で「タッチの1タップ目（`preventDefault()` + `stopPropagation()` して表示のみ — カード全体をクリック領域にするラッパーなど、外側に別のクリックハンドラーがある場合でもそちらへ伝播させて遷移させない）」「タッチの2タップ目（マークが既に消費済み→遷移）」「マウス/キーボード（マークなし→常に即遷移）」を判別する。1タップ目で表示済みマーク（`saaiTapConfirmed`）を立てる際も15秒で自己失効させる — タッチ環境では `mouseleave`/`blur` が確実に発火するとは限らず（触れた後スクロールで離れる等）、失効させないと「表示済み」状態が残り続け、しばらく後に戻ってきた1タップ目が誤って「2タップ目」として即遷移してしまう。5秒だと `entry_excerpt()` のフォールバック（本文55語まで）を実際に読み切る前に失効し、読み終えて意図的に2タップ目を押したユーザーが「新規1タップ目」として再度ツールチップを表示されてしまうため、読み終える時間を確保できる長さにしている。
+- `data-wp-init="callbacks.initTooltipListeners"`: ページ内のどれか1つの用語リンクがハイドレートした時点で、`document` への Esc キー（`keydown`）リスナーを1度だけ登録する（モジュールスコープのフラグで重複登録を防止）。押下時はシングルトン要素を非表示に戻す。
+- シングルトン要素の `id` はアンカーの `data-saai-term-id`（用語の投稿ID）から生成しない — 同じ用語が複数記事から自動リンクされるページ（アーカイブ等）では同一 `data-saai-term-id` を持つアンカーが複数存在しうるため、代わりにページ全体で1つのカウンターから発番する（DOM上の既存idとの衝突もチェックする）。
+- ツールチップはビューポートの上下左右いずれもはみ出さないようクランプする（横方向は `left` を再計算、縦方向は下に収まらない場合のみアンカー上側へフリップ）。ビューポート幅によるキャップは `positionTooltip()` が `document.documentElement.clientWidth` から `max-width` をインラインで設定して行う（CSS側の `max-width: 20rem` はJS実行前の静的フォールバックに過ぎない）。CSS `vw` 単位は使わない — `100vw` は縦スクロールバーの占有幅を含むため、スクロールバーがある環境では `clientWidth` と食い違い、幅キャップが横方向クランプの想定より広くなってしまう。`.saai-tooltip` は `box-sizing: border-box` を明示する — グローバルなborder-boxリセットを持たないテーマ配下では既定の `content-box` になり、`max-width`（JS設定分もCSS静的値も）がコンテンツ幅のみを制限してpaddingを含まなくなるため、`offsetWidth` がキャップを超えて右端がはみ出す。
+- excerpt が空（本文もタイトルのみのスタブ用語等）の場合、`show()` は何もしない（空のバブルを出さない）。`handleClick` も同じ条件でタップをインターセプトしない — インターセプトだけしてツールチップを出さないと、遷移もツールチップ表示もされない行き止まりになるため。
+- アニメーションは行わない（`hidden` 属性による表示/非表示の切り替えのみ）ため `prefers-reduced-motion` を考慮する対象がない。
 
 ## 4. HTML 安全な走査（タグを壊さない）
 

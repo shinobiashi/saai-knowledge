@@ -55,6 +55,21 @@ final class Autolinker {
 	private const CACHE_GROUP = 'saai_autolink';
 
 	/**
+	 * Bumped whenever the shape of the value cache_key() is used for
+	 * (currently `[ 'html' => string, 'has_links' => bool ]`) changes.
+	 * Folded into the key itself rather than just handled by the is_array()
+	 * check in process() so a rolling deploy/rollback behind a shared
+	 * persistent object cache can't have old- and new-code requests
+	 * fighting over the same key with two different value shapes — each
+	 * version simply reads/writes its own key namespace and self-heals
+	 * once the deploy finishes, instead of every request in the mixed
+	 * window missing the cache.
+	 *
+	 * @var string
+	 */
+	private const CACHE_SCHEMA_VERSION = '2';
+
+	/**
 	 * Maximum number of match patterns (title + synonyms, across all terms)
 	 * the dictionary keeps. Longest patterns win when the cap is exceeded.
 	 *
@@ -110,6 +125,20 @@ final class Autolinker {
 	private $compiled_cache = array();
 
 	/**
+	 * Whether process() has returned HTML containing at least one term link
+	 * during the current request, checked by Tooltip::render() to decide
+	 * whether the singleton tooltip element and its script module are
+	 * needed. Set from the real link count replace_in_html() computes on a
+	 * fresh build, or from the `has_links` flag stored alongside the cached
+	 * HTML on a cache hit — never derived by inspecting rendered HTML text,
+	 * so it can't be fooled by content that merely quotes the anchor
+	 * markup (e.g. a documentation example).
+	 *
+	 * @var bool
+	 */
+	private $has_rendered_links = false;
+
+	/**
 	 * Hooks the auto-link engine into WordPress.
 	 */
 	public function register(): void {
@@ -121,6 +150,13 @@ final class Autolinker {
 
 	/**
 	 * The `the_content` callback: auto-links the current post's own content.
+	 *
+	 * The `wp_trim_excerpt()`-in-progress guard that used to live here (see
+	 * process()'s own docblock for what it does and why) now lives in
+	 * process() itself instead, since process() is the documented public
+	 * entry point (docs/DESIGN-HOOKS-API.md §5) other callers — including a
+	 * paid add-on — invoke directly without going through this method, and
+	 * they need the same protection this hook's own the_content pass gets.
 	 *
 	 * @param string $content Rendered post content.
 	 * @return string
@@ -156,6 +192,21 @@ final class Autolinker {
 	 * supported way to apply auto-linking outside the free version's own
 	 * post types (e.g. a WooCommerce product description filter).
 	 *
+	 * Skipped while `wp_trim_excerpt()` is running (detected via
+	 * `doing_filter( 'get_the_excerpt' )` — core hooks wp_trim_excerpt() onto
+	 * the `get_the_excerpt` filter, and it applies `the_content` to the full
+	 * post content internally just to strip shortcodes/blocks before
+	 * `wp_trim_words()` discards all tags, including any term link this
+	 * service would insert): auto-linking that content would set
+	 * has_rendered_links() true from links nothing ever renders, causing
+	 * Tooltip::render() to needlessly enqueue its module/style/singleton
+	 * element on archive/listing pages whose only auto-linkable content is
+	 * an automatic excerpt. Checked here rather than only in
+	 * process_content() (the free version's own `the_content` callback) so
+	 * every caller of this public entry point — including a paid add-on
+	 * invoking it directly from its own excerpt-style rendering — gets the
+	 * same protection.
+	 *
 	 * @param string               $html    HTML to auto-link.
 	 * @param array<string, mixed> $context Context: `post_id` (int, optional) and
 	 *                                      `post_type` (string, optional). Passed through
@@ -163,7 +214,7 @@ final class Autolinker {
 	 * @return string
 	 */
 	public function process( string $html, array $context = array() ): string {
-		if ( '' === $html ) {
+		if ( '' === $html || doing_filter( 'get_the_excerpt' ) ) {
 			return $html;
 		}
 
@@ -217,15 +268,43 @@ final class Autolinker {
 		$cache_key = $this->cache_key( $html, $post );
 		$cached    = wp_cache_get( $cache_key, self::CACHE_GROUP );
 
-		if ( is_string( $cached ) ) {
-			return $cached;
+		if ( is_array( $cached ) && isset( $cached['html'] ) && is_string( $cached['html'] ) ) {
+			$result    = $cached['html'];
+			$has_links = ! empty( $cached['has_links'] );
+		} else {
+			$link_count = 0;
+			$result     = $this->replace_in_html( $html, $entries, $link_count );
+			$has_links  = $link_count > 0;
+
+			wp_cache_set(
+				$cache_key,
+				array(
+					'html'      => $result,
+					'has_links' => $has_links,
+				),
+				self::CACHE_GROUP,
+				HOUR_IN_SECONDS
+			);
 		}
 
-		$result = $this->replace_in_html( $html, $entries );
-
-		wp_cache_set( $cache_key, $result, self::CACHE_GROUP, HOUR_IN_SECONDS );
+		// Single assignment site for both the cache-hit and cache-miss paths
+		// above, rather than duplicating the `= true` write in each branch.
+		// Never flips a true back to false: has_rendered_links() only needs
+		// to know whether ANY call this request produced a link.
+		$this->has_rendered_links = $this->has_rendered_links || $has_links;
 
 		return $result;
+	}
+
+	/**
+	 * Whether process() has produced at least one term link so far during
+	 * the current request. Read by Tooltip::render() to skip the singleton
+	 * tooltip element and script module on pages with no auto-links.
+	 *
+	 * @return bool
+	 */
+	public function has_rendered_links(): bool {
+		return $this->has_rendered_links;
 	}
 
 	/**
@@ -360,7 +439,13 @@ final class Autolinker {
 			$url      = $entry['url'] ?? null;
 			$patterns = $entry['patterns'] ?? null;
 
-			if ( ! is_int( $post_id ) || $post_id <= 0 || ! is_string( $url ) || '' === $url || ! is_array( $patterns ) ) {
+			// Sanitize before testing: esc_url_raw() reduces a value carrying a
+			// disallowed protocol (javascript:, data:, ...) to an empty string,
+			// which must not pass this presence check only to reach
+			// build_anchor()'s esc_url() and silently become href="".
+			$url = is_string( $url ) ? esc_url_raw( $url ) : '';
+
+			if ( ! is_int( $post_id ) || $post_id <= 0 || '' === $url || ! is_array( $patterns ) ) {
 				continue;
 			}
 
@@ -650,7 +735,7 @@ final class Autolinker {
 			? $post->ID . '|' . $post->post_modified_gmt . '|' . md5( $html )
 			: 'raw|' . md5( $html );
 
-		return 'saai_al_' . md5( $generation . '|' . $this->max_links() . '|' . $identity );
+		return 'saai_al_' . self::CACHE_SCHEMA_VERSION . '_' . md5( $generation . '|' . $this->max_links() . '|' . $identity );
 	}
 
 	/**
@@ -667,12 +752,20 @@ final class Autolinker {
 	 * with term links. Fails safe: any preg error at any stage discards the
 	 * partial result and returns the original, untouched HTML.
 	 *
-	 * @param string                           $html    HTML to auto-link.
-	 * @param array<int, array<string, mixed>> $entries Dictionary entries.
+	 * @param string                           $html       HTML to auto-link.
+	 * @param array<int, array<string, mixed>> $entries    Dictionary entries.
+	 * @param int                              $link_count Out param: set to the number of
+	 *                                                      term links actually inserted (0 on
+	 *                                                      any early/fail-safe return, since
+	 *                                                      those return $html untouched). Lets
+	 *                                                      process() learn whether a link was
+	 *                                                      produced without re-scanning the
+	 *                                                      returned HTML for a marker string.
 	 * @return string
 	 */
-	private function replace_in_html( string $html, array $entries ): string {
-		$compiled = $this->compiled_groups_for( $entries );
+	private function replace_in_html( string $html, array $entries, int &$link_count ): string {
+		$link_count = 0;
+		$compiled   = $this->compiled_groups_for( $entries );
 
 		if ( ! $compiled ) {
 			return $html;
@@ -739,6 +832,8 @@ final class Autolinker {
 
 			return $html;
 		}
+
+		$link_count = $link_state['count'];
 
 		return $this->unstash( $output, $stashed );
 	}
@@ -1219,6 +1314,30 @@ final class Autolinker {
 	 * The tooltip is rendered by the saai-knowledge/tooltip Interactivity API
 	 * store (M3-4): the excerpt travels in data-saai-tooltip so the
 	 * singleton tooltip element can be populated without a JSON script tag.
+	 * data-wp-on--touchstart marks the anchor as mid-tap before the
+	 * synthesized click arrives (some mobile browsers fire mouseenter/focus
+	 * for the same tap, which would otherwise make the tooltip look already
+	 * shown by the time data-wp-on--click runs); data-wp-on--click uses that
+	 * mark to intercept only a touch device's first tap (revealing the
+	 * tooltip instead of navigating) and lets a second tap navigate
+	 * normally, while mouse/keyboard clicks (no preceding touchstart) always
+	 * navigate immediately. data-wp-init attaches the store's single
+	 * document-level Escape-to-close listener the first time any term link
+	 * on the page hydrates.
+	 *
+	 * The data-wp-interactive store id and aria-describedby value below are
+	 * Tooltip::MODULE_ID and Tooltip::ELEMENT_ID (class-tooltip.php), not
+	 * separate literals — both constants are public specifically so this
+	 * method can reuse them rather than duplicating the strings. view.js's
+	 * own store() call and TOOLTIP_ID constant still have to match them by
+	 * hand (a JS build can't reference a PHP const); nothing keeps those in
+	 * sync if either changes. has_rendered_links() is tracked separately
+	 * from real replace_in_html() link counts — see process().
+	 *
+	 * aria-expanded="false" is the anchor's baseline: view.js's show()/
+	 * hideTooltip() flip it to "true"/remove it at runtime, but without a
+	 * baseline here a screen reader has no expanded/collapsed state to
+	 * announce for an anchor tabbed to before it's ever been hovered/tapped.
 	 *
 	 * @param array<string, mixed> $entry        The matched dictionary entry.
 	 * @param string               $matched_text The original text to keep as the link's visible text.
@@ -1226,11 +1345,13 @@ final class Autolinker {
 	 */
 	private function build_anchor( array $entry, string $matched_text ): string {
 		return sprintf(
-			'<a href="%1$s" class="saai-term" data-wp-interactive="saai-knowledge/tooltip" data-wp-on--mouseenter="actions.show" data-wp-on--focus="actions.show" data-wp-on--mouseleave="actions.hide" data-wp-on--blur="actions.hide" data-saai-term-id="%2$d" data-saai-tooltip="%3$s" aria-describedby="saai-tooltip">%4$s</a>',
+			'<a href="%1$s" class="saai-term" data-wp-interactive="%5$s" data-wp-init="callbacks.initTooltipListeners" data-wp-on--mouseenter="actions.show" data-wp-on--focus="actions.show" data-wp-on--mouseleave="actions.hide" data-wp-on--blur="actions.hide" data-wp-on--touchstart="actions.handleTouchStart" data-wp-on--click="actions.handleClick" data-saai-term-id="%2$d" data-saai-tooltip="%3$s" aria-describedby="%6$s" aria-expanded="false">%4$s</a>',
 			esc_url( $entry['url'] ),
 			(int) $entry['post_id'],
 			esc_attr( $entry['excerpt'] ),
-			$matched_text
+			$matched_text,
+			Tooltip::MODULE_ID,
+			esc_attr( Tooltip::ELEMENT_ID )
 		);
 	}
 

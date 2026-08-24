@@ -449,6 +449,11 @@ class Test_Autolinker extends WP_UnitTestCase {
 						'patterns' => array( 'NoUrl' ),
 					),
 					array(
+						'post_id'  => 999995,
+						'url'      => 'javascript:alert(1)',
+						'patterns' => array( 'BadProtocol' ),
+					),
+					array(
 						'post_id'  => 999996,
 						'url'      => 'https://example.com/valid/',
 						'label'    => 'ValidInjected',
@@ -459,13 +464,17 @@ class Test_Autolinker extends WP_UnitTestCase {
 			}
 		);
 
-		$post_id = $this->create_kb_post( '<p>BadId, NoUrl, and ValidInjected are mentioned.</p>' );
+		$post_id = $this->create_kb_post( '<p>BadId, NoUrl, BadProtocol, and ValidInjected are mentioned.</p>' );
 
 		$content = $this->render( $post_id );
 
 		$this->assertStringContainsString( 'ValidInjected</a>', $content );
 		$this->assertStringNotContainsString( 'BadId</a>', $content );
 		$this->assertStringNotContainsString( 'NoUrl</a>', $content );
+		// A disallowed-protocol URL must be dropped by sanitize_dictionary_entries()
+		// (esc_url_raw() collapses it to '') rather than reach build_anchor(),
+		// which would otherwise silently emit href="" for it.
+		$this->assertStringNotContainsString( 'BadProtocol</a>', $content );
 	}
 
 	/**
@@ -602,6 +611,111 @@ class Test_Autolinker extends WP_UnitTestCase {
 		$result = $this->autolinker->process( 'This mentions API directly.' );
 
 		$this->assertStringContainsString( 'API</a>', $result );
+	}
+
+	/**
+	 * The anchor markup carries the touch-tap and Escape-to-close directives
+	 * the tooltip's Interactivity API store (M3-4) expects, alongside the
+	 * hover/focus ones.
+	 */
+	public function test_anchor_carries_tooltip_interactivity_directives() {
+		$this->create_term( 'API' );
+
+		$result = $this->autolinker->process( 'This mentions API directly.' );
+
+		$this->assertStringContainsString( 'data-wp-init="callbacks.initTooltipListeners"', $result );
+		$this->assertStringContainsString( 'data-wp-on--touchstart="actions.handleTouchStart"', $result );
+		$this->assertStringContainsString( 'data-wp-on--click="actions.handleClick"', $result );
+		$this->assertStringContainsString( 'aria-describedby="saai-tooltip"', $result );
+	}
+
+	/**
+	 * Has_rendered_links() is false until process() actually inserts a term
+	 * link, per Tooltip::render()'s guard against printing the singleton
+	 * tooltip element on pages with no auto-links.
+	 */
+	public function test_has_rendered_links_reflects_whether_a_link_was_inserted() {
+		$this->assertFalse( $this->autolinker->has_rendered_links() );
+
+		$this->autolinker->process( 'Nothing to link here.' );
+		$this->assertFalse( $this->autolinker->has_rendered_links() );
+
+		$this->create_term( 'API' );
+		$this->autolinker->process( 'This mentions API directly.' );
+		$this->assertTrue( $this->autolinker->has_rendered_links() );
+	}
+
+	/**
+	 * Has_rendered_links() must also report true on a cache hit: process()
+	 * skips replace_in_html() (and therefore build_anchor()) entirely on a
+	 * cache hit, so the flag has to come from inspecting the cached result
+	 * itself rather than only being set inside build_anchor().
+	 */
+	public function test_has_rendered_links_is_true_on_a_cache_hit() {
+		$post_id = $this->create_kb_post( '<p>This mentions API directly.</p>' );
+		$this->create_term( 'API' );
+
+		$html    = get_post( $post_id )->post_content;
+		$context = array(
+			'post_id'   => $post_id,
+			'post_type' => 'saai_kb',
+		);
+
+		// First call: cache miss, warms the object cache entry.
+		$this->autolinker->process( $html, $context );
+
+		$fresh_autolinker = new \SAAI\Knowledge\Autolinker();
+		$this->assertFalse( $fresh_autolinker->has_rendered_links() );
+
+		// Second call with identical html/context: cache hit, so
+		// build_anchor() never runs on this instance.
+		$fresh_autolinker->process( $html, $context );
+
+		$this->assertTrue( $fresh_autolinker->has_rendered_links() );
+	}
+
+	/**
+	 * Wp_trim_excerpt() (which get_the_excerpt() calls internally whenever a
+	 * post has no manual excerpt) runs the full post content through
+	 * `the_content` — same filter process_content() hooks — purely to strip
+	 * shortcodes/blocks, then wp_trim_words() strips every tag, including
+	 * any term link build_anchor() would have inserted, before the excerpt
+	 * ever reaches the page. Without process_content()'s
+	 * doing_filter( 'get_the_excerpt' ) guard, that discarded link would
+	 * still flip has_rendered_links() true, making Tooltip::render()
+	 * enqueue its module/style/singleton element on pages whose only
+	 * auto-linkable content is an automatic excerpt.
+	 */
+	public function test_has_rendered_links_stays_false_for_a_wp_trim_excerpt_pass() {
+		$post_id = $this->create_kb_post( 'This mentions API directly.' );
+		$this->create_term( 'API' );
+
+		// process_content() reads the current post via get_post() (no
+		// args), i.e. the global $post — mirrors how the Loop has it set
+		// while rendering an archive listing's excerpts.
+		global $post;
+		$post = get_post( $post_id );
+
+		// Calling $this->autolinker->register() here (instead of driving
+		// this through a real wp_trim_excerpt()/get_the_excerpt() call)
+		// would hook a SECOND process_content() onto `the_content` — this
+		// plugin's own already-booted Plugin::boot() instance (fired once
+		// per test process on `plugins_loaded`, per this file's set_up()
+		// docblock) has already hooked its own — so directly invoking
+		// process_content() while a real `get_the_excerpt` filter run is in
+		// progress reproduces `doing_filter( 'get_the_excerpt' )` being true
+		// without that double registration.
+		add_filter(
+			'get_the_excerpt',
+			function () use ( $post_id ) {
+				return $this->autolinker->process_content( 'This mentions API directly.' );
+			}
+		);
+
+		$result = apply_filters( 'get_the_excerpt', '', get_post( $post_id ) );
+
+		$this->assertSame( 'This mentions API directly.', $result );
+		$this->assertFalse( $this->autolinker->has_rendered_links() );
 	}
 
 	/**

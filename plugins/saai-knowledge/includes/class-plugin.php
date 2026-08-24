@@ -75,6 +75,7 @@ final class Plugin {
 
 		$this->autolinker = new Autolinker();
 		$this->autolinker->register();
+		( new Tooltip( $this->autolinker ) )->register();
 
 		if ( is_admin() ) {
 			( new Glossary_Editor() )->register();
