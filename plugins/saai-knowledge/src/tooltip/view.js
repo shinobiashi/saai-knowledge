@@ -6,9 +6,16 @@ const TOOLTIP_ID = 'saai-tooltip';
 const VIEWPORT_MARGIN = 8;
 const TOUCH_START_EXPIRY_MS = 1500;
 const TAP_CONFIRMED_EXPIRY_MS = 15000;
+// Long enough for a deliberate (not necessarily fast) pointer move to cross
+// VIEWPORT_MARGIN's gap between an anchor and the tooltip below it — see
+// hide()'s own comment for why mouseleave firing the instant the pointer
+// exits the anchor can't be trusted to mean "the tooltip should close" on
+// its own.
+const HOVER_LEAVE_GRACE_MS = 200;
 
 let escapeListenerAttached = false;
 let anchorIdCounter = 0;
+let hoverLeaveGraceTimer = null;
 
 // Each anchor's touchstart/tap-confirmed expiry is a fresh setTimeout per
 // event, uncoalesced with any timer already pending for that same anchor.
@@ -423,7 +430,31 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 				return;
 			}
 
-			dismissTooltip( tooltip );
+			// mouseleave fires the instant the pointer exits the anchor's
+			// box — before it has necessarily crossed VIEWPORT_MARGIN's gap
+			// to reach the tooltip itself. Dismissing immediately would
+			// make it impossible to move the pointer into the tooltip to
+			// read more or select its text (WCAG 1.4.13 "Content on Hover
+			// or Focus" requires hover-triggered content stay open long
+			// enough for the pointer to reach it). Re-check after a short
+			// grace period instead: by then either the pointer reached the
+			// tooltip (tooltip's own mouseleave listener, set up once in
+			// initTooltipListeners(), takes over from here) or the anchor
+			// regained focus/hover, or it's genuinely time to close. The
+			// ref.id re-check guards against a DIFFERENT anchor's episode
+			// having already started by the time this timer fires.
+			window.clearTimeout( hoverLeaveGraceTimer );
+
+			hoverLeaveGraceTimer = window.setTimeout( () => {
+				if (
+					ref.id === tooltip.getAttribute( 'data-saai-shown-for' ) &&
+					! ref.matches( ':hover' ) &&
+					ref.ownerDocument.activeElement !== ref &&
+					! tooltip.matches( ':hover' )
+				) {
+					dismissTooltip( tooltip );
+				}
+			}, HOVER_LEAVE_GRACE_MS );
 		},
 		handleTouchStart() {
 			const { ref } = getElement();
@@ -612,6 +643,35 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 				capture: true,
 				passive: true,
 			} );
+
+			// Only the anchor's own mouseleave routes to actions.hide() (see
+			// build_anchor() in class-autolinker.php) — the tooltip itself
+			// isn't an Interactivity-bound element, so nothing dismisses it
+			// once the pointer has moved off the anchor and INTO the
+			// tooltip during hide()'s HOVER_LEAVE_GRACE_MS grace window (see
+			// that action's own comment). This plain listener, attached once
+			// to the singleton element itself, closes the loop: once the
+			// pointer leaves the tooltip too, and the anchor isn't hovered
+			// or focused either, the episode is genuinely over.
+			const tooltip = getTooltipElement();
+
+			if ( tooltip ) {
+				tooltip.addEventListener( 'mouseleave', () => {
+					const shownFor = tooltip.getAttribute(
+						'data-saai-shown-for'
+					);
+					const anchor =
+						shownFor && document.getElementById( shownFor );
+
+					if (
+						anchor &&
+						! anchor.matches( ':hover' ) &&
+						anchor.ownerDocument.activeElement !== anchor
+					) {
+						dismissTooltip( tooltip );
+					}
+				} );
+			}
 		},
 	},
 } );

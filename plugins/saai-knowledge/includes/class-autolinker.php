@@ -192,20 +192,34 @@ final class Autolinker {
 	 * supported way to apply auto-linking outside the free version's own
 	 * post types (e.g. a WooCommerce product description filter).
 	 *
-	 * Skipped while `wp_trim_excerpt()` is running (detected via
-	 * `doing_filter( 'get_the_excerpt' )` — core hooks wp_trim_excerpt() onto
-	 * the `get_the_excerpt` filter, and it applies `the_content` to the full
-	 * post content internally just to strip shortcodes/blocks before
-	 * `wp_trim_words()` discards all tags, including any term link this
-	 * service would insert): auto-linking that content would set
+	 * Skipped specifically while `wp_trim_excerpt()`'s own internal,
+	 * discardable `the_content` pass is running — not any time
+	 * `get_the_excerpt()` merely happens to be somewhere on the call stack.
+	 * Core hooks wp_trim_excerpt() onto the `get_the_excerpt` filter; when
+	 * the post has no manual excerpt, that function applies `the_content` to
+	 * the full post content internally just to strip shortcodes/blocks
+	 * before `wp_trim_words()` discards all tags, including any term link
+	 * this service would insert. Auto-linking that content would set
 	 * has_rendered_links() true from links nothing ever renders, causing
 	 * Tooltip::render() to needlessly enqueue its module/style/singleton
 	 * element on archive/listing pages whose only auto-linkable content is
-	 * an automatic excerpt. Checked here rather than only in
-	 * process_content() (the free version's own `the_content` callback) so
-	 * every caller of this public entry point — including a paid add-on
-	 * invoking it directly from its own excerpt-style rendering — gets the
-	 * same protection.
+	 * an automatic excerpt.
+	 *
+	 * `doing_filter( 'get_the_excerpt' )` alone is NOT a reliable proxy for
+	 * that specific pass: get_the_excerpt() also carries a post's MANUAL
+	 * excerpt through the same filter, and wp_trim_excerpt() never touches
+	 * `the_content` at all when the excerpt is non-empty (it returns the raw
+	 * excerpt text as-is, just word-trimmed) — so any OTHER caller invoking
+	 * this public entry point on real, displayed manual-excerpt HTML (e.g.
+	 * a future `get_the_excerpt` callback, or the paid add-on's own
+	 * excerpt-style rendering) while get_the_excerpt() happens to still be
+	 * executing further up the call stack would have its genuine autolinking
+	 * silently suppressed by a bare `doing_filter( 'get_the_excerpt' )`
+	 * check. Requiring `doing_filter( 'the_content' )` too narrows this to
+	 * only the one place core's get_the_excerpt() chain ever invokes
+	 * `the_content` — wp_trim_excerpt()'s own throwaway pass — since that's
+	 * the sole scenario where both filters are genuinely active on the
+	 * stack at once.
 	 *
 	 * @param string               $html    HTML to auto-link.
 	 * @param array<string, mixed> $context Context: `post_id` (int, optional) and
@@ -214,7 +228,7 @@ final class Autolinker {
 	 * @return string
 	 */
 	public function process( string $html, array $context = array() ): string {
-		if ( '' === $html || doing_filter( 'get_the_excerpt' ) ) {
+		if ( '' === $html || ( doing_filter( 'the_content' ) && doing_filter( 'get_the_excerpt' ) ) ) {
 			return $html;
 		}
 

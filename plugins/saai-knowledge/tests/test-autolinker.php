@@ -680,11 +680,12 @@ class Test_Autolinker extends WP_UnitTestCase {
 	 * `the_content` — same filter process_content() hooks — purely to strip
 	 * shortcodes/blocks, then wp_trim_words() strips every tag, including
 	 * any term link build_anchor() would have inserted, before the excerpt
-	 * ever reaches the page. Without process_content()'s
-	 * doing_filter( 'get_the_excerpt' ) guard, that discarded link would
-	 * still flip has_rendered_links() true, making Tooltip::render()
-	 * enqueue its module/style/singleton element on pages whose only
-	 * auto-linkable content is an automatic excerpt.
+	 * ever reaches the page. Without process()'s combined
+	 * doing_filter( 'the_content' ) && doing_filter( 'get_the_excerpt' )
+	 * guard, that discarded link would still flip has_rendered_links()
+	 * true, making Tooltip::render() enqueue its module/style/singleton
+	 * element on pages whose only auto-linkable content is an automatic
+	 * excerpt.
 	 */
 	public function test_has_rendered_links_stays_false_for_a_wp_trim_excerpt_pass() {
 		$post_id = $this->create_kb_post( 'This mentions API directly.' );
@@ -704,11 +705,28 @@ class Test_Autolinker extends WP_UnitTestCase {
 		// docblock) has already hooked its own — so directly invoking
 		// process_content() while a real `get_the_excerpt` filter run is in
 		// progress reproduces `doing_filter( 'get_the_excerpt' )` being true
-		// without that double registration.
+		// without that double registration. process() also requires
+		// doing_filter( 'the_content' ) to be true at the same time —
+		// genuinely true for wp_trim_excerpt()'s own internal pass since it
+		// calls apply_filters( 'the_content', ... ) itself, but NOT
+		// reproduced by calling process_content() as a plain method call.
+		// $wp_current_filter is pushed/popped manually around that call to
+		// simulate exactly that, instead of routing through a real
+		// apply_filters( 'the_content', ... ) here, which would also run
+		// WP core's OTHER `the_content` callbacks (wpautop, wptexturize,
+		// ...) and corrupt this test's exact-string assertion below.
 		add_filter(
 			'get_the_excerpt',
-			function () use ( $post_id ) {
-				return $this->autolinker->process_content( 'This mentions API directly.' );
+			function () {
+				global $wp_current_filter;
+
+				$wp_current_filter[] = 'the_content';
+
+				$result_content = $this->autolinker->process_content( 'This mentions API directly.' );
+
+				array_pop( $wp_current_filter );
+
+				return $result_content;
 			}
 		);
 
@@ -716,6 +734,37 @@ class Test_Autolinker extends WP_UnitTestCase {
 
 		$this->assertSame( 'This mentions API directly.', $result );
 		$this->assertFalse( $this->autolinker->has_rendered_links() );
+	}
+
+	/**
+	 * Process()'s guard must NOT trip merely because get_the_excerpt() is
+	 * somewhere on the call stack — only while genuinely nested inside an
+	 * active `the_content` pass (wp_trim_excerpt()'s own internal,
+	 * discardable one). A manual excerpt never goes through `the_content` at
+	 * all (wp_trim_excerpt() returns non-empty $text as-is, word-trimmed),
+	 * so a caller of the public process() entry point invoked from a
+	 * `get_the_excerpt` callback against real, displayed manual-excerpt HTML
+	 * — e.g. a future callback, or the paid add-on's own excerpt-style
+	 * rendering — must still get real auto-linking.
+	 */
+	public function test_process_still_links_when_only_get_the_excerpt_is_active() {
+		$post_id = $this->create_kb_post( 'Unused body.' );
+		$this->create_term( 'API' );
+
+		add_filter(
+			'get_the_excerpt',
+			function () use ( $post_id ) {
+				return $this->autolinker->process(
+					'This mentions API directly.',
+					array( 'post_id' => $post_id )
+				);
+			}
+		);
+
+		$result = apply_filters( 'get_the_excerpt', 'manual excerpt placeholder', get_post( $post_id ) );
+
+		$this->assertStringContainsString( '<a ', $result );
+		$this->assertTrue( $this->autolinker->has_rendered_links() );
 	}
 
 	/**
