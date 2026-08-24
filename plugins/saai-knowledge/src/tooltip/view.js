@@ -82,7 +82,19 @@ function armExpiringFlag( timerMap, anchor, datasetKey, ms, onExpire ) {
 }
 
 function getTooltipElement() {
-	const tooltip = document.getElementById( TOOLTIP_ID );
+	// Query by id AND role together, not id alone: page content, a theme, or
+	// another plugin can independently use the same "saai-tooltip" id on an
+	// unrelated element, and getElementById() only ever returns the FIRST
+	// element in the document with that id — if that happens to be the
+	// impostor, the real element Tooltip::render() (class-tooltip.php)
+	// echoed becomes unreachable and, worse, the impostor would get
+	// reparented into <body> and have its content overwritten below.
+	// role="tooltip" is part of that same markup and vanishingly unlikely to
+	// also collide, so requiring both together reliably finds ours
+	// regardless of where either sits in the document.
+	const tooltip = document.querySelector(
+		`#${ TOOLTIP_ID }[role="tooltip"]`
+	);
 
 	// Tooltip::render() echoes this element wherever the active theme
 	// happens to place wp_footer() output. `.saai-tooltip` is
@@ -145,8 +157,6 @@ let designMaxWidth = null;
 // tooltip's size again after each write (as a naive write→measure→correct
 // pass would) would force an extra synchronous layout reflow per show().
 function positionTooltip( tooltip, anchor ) {
-	const scrollX = window.scrollX || document.documentElement.scrollLeft;
-	const scrollY = window.scrollY || document.documentElement.scrollTop;
 	// Both from documentElement.client*, not window.inner*: the latter
 	// includes a horizontal scrollbar's height in innerHeight but
 	// clientWidth excludes a vertical scrollbar's width, an inconsistent
@@ -212,36 +222,58 @@ function positionTooltip( tooltip, anchor ) {
 	// reads above instead of forcing a second, separate reflow of its own.
 	const anchorRect = anchor.getBoundingClientRect();
 
-	let left = anchorRect.left + scrollX;
-	let top = anchorRect.bottom + scrollY + VIEWPORT_MARGIN;
+	// All clamping below is done in viewport-relative coordinates (no
+	// scrollX/scrollY): anchorRect is already relative to the current
+	// viewport, and these clamps only care how the tooltip fits within
+	// that viewport right now, regardless of how far the page is scrolled.
+	let left = anchorRect.left;
+	let top = anchorRect.bottom + VIEWPORT_MARGIN;
 
-	const overflowRight = left + tooltipWidth - ( scrollX + viewportWidth );
+	const overflowRight = left + tooltipWidth - viewportWidth;
 
 	if ( overflowRight > 0 ) {
 		left -= overflowRight + VIEWPORT_MARGIN;
 	}
 
-	if ( left < scrollX ) {
-		left = scrollX + VIEWPORT_MARGIN;
+	if ( left < 0 ) {
+		left = VIEWPORT_MARGIN;
 	}
 
 	// Flip above the anchor when there's no room below in the viewport,
 	// but only when there IS room above — otherwise leave it below (the
 	// user can scroll to read it) rather than clamp it somewhere that
 	// hides it behind the anchor.
-	const overflowBottom = top + tooltipHeight - ( scrollY + viewportHeight );
+	const overflowBottom = top + tooltipHeight - viewportHeight;
 
 	if ( overflowBottom > 0 ) {
-		const above =
-			anchorRect.top + scrollY - tooltipHeight - VIEWPORT_MARGIN;
+		const above = anchorRect.top - tooltipHeight - VIEWPORT_MARGIN;
 
-		if ( above >= scrollY ) {
+		if ( above >= 0 ) {
 			top = above;
 		}
 	}
 
-	tooltip.style.left = `${ left }px`;
-	tooltip.style.top = `${ top }px`;
+	// Convert from viewport-relative to the tooltip's actual containing
+	// block — its offsetParent, which is <body> itself once
+	// getTooltipElement() has reparented it there IF the theme happens to
+	// give body a `position` other than static (or a transform/filter/etc.
+	// ancestor establishes one), otherwise the initial containing block at
+	// the document's own (0,0) origin. CSS `left`/`top` on this
+	// absolutely-positioned element are measured from that containing
+	// block's padding box, not from the viewport — getBoundingClientRect()
+	// on it captures exactly that box's current on-page position (and
+	// cancels out any scroll offset shared with anchorRect above, since
+	// both are read in the same viewport-relative frame at this same
+	// instant), so subtracting it works whether or not body carries its
+	// own positioning, without this function having to know which case
+	// applies.
+	const offsetParent = tooltip.offsetParent;
+	const parentRect = offsetParent
+		? offsetParent.getBoundingClientRect()
+		: { left: 0, top: 0 };
+
+	tooltip.style.left = `${ left - parentRect.left }px`;
+	tooltip.style.top = `${ top - parentRect.top }px`;
 }
 
 // Returns the anchor that WAS shown (before this call hid it), or null if
@@ -258,6 +290,16 @@ function hideTooltip( tooltip = getTooltipElement() ) {
 	}
 
 	tooltip.setAttribute( 'hidden', '' );
+
+	// Clears the previous anchor's description text along with hiding it:
+	// aria-describedby explicitly requests this element's content
+	// regardless of its own hidden state (the same mechanism that makes
+	// "visually hidden helper text" patterns work at all), so leaving stale
+	// text behind here would have assistive tech announce this anchor's
+	// excerpt for a later anchor that has none of its own — show() early
+	// returns for an anchor with nothing to preview without ever writing
+	// new textContent, since hasPreview() is false for it.
+	tooltip.textContent = '';
 
 	const shownFor = tooltip.getAttribute( 'data-saai-shown-for' );
 	const anchor = shownFor ? document.getElementById( shownFor ) : null;
@@ -359,6 +401,24 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 				! ref ||
 				! tooltip ||
 				ref.id !== tooltip.getAttribute( 'data-saai-shown-for' )
+			) {
+				return;
+			}
+
+			// mouseleave and blur both route here, but the anchor can be
+			// hovered AND focused at once (e.g. a keyboard user tabs to a
+			// link the mouse cursor also happens to be resting on, or vice
+			// versa). Only end the episode once BOTH have been released —
+			// otherwise losing just one input modality (moving the mouse
+			// away while focus remains, or tabbing on while still hovered)
+			// would close a tooltip the other modality still wants open. By
+			// the time either event fires, the browser has already updated
+			// :hover/activeElement to reflect it, so this correctly stays
+			// open on the first event and only closes on whichever fires
+			// last.
+			if (
+				ref.matches( ':hover' ) ||
+				ref.ownerDocument.activeElement === ref
 			) {
 				return;
 			}
@@ -511,6 +571,27 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 					dismissTooltip();
 				}
 			} );
+
+			// A tooltip can stay open long enough (up to
+			// TAP_CONFIRMED_EXPIRY_MS on touch, or indefinitely on
+			// hover/focus) for the viewport to be resized/rotated, or for a
+			// late-loading image/web font to shift layout — moving the
+			// anchor without positionTooltip() ever re-running, since it
+			// only runs once when the tooltip is shown. Observing
+			// documentElement's own box, rather than window's `resize`
+			// event (which only fires for viewport-size changes), also
+			// catches reflow-driven layout shifts that grow/shrink the
+			// document itself.
+			new ResizeObserver( () => {
+				const tooltip = getTooltipElement();
+				const shownFor =
+					tooltip && tooltip.getAttribute( 'data-saai-shown-for' );
+				const anchor = shownFor && document.getElementById( shownFor );
+
+				if ( tooltip && anchor && ! tooltip.hasAttribute( 'hidden' ) ) {
+					positionTooltip( tooltip, anchor );
+				}
+			} ).observe( document.documentElement );
 		},
 	},
 } );

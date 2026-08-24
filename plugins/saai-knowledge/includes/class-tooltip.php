@@ -170,6 +170,14 @@ final class Tooltip {
 	 * Prints the singleton tooltip element, once per request, once
 	 * maybe_enqueue_assets() confirms there's something for it to drive
 	 * (a term was actually linked, and the built assets are available).
+	 *
+	 * ELEMENT_ID isn't guaranteed unique on the page: authored content, a
+	 * theme, or another plugin could independently use the same id. view.js's
+	 * getTooltipElement() guards against that on the JS side by looking this
+	 * element up by id AND `role="tooltip"` together (not id alone), so an
+	 * id-colliding but role-less impostor is never mistaken for this element
+	 * and reparented/overwritten — both attributes below have to stay in
+	 * sync with that lookup.
 	 */
 	public function render(): void {
 		if ( $this->rendered ) {
