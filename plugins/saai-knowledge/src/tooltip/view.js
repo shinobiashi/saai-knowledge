@@ -574,15 +574,15 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 
 			// A tooltip can stay open long enough (up to
 			// TAP_CONFIRMED_EXPIRY_MS on touch, or indefinitely on
-			// hover/focus) for the viewport to be resized/rotated, or for a
-			// late-loading image/web font to shift layout — moving the
-			// anchor without positionTooltip() ever re-running, since it
-			// only runs once when the tooltip is shown. Observing
-			// documentElement's own box, rather than window's `resize`
-			// event (which only fires for viewport-size changes), also
-			// catches reflow-driven layout shifts that grow/shrink the
-			// document itself.
-			new ResizeObserver( () => {
+			// hover/focus) for the viewport to be resized/rotated, for a
+			// late-loading image/web font to shift layout, or for a
+			// scrollable ancestor (e.g. a modal/side panel with
+			// `overflow: auto`) to scroll — moving the anchor without
+			// positionTooltip() ever re-running, since it only runs once
+			// when the tooltip is shown. Shared by the ResizeObserver and
+			// scroll listener below so this "reposition whichever anchor is
+			// currently shown, if any" lookup isn't duplicated between them.
+			const repositionIfShown = () => {
 				const tooltip = getTooltipElement();
 				const shownFor =
 					tooltip && tooltip.getAttribute( 'data-saai-shown-for' );
@@ -591,7 +591,27 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 				if ( tooltip && anchor && ! tooltip.hasAttribute( 'hidden' ) ) {
 					positionTooltip( tooltip, anchor );
 				}
-			} ).observe( document.documentElement );
+			};
+
+			// Observing documentElement's own box, rather than window's
+			// `resize` event (which only fires for viewport-size changes),
+			// also catches reflow-driven layout shifts that grow/shrink the
+			// document itself.
+			new ResizeObserver( repositionIfShown ).observe(
+				document.documentElement
+			);
+
+			// `scroll` doesn't bubble, so a listener on window in the
+			// bubbling phase would only ever see window's own scroll — not
+			// one fired on a scrollable ancestor element somewhere inside
+			// the page. The capturing phase, unlike bubbling, always runs
+			// top-down from window through every ancestor before reaching
+			// the actual scrolled element, so a capture listener here still
+			// sees scroll events target at any such ancestor.
+			window.addEventListener( 'scroll', repositionIfShown, {
+				capture: true,
+				passive: true,
+			} );
 		},
 	},
 } );
