@@ -525,6 +525,28 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 				return;
 			}
 
+			// blur otherwise ends the episode immediately (see above) — except
+			// when the pointer is already resting on the tooltip itself as
+			// focus leaves the anchor. That sequence (tab to a term, then
+			// move the mouse onto the tooltip before tabbing again) never
+			// starts the watch via the anchor's own mouseleave, because the
+			// activeElement check above keeps returning early for as long as
+			// focus stays on the anchor — so blur is the only event left to
+			// pick it up. Gating this on the tooltip's own :hover state (
+			// rather than always watching on blur) keeps the keyboard-only
+			// case above working: with no pointer anywhere near the tooltip,
+			// this is false and blur still dismisses right away instead of
+			// waiting on mouse movement that may never come.
+			if (
+				event &&
+				'blur' === event.type &&
+				tooltip.matches( ':hover' )
+			) {
+				watchHoverExit( tooltip, ref );
+
+				return;
+			}
+
 			dismissTooltip( tooltip );
 		},
 		handleTouchStart() {
