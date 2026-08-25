@@ -6,16 +6,15 @@ const TOOLTIP_ID = 'saai-tooltip';
 const VIEWPORT_MARGIN = 8;
 const TOUCH_START_EXPIRY_MS = 1500;
 const TAP_CONFIRMED_EXPIRY_MS = 15000;
-// Long enough for a deliberate (not necessarily fast) pointer move to cross
-// VIEWPORT_MARGIN's gap between an anchor and the tooltip below it — see
-// hide()'s own comment for why mouseleave firing the instant the pointer
-// exits the anchor can't be trusted to mean "the tooltip should close" on
-// its own.
-const HOVER_LEAVE_GRACE_MS = 200;
 
 let escapeListenerAttached = false;
 let anchorIdCounter = 0;
-let hoverLeaveGraceTimer = null;
+
+// The active mousemove listener from watchHoverExit() below, or null when
+// nothing is being watched. Module-scope since at most one anchor can ever
+// be the singleton tooltip's shown episode at a time, so at most one watch
+// is ever meaningful.
+let hoverExitWatch = null;
 
 // Each anchor's touchstart/tap-confirmed expiry is a fresh setTimeout per
 // event, uncoalesced with any timer already pending for that same anchor.
@@ -292,6 +291,17 @@ function positionTooltip( tooltip, anchor ) {
 // themselves (show(), hide()) don't force a second getElementById() lookup
 // and reparent check for the same element within the same event handler.
 function hideTooltip( tooltip = getTooltipElement() ) {
+	// Whichever caller is actually ending the shown episode here — the
+	// singleton itself, unconditionally, since at most one watch is ever
+	// relevant (see hoverExitWatch's own comment) — a pending
+	// watchHoverExit() from hide()'s hover-exit grace shouldn't outlive it:
+	// left running, its next mousemove would re-evaluate a safe zone built
+	// from a DIFFERENT anchor's now-stale `data-saai-shown-for` state.
+	if ( hoverExitWatch ) {
+		hoverExitWatch();
+		hoverExitWatch = null;
+	}
+
 	if ( ! tooltip || tooltip.hasAttribute( 'hidden' ) ) {
 		return null;
 	}
@@ -334,6 +344,75 @@ function dismissTooltip( tooltip = getTooltipElement() ) {
 	if ( anchor ) {
 		clearTapConfirmed( anchor );
 	}
+}
+
+// Whether (x, y) — a mousemove event's viewport coordinates — falls inside
+// the smallest rectangle containing BOTH the anchor's and the tooltip's
+// current bounding boxes. Recomputed fresh on every call (not cached at
+// watch-start) so a scroll/reflow mid-transit is still measured correctly.
+// This is an approximation of a true "safe polygon" (a pointer resting in
+// an unoccupied corner of that bounding rectangle, when the two boxes
+// aren't already axis-aligned, would still count as safe) — accepted
+// because it only ever errs toward keeping the tooltip open longer than
+// strictly necessary, never toward closing it prematurely out from under a
+// pointer that's still genuinely travelling toward it.
+function isWithinHoverSafeZone( anchor, tooltip, x, y ) {
+	const anchorRect = anchor.getBoundingClientRect();
+	const tooltipRect = tooltip.getBoundingClientRect();
+
+	const left = Math.min( anchorRect.left, tooltipRect.left );
+	const right = Math.max( anchorRect.right, tooltipRect.right );
+	const top = Math.min( anchorRect.top, tooltipRect.top );
+	const bottom = Math.max( anchorRect.bottom, tooltipRect.bottom );
+
+	return x >= left && x <= right && y >= top && y <= bottom;
+}
+
+// Defers dismissing `anchor`'s tooltip past the instant its mouseleave
+// fired: mouseleave fires the moment the pointer exits the anchor's own
+// box, before it has necessarily crossed VIEWPORT_MARGIN's gap to reach the
+// tooltip below/above it, and dismissing right then would make it
+// impossible to move the pointer into the tooltip to read more or select
+// its text (WCAG 1.4.13 "Content on Hover or Focus" requires hover-
+// triggered content stay reachable, with no arbitrary time limit on doing
+// so — deliberately NOT a setTimeout-based grace period for that reason).
+// Tracks real pointer position instead: as long as it stays within
+// isWithinHoverSafeZone()'s bounds — which the pointer must cross to reach
+// the tooltip at all — the episode stays open; the instant it doesn't, this
+// is the genuine, unambiguous signal to close. Supersedes needing any
+// listener on the tooltip element itself: this already re-evaluates on
+// every pointer move, including ones over the tooltip's own box (part of
+// the safe zone), so a separate tooltip-mouseleave handler would be
+// redundant.
+function watchHoverExit( tooltip, anchor ) {
+	if ( hoverExitWatch ) {
+		hoverExitWatch();
+	}
+
+	const onMouseMove = ( event ) => {
+		if (
+			isWithinHoverSafeZone(
+				anchor,
+				tooltip,
+				event.clientX,
+				event.clientY
+			)
+		) {
+			return;
+		}
+
+		hoverExitWatch();
+		hoverExitWatch = null;
+
+		if ( anchor.id === tooltip.getAttribute( 'data-saai-shown-for' ) ) {
+			dismissTooltip( tooltip );
+		}
+	};
+
+	document.addEventListener( 'mousemove', onMouseMove, { passive: true } );
+
+	hoverExitWatch = () =>
+		document.removeEventListener( 'mousemove', onMouseMove );
 }
 
 // Whether an anchor has anything to preview. Shared by show() (skip
@@ -393,7 +472,7 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 			positionTooltip( tooltip, ref );
 			ref.setAttribute( 'aria-expanded', 'true' );
 		},
-		hide() {
+		hide( event ) {
 			const { ref } = getElement();
 			const tooltip = getTooltipElement();
 
@@ -430,31 +509,23 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 				return;
 			}
 
-			// mouseleave fires the instant the pointer exits the anchor's
-			// box — before it has necessarily crossed VIEWPORT_MARGIN's gap
-			// to reach the tooltip itself. Dismissing immediately would
-			// make it impossible to move the pointer into the tooltip to
-			// read more or select its text (WCAG 1.4.13 "Content on Hover
-			// or Focus" requires hover-triggered content stay open long
-			// enough for the pointer to reach it). Re-check after a short
-			// grace period instead: by then either the pointer reached the
-			// tooltip (tooltip's own mouseleave listener, set up once in
-			// initTooltipListeners(), takes over from here) or the anchor
-			// regained focus/hover, or it's genuinely time to close. The
-			// ref.id re-check guards against a DIFFERENT anchor's episode
-			// having already started by the time this timer fires.
-			window.clearTimeout( hoverLeaveGraceTimer );
+			// Only a mouse-triggered mouseleave gets the hover-exit watch
+			// below (see its own comment: mouseleave firing here doesn't by
+			// itself mean the pointer is done with this episode, only that
+			// it's left the anchor's own box — it may still be travelling
+			// toward the tooltip through VIEWPORT_MARGIN's gap). blur
+			// (keyboard focus moving away, e.g. Tab) has no such "pointer
+			// transiting a gap" concern to defer for, and waiting on mouse
+			// movement that may never come — a keyboard-only user's mouse
+			// just sitting still — would otherwise leave this open
+			// indefinitely instead of closing it right away as expected.
+			if ( event && 'mouseleave' === event.type ) {
+				watchHoverExit( tooltip, ref );
 
-			hoverLeaveGraceTimer = window.setTimeout( () => {
-				if (
-					ref.id === tooltip.getAttribute( 'data-saai-shown-for' ) &&
-					! ref.matches( ':hover' ) &&
-					ref.ownerDocument.activeElement !== ref &&
-					! tooltip.matches( ':hover' )
-				) {
-					dismissTooltip( tooltip );
-				}
-			}, HOVER_LEAVE_GRACE_MS );
+				return;
+			}
+
+			dismissTooltip( tooltip );
 		},
 		handleTouchStart() {
 			const { ref } = getElement();
@@ -643,35 +714,6 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 				capture: true,
 				passive: true,
 			} );
-
-			// Only the anchor's own mouseleave routes to actions.hide() (see
-			// build_anchor() in class-autolinker.php) — the tooltip itself
-			// isn't an Interactivity-bound element, so nothing dismisses it
-			// once the pointer has moved off the anchor and INTO the
-			// tooltip during hide()'s HOVER_LEAVE_GRACE_MS grace window (see
-			// that action's own comment). This plain listener, attached once
-			// to the singleton element itself, closes the loop: once the
-			// pointer leaves the tooltip too, and the anchor isn't hovered
-			// or focused either, the episode is genuinely over.
-			const tooltip = getTooltipElement();
-
-			if ( tooltip ) {
-				tooltip.addEventListener( 'mouseleave', () => {
-					const shownFor = tooltip.getAttribute(
-						'data-saai-shown-for'
-					);
-					const anchor =
-						shownFor && document.getElementById( shownFor );
-
-					if (
-						anchor &&
-						! anchor.matches( ':hover' ) &&
-						anchor.ownerDocument.activeElement !== anchor
-					) {
-						dismissTooltip( tooltip );
-					}
-				} );
-			}
 		},
 	},
 } );
