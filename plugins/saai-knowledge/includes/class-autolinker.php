@@ -139,13 +139,85 @@ final class Autolinker {
 	private $has_rendered_links = false;
 
 	/**
+	 * Guards get_cached_dictionary_entries() against reentrant rebuilds.
+	 * build_dictionary_entries() calls entry_excerpt(), which calls
+	 * get_the_excerpt() for a term with a manual excerpt — and process() is
+	 * documented (docs/DESIGN-HOOKS-API.md section 5) as a generic public
+	 * entry point third-party code (a `get_the_excerpt` callback, e.g. the
+	 * paid add-on) can apply from ANY filter. If it does, that reentrant
+	 * process() call reaches dictionary_for_context() while the ORIGINAL
+	 * build is still running and hasn't cached/persisted anything yet,
+	 * triggering a second full build — which hits the same term again and
+	 * recurses without end, exhausting memory. Set for the duration of one
+	 * real build; a reentrant call sees it true and returns an empty
+	 * dictionary instead of rebuilding, safely short-circuiting the cycle
+	 * (that reentrant process() call then has nothing to link against, per
+	 * the `! $entries` check below it).
+	 *
+	 * @var bool
+	 */
+	private $building_dictionary = false;
+
+	/**
+	 * Depth counter, incremented/decremented by mark_trim_excerpt_entering()/
+	 * mark_trim_excerpt_leaving() below — bracketed tightly around core's
+	 * wp_trim_excerpt() (its own callback on `get_the_excerpt`, always at the
+	 * default priority 10) so `> 0` means specifically "wp_trim_excerpt() is
+	 * presently executing", not merely "get_the_excerpt() is somewhere on the
+	 * call stack". See process()'s own docblock for why that distinction
+	 * matters. A counter rather than a boolean so a genuinely reentrant
+	 * wp_trim_excerpt() call (an excerpt requested from within another
+	 * excerpt's own rendering) still leaves this correctly non-zero until
+	 * BOTH have finished, mirroring how $wp_current_filter itself is a stack
+	 * rather than a flag.
+	 *
+	 * @var int
+	 */
+	private $trim_excerpt_depth = 0;
+
+	/**
 	 * Hooks the auto-link engine into WordPress.
 	 */
 	public function register(): void {
 		add_filter( 'the_content', array( $this, 'process_content' ), 50 );
+		add_filter( 'get_the_excerpt', array( $this, 'mark_trim_excerpt_entering' ), 9 );
+		add_filter( 'get_the_excerpt', array( $this, 'mark_trim_excerpt_leaving' ), 11 );
 		add_action( 'save_post_saai_glossary', array( $this, 'handle_glossary_saved' ) );
 		add_action( 'deleted_post', array( $this, 'handle_post_deleted' ), 10, 2 );
 		add_action( 'admin_notices', array( $this, 'render_dictionary_truncated_notice' ) );
+	}
+
+	/**
+	 * `get_the_excerpt` callback at priority 9 — runs immediately before
+	 * core's own wp_trim_excerpt() callback (priority 10). Pass-through:
+	 * only exists to increment trim_excerpt_depth right before
+	 * wp_trim_excerpt() starts.
+	 *
+	 * @param string $text The excerpt text, unmodified.
+	 * @return string
+	 */
+	public function mark_trim_excerpt_entering( string $text ): string {
+		++$this->trim_excerpt_depth;
+
+		return $text;
+	}
+
+	/**
+	 * `get_the_excerpt` callback at priority 11 — runs immediately after
+	 * core's own wp_trim_excerpt() callback (priority 10), regardless of
+	 * whether any OTHER, later-priority `get_the_excerpt` callback is still
+	 * to come. Pass-through: only exists to decrement trim_excerpt_depth
+	 * right after wp_trim_excerpt() finishes, so a later callback's own
+	 * unrelated `the_content` application (see process()'s own docblock) is
+	 * never mistaken for wp_trim_excerpt()'s.
+	 *
+	 * @param string $text The excerpt text, unmodified.
+	 * @return string
+	 */
+	public function mark_trim_excerpt_leaving( string $text ): string {
+		--$this->trim_excerpt_depth;
+
+		return $text;
 	}
 
 	/**
@@ -215,27 +287,30 @@ final class Autolinker {
 	 * excerpt-style rendering) while get_the_excerpt() happens to still be
 	 * executing further up the call stack would have its genuine autolinking
 	 * silently suppressed by a bare `doing_filter( 'get_the_excerpt' )`
-	 * check.
+	 * check. Nor is pairing it with `doing_filter( 'the_content' )` (or even
+	 * `current_filter() === 'the_content'`) enough: `doing_filter()` only
+	 * checks stack membership and `current_filter()` only the innermost
+	 * frame, neither of which can tell wp_trim_excerpt()'s OWN internal
+	 * `the_content` application apart from some entirely different, later
+	 * `get_the_excerpt` callback (any priority greater than core's own 10)
+	 * independently applying `the_content` to the real, to-be-displayed
+	 * excerpt while core's `get_the_excerpt` filter application is merely
+	 * still in progress overall (`WP_Hook::apply_filters()` keeps a filter
+	 * "doing"/"current" for every callback still queued behind the
+	 * currently-running one, not just for wp_trim_excerpt()'s own).
 	 *
-	 * Pairing it with a bare `doing_filter( 'the_content' )` is ALSO not
-	 * enough, because `doing_filter()` only checks stack membership, not
-	 * nesting order: a shortcode/dynamic block inside an OUTER `the_content`
-	 * pass (e.g. rendering the current post's own body) can call
-	 * `get_the_excerpt()` for a DIFFERENT post's MANUAL excerpt, whose
-	 * `get_the_excerpt` callback applies this same `process()` — leaving
-	 * both filters simultaneously "on the stack", but in the opposite
-	 * nesting order from wp_trim_excerpt()'s own pass (`the_content` outer,
-	 * `get_the_excerpt` inner, rather than the other way around), which
-	 * would incorrectly suppress that genuine, displayed excerpt's
-	 * autolinking. `current_filter()` — the innermost, currently-executing
-	 * filter — pins down specifically "we are presently inside a
-	 * `the_content` callback's own execution", which is only ALSO true
-	 * alongside `doing_filter( 'get_the_excerpt' )` for the one nesting
-	 * wp_trim_excerpt() itself produces (`get_the_excerpt` outer,
-	 * `the_content` inner): in the reversed-nesting scenario above,
-	 * `current_filter()` is `get_the_excerpt` (the innermost filter at the
-	 * point process() runs), not `the_content`, so this check correctly lets
-	 * it through.
+	 * `trim_excerpt_depth` (see its own comment) sidesteps both problems by
+	 * not inferring wp_trim_excerpt()'s execution from filter names on a
+	 * shared stack at all — mark_trim_excerpt_entering()/_leaving() bracket
+	 * it directly, at priorities 9 and 11 either side of core's own
+	 * priority-10 callback, so `> 0` means specifically "wp_trim_excerpt()
+	 * itself is presently running" regardless of what else is nested inside
+	 * or around it. `current_filter() === 'the_content'` is kept alongside
+	 * it (rather than relied on alone) purely as an explicit assertion of
+	 * intent: wp_trim_excerpt()'s bracketed window has exactly one
+	 * `the_content` application inside it — its own — so this is redundant
+	 * with the depth check in practice, but documents which specific call
+	 * this guard is meant to catch.
 	 *
 	 * @param string               $html    HTML to auto-link.
 	 * @param array<string, mixed> $context Context: `post_id` (int, optional) and
@@ -244,7 +319,7 @@ final class Autolinker {
 	 * @return string
 	 */
 	public function process( string $html, array $context = array() ): string {
-		if ( '' === $html || ( 'the_content' === current_filter() && doing_filter( 'get_the_excerpt' ) ) ) {
+		if ( '' === $html || ( $this->trim_excerpt_depth > 0 && 'the_content' === current_filter() ) ) {
 			return $html;
 		}
 
@@ -527,7 +602,20 @@ final class Autolinker {
 			return $stored['entries'];
 		}
 
-		$entries = $this->build_dictionary_entries();
+		// See building_dictionary's own comment for why this reentrancy can
+		// happen at all and why returning empty here (rather than rebuilding)
+		// is the safe way to break the cycle.
+		if ( $this->building_dictionary ) {
+			return array();
+		}
+
+		$this->building_dictionary = true;
+
+		try {
+			$entries = $this->build_dictionary_entries();
+		} finally {
+			$this->building_dictionary = false;
+		}
 
 		update_option(
 			self::DICTIONARY_OPTION,
