@@ -16,6 +16,16 @@ let anchorIdCounter = 0;
 // is ever meaningful.
 let hoverExitWatch = null;
 
+// The pointer's last known viewport position, kept up to date by a
+// permanent listener set up once in initTooltipListeners() below — null
+// until the first mousemove (e.g. a keyboard-only user who never moves the
+// mouse at all). hide()'s blur branch needs this: a blur event carries no
+// coordinates of its own, but still has to tell a pointer already
+// travelling toward the tooltip (mid-transit through VIEWPORT_MARGIN's gap,
+// not yet over either box) apart from one that's nowhere near it.
+let lastPointerX = null;
+let lastPointerY = null;
+
 // Each anchor's touchstart/tap-confirmed expiry is a fresh setTimeout per
 // event, uncoalesced with any timer already pending for that same anchor.
 // Without cancelling the previous one, an earlier touchstart's (or tap's)
@@ -526,21 +536,30 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 			}
 
 			// blur otherwise ends the episode immediately (see above) — except
-			// when the pointer is already resting on the tooltip itself as
-			// focus leaves the anchor. That sequence (tab to a term, then
-			// move the mouse onto the tooltip before tabbing again) never
-			// starts the watch via the anchor's own mouseleave, because the
-			// activeElement check above keeps returning early for as long as
-			// focus stays on the anchor — so blur is the only event left to
-			// pick it up. Gating this on the tooltip's own :hover state (
-			// rather than always watching on blur) keeps the keyboard-only
-			// case above working: with no pointer anywhere near the tooltip,
-			// this is false and blur still dismisses right away instead of
-			// waiting on mouse movement that may never come.
+			// when the pointer is already travelling toward (or resting on)
+			// the tooltip as focus leaves the anchor: tab to a term, then move
+			// the mouse toward the tooltip before tabbing again. That sequence
+			// never starts the watch via the anchor's own mouseleave, because
+			// the activeElement check above keeps returning early for as long
+			// as focus stays on the anchor — so blur is the only event left to
+			// pick it up. Checking the last known pointer position against the
+			// same safe zone watchHoverExit() itself watches (rather than only
+			// the tooltip's own :hover state) also covers the pointer still
+			// being mid-transit through VIEWPORT_MARGIN's gap, not yet over
+			// either box, when blur fires. A null lastPointerX (no mousemove
+			// has ever fired — a keyboard-only user) keeps the keyboard-only
+			// case above working: this is false and blur still dismisses right
+			// away instead of waiting on mouse movement that may never come.
 			if (
 				event &&
 				'blur' === event.type &&
-				tooltip.matches( ':hover' )
+				null !== lastPointerX &&
+				isWithinHoverSafeZone(
+					ref,
+					tooltip,
+					lastPointerX,
+					lastPointerY
+				)
 			) {
 				watchHoverExit( tooltip, ref );
 
@@ -695,6 +714,21 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 					dismissTooltip();
 				}
 			} );
+
+			// Kept up to date for the lifetime of the page so hide()'s blur
+			// branch (see its own comment) always has a recent pointer
+			// position to test against the hover safe zone, even though blur
+			// itself carries no coordinates — a listener started only once a
+			// tooltip is already open would miss exactly the movement that
+			// happens right before the blur that needs it.
+			document.addEventListener(
+				'mousemove',
+				( event ) => {
+					lastPointerX = event.clientX;
+					lastPointerY = event.clientY;
+				},
+				{ passive: true }
+			);
 
 			// A tooltip can stay open long enough (up to
 			// TAP_CONFIRMED_EXPIRY_MS on touch, or indefinitely on
