@@ -215,11 +215,27 @@ final class Autolinker {
 	 * excerpt-style rendering) while get_the_excerpt() happens to still be
 	 * executing further up the call stack would have its genuine autolinking
 	 * silently suppressed by a bare `doing_filter( 'get_the_excerpt' )`
-	 * check. Requiring `doing_filter( 'the_content' )` too narrows this to
-	 * only the one place core's get_the_excerpt() chain ever invokes
-	 * `the_content` — wp_trim_excerpt()'s own throwaway pass — since that's
-	 * the sole scenario where both filters are genuinely active on the
-	 * stack at once.
+	 * check.
+	 *
+	 * Pairing it with a bare `doing_filter( 'the_content' )` is ALSO not
+	 * enough, because `doing_filter()` only checks stack membership, not
+	 * nesting order: a shortcode/dynamic block inside an OUTER `the_content`
+	 * pass (e.g. rendering the current post's own body) can call
+	 * `get_the_excerpt()` for a DIFFERENT post's MANUAL excerpt, whose
+	 * `get_the_excerpt` callback applies this same `process()` — leaving
+	 * both filters simultaneously "on the stack", but in the opposite
+	 * nesting order from wp_trim_excerpt()'s own pass (`the_content` outer,
+	 * `get_the_excerpt` inner, rather than the other way around), which
+	 * would incorrectly suppress that genuine, displayed excerpt's
+	 * autolinking. `current_filter()` — the innermost, currently-executing
+	 * filter — pins down specifically "we are presently inside a
+	 * `the_content` callback's own execution", which is only ALSO true
+	 * alongside `doing_filter( 'get_the_excerpt' )` for the one nesting
+	 * wp_trim_excerpt() itself produces (`get_the_excerpt` outer,
+	 * `the_content` inner): in the reversed-nesting scenario above,
+	 * `current_filter()` is `get_the_excerpt` (the innermost filter at the
+	 * point process() runs), not `the_content`, so this check correctly lets
+	 * it through.
 	 *
 	 * @param string               $html    HTML to auto-link.
 	 * @param array<string, mixed> $context Context: `post_id` (int, optional) and
@@ -228,7 +244,7 @@ final class Autolinker {
 	 * @return string
 	 */
 	public function process( string $html, array $context = array() ): string {
-		if ( '' === $html || ( doing_filter( 'the_content' ) && doing_filter( 'get_the_excerpt' ) ) ) {
+		if ( '' === $html || ( 'the_content' === current_filter() && doing_filter( 'get_the_excerpt' ) ) ) {
 			return $html;
 		}
 

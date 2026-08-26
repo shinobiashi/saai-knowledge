@@ -774,6 +774,47 @@ class Test_Autolinker extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Process()'s guard must NOT trip when `the_content` is merely an OUTER,
+	 * already-active filter with `get_the_excerpt()` nested INSIDE it — the
+	 * opposite nesting order from wp_trim_excerpt()'s own discardable pass
+	 * (`get_the_excerpt` outer, `the_content` inner). A bare
+	 * doing_filter( 'the_content' ) && doing_filter( 'get_the_excerpt' )
+	 * check can't tell the two orders apart (it only sees stack membership),
+	 * which is exactly the gap current_filter() closes. This reproduces a
+	 * shortcode/dynamic block inside the current post's own `the_content`
+	 * rendering calling get_the_excerpt() for a DIFFERENT post's manual
+	 * excerpt, whose `get_the_excerpt` callback applies process() directly —
+	 * real, displayed HTML that must still get genuine auto-linking.
+	 */
+	public function test_process_still_links_when_get_the_excerpt_is_nested_inside_the_content() {
+		$post_id = $this->create_kb_post( 'Unused body.' );
+		$this->create_term( 'API' );
+
+		add_filter(
+			'get_the_excerpt',
+			function () use ( $post_id ) {
+				return $this->autolinker->process(
+					'This mentions API directly.',
+					array( 'post_id' => $post_id )
+				);
+			}
+		);
+
+		global $wp_current_filter;
+
+		$wp_current_filter[] = 'the_content';
+
+		try {
+			$result = apply_filters( 'get_the_excerpt', 'manual excerpt placeholder', get_post( $post_id ) );
+		} finally {
+			array_pop( $wp_current_filter );
+		}
+
+		$this->assertStringContainsString( '<a ', $result );
+		$this->assertTrue( $this->autolinker->has_rendered_links() );
+	}
+
+	/**
 	 * Process() with no matching entries returns the original HTML unchanged.
 	 */
 	public function test_process_returns_original_on_preg_failure_fallback_path() {
