@@ -722,9 +722,15 @@ class Test_Autolinker extends WP_UnitTestCase {
 
 				$wp_current_filter[] = 'the_content';
 
-				$result_content = $this->autolinker->process_content( 'This mentions API directly.' );
-
-				array_pop( $wp_current_filter );
+				// Popped in finally, not right after the call: an exception/error
+				// out of process_content() would otherwise skip the pop and leave
+				// 'the_content' on $wp_current_filter for the rest of this test
+				// process, silently affecting doing_filter() in every later test.
+				try {
+					$result_content = $this->autolinker->process_content( 'This mentions API directly.' );
+				} finally {
+					array_pop( $wp_current_filter );
+				}
 
 				return $result_content;
 			}
