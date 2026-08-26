@@ -594,30 +594,40 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 			}
 
 			// blur otherwise ends the episode immediately (see above) — except
-			// when the pointer is already travelling toward (or resting on)
+			// when the pointer is already travelling toward, or resting on,
 			// the tooltip as focus leaves the anchor: tab to a term, then move
 			// the mouse toward the tooltip before tabbing again. That sequence
 			// never starts the watch via the anchor's own mouseleave, because
 			// the activeElement check above keeps returning early for as long
 			// as focus stays on the anchor — so blur is the only event left to
-			// pick it up. Checking the last known pointer position against the
-			// same safe zone watchHoverExit() itself watches (rather than only
-			// the tooltip's own :hover state) also covers the pointer still
-			// being mid-transit through VIEWPORT_MARGIN's gap, not yet over
-			// either box, when blur fires. A null lastPointerX (no mousemove
-			// has ever fired — a keyboard-only user) keeps the keyboard-only
-			// case above working: this is false and blur still dismisses right
-			// away instead of waiting on mouse movement that may never come.
+			// pick it up. Two independent checks both need to pass this
+			// through to watchHoverExit(): tooltip.matches( ':hover' ) alone
+			// misses the pointer still being mid-transit through
+			// VIEWPORT_MARGIN's gap (not yet over the tooltip box), which is
+			// why the safe-zone/lastPointerX check below exists — but relying
+			// on lastPointerX alone regressed the reverse case, a pointer that
+			// was ALREADY resting motionless over the tooltip's position the
+			// entire time focus moved to the anchor: startPointerTracking()
+			// only begins capturing coordinates once show() runs for this
+			// episode, and a pointer that never subsequently moves fires no
+			// mousemove to populate lastPointerX at all, leaving it null even
+			// though the tooltip is genuinely hovered. tooltip.matches(
+			// ':hover' ) still catches that resting case directly, so both
+			// checks are OR'd together. A null lastPointerX with the pointer
+			// truly elsewhere (a keyboard-only user) still fails both checks,
+			// so blur there still dismisses right away instead of waiting on
+			// mouse movement that may never come.
 			if (
 				event &&
 				'blur' === event.type &&
-				null !== lastPointerX &&
-				isWithinHoverSafeZone(
-					ref,
-					tooltip,
-					lastPointerX,
-					lastPointerY
-				)
+				( tooltip.matches( ':hover' ) ||
+					( null !== lastPointerX &&
+						isWithinHoverSafeZone(
+							ref,
+							tooltip,
+							lastPointerX,
+							lastPointerY
+						) ) )
 			) {
 				watchHoverExit( tooltip, ref );
 
