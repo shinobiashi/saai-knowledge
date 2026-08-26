@@ -470,7 +470,16 @@ function checkHoverExit( tooltip, anchor, x, y ) {
 // moves, and this watch would otherwise miss that entirely until (if ever)
 // a real mousemove happens to follow — see its own call to checkHoverExit()
 // with the last known position for how that gap is closed.
-function watchHoverExit( tooltip, anchor ) {
+//
+// (x, y) is the position at the moment this watch STARTS — the triggering
+// mouseleave/blur's own coordinates (or the last tracked position, for
+// blur, which carries none of its own) — checked immediately rather than
+// only from the next mousemove onward: the pointer can already be outside
+// the safe zone right as this begins (e.g. it left the anchor moving AWAY
+// from the tooltip, then stopped), and waiting for a mousemove that may
+// never come would otherwise leave this watch, and the tooltip, open
+// indefinitely.
+function watchHoverExit( tooltip, anchor, x, y ) {
 	if ( hoverExitWatch ) {
 		hoverExitWatch();
 	}
@@ -482,6 +491,15 @@ function watchHoverExit( tooltip, anchor ) {
 
 	hoverExitWatch = () =>
 		document.removeEventListener( 'mousemove', onMouseMove );
+
+	// blur's caller (hide()) can reach here with x/y still null — no
+	// mousemove has ever fired for this episode, but tooltip.matches(
+	// ':hover' ) already proved it's currently safe — in which case there's
+	// nothing to check yet; the listener above is enough to catch the real
+	// exit whenever it happens.
+	if ( null !== x && null !== y ) {
+		checkHoverExit( tooltip, anchor, x, y );
+	}
 }
 
 // Whether an anchor has anything to preview. Shared by show() (skip
@@ -596,7 +614,7 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 			// just sitting still — would otherwise leave this open
 			// indefinitely instead of closing it right away as expected.
 			if ( event && 'mouseleave' === event.type ) {
-				watchHoverExit( tooltip, ref );
+				watchHoverExit( tooltip, ref, event.clientX, event.clientY );
 
 				return;
 			}
@@ -637,7 +655,7 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 							lastPointerY
 						) ) )
 			) {
-				watchHoverExit( tooltip, ref );
+				watchHoverExit( tooltip, ref, lastPointerX, lastPointerY );
 
 				return;
 			}
