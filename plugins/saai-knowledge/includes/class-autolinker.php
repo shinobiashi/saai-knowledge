@@ -159,65 +159,53 @@ final class Autolinker {
 	private $building_dictionary = false;
 
 	/**
-	 * Depth counter, incremented/decremented by mark_trim_excerpt_entering()/
-	 * mark_trim_excerpt_leaving() below — bracketed tightly around core's
-	 * wp_trim_excerpt() (its own callback on `get_the_excerpt`, always at the
-	 * default priority 10) so `> 0` means specifically "wp_trim_excerpt() is
-	 * presently executing", not merely "get_the_excerpt() is somewhere on the
-	 * call stack". See process()'s own docblock for why that distinction
-	 * matters. A counter rather than a boolean so a genuinely reentrant
-	 * wp_trim_excerpt() call (an excerpt requested from within another
-	 * excerpt's own rendering) still leaves this correctly non-zero until
-	 * BOTH have finished, mirroring how $wp_current_filter itself is a stack
-	 * rather than a flag.
-	 *
-	 * @var int
-	 */
-	private $trim_excerpt_depth = 0;
-
-	/**
 	 * Hooks the auto-link engine into WordPress.
 	 */
 	public function register(): void {
 		add_filter( 'the_content', array( $this, 'process_content' ), 50 );
-		add_filter( 'get_the_excerpt', array( $this, 'mark_trim_excerpt_entering' ), 9 );
-		add_filter( 'get_the_excerpt', array( $this, 'mark_trim_excerpt_leaving' ), 11 );
 		add_action( 'save_post_saai_glossary', array( $this, 'handle_glossary_saved' ) );
 		add_action( 'deleted_post', array( $this, 'handle_post_deleted' ), 10, 2 );
 		add_action( 'admin_notices', array( $this, 'render_dictionary_truncated_notice' ) );
 	}
 
 	/**
-	 * `get_the_excerpt` callback at priority 9 — runs immediately before
-	 * core's own wp_trim_excerpt() callback (priority 10). Pass-through:
-	 * only exists to increment trim_excerpt_depth right before
-	 * wp_trim_excerpt() starts.
+	 * Whether core's wp_trim_excerpt() is presently, actually executing
+	 * somewhere in the current call stack. See process()'s own docblock for
+	 * why filter-name/priority signals (doing_filter(), current_filter(),
+	 * or bracketing `get_the_excerpt` callbacks at priorities either side of
+	 * core's own priority-10 one) can't reliably answer this: any of them
+	 * can also be true for an entirely different callback that merely
+	 * happens to run while `get_the_excerpt`'s filter chain is still in
+	 * progress, or at the same priority as wp_trim_excerpt() itself.
+	 * Checking for the function BY NAME sidesteps all of that — it can only
+	 * be true while wp_trim_excerpt()'s own stack frame genuinely hasn't
+	 * returned yet, regardless of what priority anything is registered at or
+	 * what order callbacks ran in.
 	 *
-	 * @param string $text The excerpt text, unmodified.
-	 * @return string
-	 */
-	public function mark_trim_excerpt_entering( string $text ): string {
-		++$this->trim_excerpt_depth;
-
-		return $text;
-	}
-
-	/**
-	 * `get_the_excerpt` callback at priority 11 — runs immediately after
-	 * core's own wp_trim_excerpt() callback (priority 10), regardless of
-	 * whether any OTHER, later-priority `get_the_excerpt` callback is still
-	 * to come. Pass-through: only exists to decrement trim_excerpt_depth
-	 * right after wp_trim_excerpt() finishes, so a later callback's own
-	 * unrelated `the_content` application (see process()'s own docblock) is
-	 * never mistaken for wp_trim_excerpt()'s.
+	 * Only called from behind a `doing_filter( 'get_the_excerpt' )` check
+	 * (process()'s own guard): debug_backtrace() isn't free, but the
+	 * overwhelming majority of process()/process_content() calls — a normal
+	 * page's own `the_content` rendering, with no excerpt anywhere on the
+	 * stack — never reach this at all.
 	 *
-	 * @param string $text The excerpt text, unmodified.
-	 * @return string
+	 * @return bool
 	 */
-	public function mark_trim_excerpt_leaving( string $text ): string {
-		--$this->trim_excerpt_depth;
+	private function is_inside_wp_trim_excerpt(): bool {
+		// DEBUG_BACKTRACE_IGNORE_ARGS: this only needs function names, not
+		// the arguments each frame was called with (which can include whole
+		// WP_Post objects/large content strings — needless copies here).
+		// A generous but bounded limit: process()/process_content() are only
+		// ever a fixed, small number of frames below wp_trim_excerpt()'s own
+		// apply_filters( 'the_content', ... ) call, regardless of how deeply
+		// nested the ORIGINAL get_the_excerpt()/get_the_excerpt caller is.
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_debug_backtrace -- Not leftover debug code: used at runtime to detect wp_trim_excerpt() on the call stack, see this method's own docblock.
+		foreach ( debug_backtrace( DEBUG_BACKTRACE_IGNORE_ARGS, 30 ) as $frame ) {
+			if ( 'wp_trim_excerpt' === $frame['function'] && ! isset( $frame['class'] ) ) {
+				return true;
+			}
+		}
 
-		return $text;
+		return false;
 	}
 
 	/**
@@ -287,30 +275,20 @@ final class Autolinker {
 	 * excerpt-style rendering) while get_the_excerpt() happens to still be
 	 * executing further up the call stack would have its genuine autolinking
 	 * silently suppressed by a bare `doing_filter( 'get_the_excerpt' )`
-	 * check. Nor is pairing it with `doing_filter( 'the_content' )` (or even
-	 * `current_filter() === 'the_content'`) enough: `doing_filter()` only
-	 * checks stack membership and `current_filter()` only the innermost
-	 * frame, neither of which can tell wp_trim_excerpt()'s OWN internal
-	 * `the_content` application apart from some entirely different, later
-	 * `get_the_excerpt` callback (any priority greater than core's own 10)
-	 * independently applying `the_content` to the real, to-be-displayed
-	 * excerpt while core's `get_the_excerpt` filter application is merely
-	 * still in progress overall (`WP_Hook::apply_filters()` keeps a filter
-	 * "doing"/"current" for every callback still queued behind the
-	 * currently-running one, not just for wp_trim_excerpt()'s own).
+	 * check. Nor can `current_filter()`, `doing_filter( 'the_content' )`, or
+	 * bracketing `get_the_excerpt` callbacks at priorities either side of
+	 * core's own priority-10 wp_trim_excerpt() reliably narrow this further:
+	 * every one of those infers wp_trim_excerpt()'s execution from filter
+	 * NAMES and PRIORITIES on a stack shared with arbitrary other code, and
+	 * each can also be satisfied by some entirely different callback that
+	 * merely happens to run while `get_the_excerpt`'s filter chain is still
+	 * in progress overall — including another callback registered at the
+	 * very same priority 10, since `WP_Hook::apply_filters()` runs
+	 * same-priority callbacks in registration order, not just one at a time.
 	 *
-	 * `trim_excerpt_depth` (see its own comment) sidesteps both problems by
-	 * not inferring wp_trim_excerpt()'s execution from filter names on a
-	 * shared stack at all — mark_trim_excerpt_entering()/_leaving() bracket
-	 * it directly, at priorities 9 and 11 either side of core's own
-	 * priority-10 callback, so `> 0` means specifically "wp_trim_excerpt()
-	 * itself is presently running" regardless of what else is nested inside
-	 * or around it. `current_filter() === 'the_content'` is kept alongside
-	 * it (rather than relied on alone) purely as an explicit assertion of
-	 * intent: wp_trim_excerpt()'s bracketed window has exactly one
-	 * `the_content` application inside it — its own — so this is redundant
-	 * with the depth check in practice, but documents which specific call
-	 * this guard is meant to catch.
+	 * is_inside_wp_trim_excerpt() sidesteps all of that by checking for
+	 * wp_trim_excerpt() BY NAME on the actual call stack instead — see its
+	 * own docblock.
 	 *
 	 * @param string               $html    HTML to auto-link.
 	 * @param array<string, mixed> $context Context: `post_id` (int, optional) and
@@ -319,7 +297,7 @@ final class Autolinker {
 	 * @return string
 	 */
 	public function process( string $html, array $context = array() ): string {
-		if ( '' === $html || ( $this->trim_excerpt_depth > 0 && 'the_content' === current_filter() ) ) {
+		if ( '' === $html || ( doing_filter( 'get_the_excerpt' ) && $this->is_inside_wp_trim_excerpt() ) ) {
 			return $html;
 		}
 

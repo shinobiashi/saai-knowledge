@@ -680,65 +680,59 @@ class Test_Autolinker extends WP_UnitTestCase {
 	 * `the_content` — same filter process_content() hooks — purely to strip
 	 * shortcodes/blocks, then wp_trim_words() strips every tag, including
 	 * any term link build_anchor() would have inserted, before the excerpt
-	 * ever reaches the page. Without process()'s trim_excerpt_depth guard,
-	 * that discarded link would still flip has_rendered_links() true, making
-	 * Tooltip::render() enqueue its module/style/singleton element on pages
-	 * whose only auto-linkable content is an automatic excerpt.
+	 * ever reaches the page. Without process()'s is_inside_wp_trim_excerpt()
+	 * guard, that discarded link would still flip has_rendered_links() true,
+	 * making Tooltip::render() enqueue its module/style/singleton element on
+	 * pages whose only auto-linkable content is an automatic excerpt.
 	 */
 	public function test_has_rendered_links_stays_false_for_a_wp_trim_excerpt_pass() {
-		$post_id = $this->create_kb_post( 'This mentions API directly.' );
+		$post_id = $this->create_kb_post( 'Unused body — this post has no manual excerpt.' );
 		$this->create_term( 'API' );
 
-		// process_content() reads the current post via get_post() (no
-		// args), i.e. the global $post — mirrors how the Loop has it set
-		// while rendering an archive listing's excerpts.
-		global $post;
-		$post = get_post( $post_id );
+		// WP core's own test factory auto-generates a non-empty post_excerpt
+		// ("Post excerpt %s") when none is given — wp_trim_excerpt() only
+		// takes the `the_content` path this test needs when the RAW excerpt
+		// is genuinely empty, so that default has to be cleared explicitly.
+		wp_update_post(
+			array(
+				'ID'           => $post_id,
+				'post_excerpt' => '',
+			)
+		);
 
-		// Calling $this->autolinker->register() here (instead of driving
-		// this through a real wp_trim_excerpt()/get_the_excerpt() call)
-		// would hook a SECOND process_content() onto `the_content` — this
-		// plugin's own already-booted Plugin::boot() instance (fired once
-		// per test process on `plugins_loaded`, per this file's set_up()
-		// docblock) has already hooked its own — so directly invoking
-		// process_content() while trim_excerpt_depth is manually held above
-		// 0 reproduces wp_trim_excerpt()'s own bracketed window without that
-		// double registration. current_filter() also needs to read
-		// `the_content` at that point — genuinely true for wp_trim_excerpt()'s
-		// own internal pass since it calls apply_filters( 'the_content', ... )
-		// itself, but NOT reproduced by calling process_content() as a plain
-		// method call — so $wp_current_filter is pushed/popped manually
-		// around it too, instead of routing through a real
-		// apply_filters( 'the_content', ... ) here, which would also run WP
-		// core's OTHER `the_content` callbacks (wpautop, wptexturize, ...)
-		// and corrupt this test's exact-string assertion below.
+		$captured = null;
+
+		// A raw `the_content` closure, not $this->autolinker->process_content()
+		// — hooking process_content() itself onto `the_content` here would
+		// double-register it alongside the plugin's own already-booted
+		// Plugin::boot() instance (fired once per test process on
+		// `plugins_loaded`, per this file's set_up() docblock), chaining the
+		// first instance's output into the second instance's input. This
+		// closure instead calls process() directly with its own fixed input,
+		// captured by reference since its return value here only feeds back
+		// into wp_trim_excerpt()'s own throwaway word-trim, not this
+		// assertion. It runs from genuinely INSIDE wp_trim_excerpt()'s own
+		// internal apply_filters( 'the_content', ... ) call — is_inside_wp_trim_excerpt()
+		// needs an ACTUAL nested call to detect, not a simulated one, since it
+		// reads the real PHP call stack.
 		add_filter(
-			'get_the_excerpt',
-			function () {
-				global $wp_current_filter;
+			'the_content',
+			function ( $content ) use ( &$captured ) {
+				$captured = $this->autolinker->process( 'This mentions API directly.' );
 
-				$this->autolinker->mark_trim_excerpt_entering( '' );
-				$wp_current_filter[] = 'the_content';
-
-				// Left decremented/popped in finally, not right after the call:
-				// an exception/error out of process_content() would otherwise
-				// skip this and leave trim_excerpt_depth/$wp_current_filter
-				// stuck for the rest of this test process, silently affecting
-				// process() in every later test.
-				try {
-					$result_content = $this->autolinker->process_content( 'This mentions API directly.' );
-				} finally {
-					array_pop( $wp_current_filter );
-					$this->autolinker->mark_trim_excerpt_leaving( '' );
-				}
-
-				return $result_content;
+				return $content;
 			}
 		);
 
-		$result = apply_filters( 'get_the_excerpt', '', get_post( $post_id ) );
+		// get_the_excerpt() reads the current post via get_post( $post ) —
+		// mirrors how the Loop has global $post set while rendering an
+		// archive listing's excerpts.
+		global $post;
+		$post = get_post( $post_id );
 
-		$this->assertSame( 'This mentions API directly.', $result );
+		get_the_excerpt( $post_id );
+
+		$this->assertSame( 'This mentions API directly.', $captured );
 		$this->assertFalse( $this->autolinker->has_rendered_links() );
 	}
 
@@ -774,71 +768,29 @@ class Test_Autolinker extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Process()'s guard must NOT trip merely because `current_filter()`
-	 * happens to read `the_content` — trim_excerpt_depth (not
-	 * current_filter() alone) is the primary signal, and it's 0 here since
-	 * mark_trim_excerpt_entering()/_leaving() were never invoked. This
-	 * reproduces a shortcode/dynamic block inside the current post's own
-	 * `the_content` rendering calling get_the_excerpt() for a DIFFERENT
-	 * post's manual excerpt, whose `get_the_excerpt` callback applies
-	 * process() directly — real, displayed HTML that must still get genuine
-	 * auto-linking, even with `the_content` spoofed onto $wp_current_filter
-	 * around it.
+	 * Process()'s guard must NOT trip for a SIBLING `get_the_excerpt`
+	 * callback registered at the very SAME priority as core's own
+	 * wp_trim_excerpt() (always 10), running AFTER it in that priority's
+	 * queue, that independently applies `the_content` to the real,
+	 * to-be-displayed excerpt. wp_trim_excerpt()'s own stack frame has
+	 * already returned by the time ANY sibling callback in its priority
+	 * bucket runs — `WP_Hook::apply_filters()` invokes same-priority
+	 * callbacks sequentially, never nested inside one another — so
+	 * is_inside_wp_trim_excerpt() correctly reads false here regardless of
+	 * priority or registration order. A filter-priority-based bracket
+	 * around wp_trim_excerpt() (e.g. one closing only at priority 11) would
+	 * instead still incorrectly treat this same-priority-10 sibling as
+	 * "inside" wp_trim_excerpt()'s own window.
 	 */
-	public function test_process_still_links_when_get_the_excerpt_is_nested_inside_the_content() {
+	public function test_process_still_links_for_a_sibling_priority_10_callback_after_wp_trim_excerpt() {
 		$post_id = $this->create_kb_post( 'Unused body.' );
 		$this->create_term( 'API' );
 
-		add_filter(
-			'get_the_excerpt',
-			function () use ( $post_id ) {
-				return $this->autolinker->process(
-					'This mentions API directly.',
-					array( 'post_id' => $post_id )
-				);
-			}
-		);
-
-		global $wp_current_filter;
-
-		$wp_current_filter[] = 'the_content';
-
-		try {
-			$result = apply_filters( 'get_the_excerpt', 'manual excerpt placeholder', get_post( $post_id ) );
-		} finally {
-			array_pop( $wp_current_filter );
-		}
-
-		$this->assertStringContainsString( '<a ', $result );
-		$this->assertTrue( $this->autolinker->has_rendered_links() );
-	}
-
-	/**
-	 * Process()'s guard must NOT trip for a LATER `get_the_excerpt` callback
-	 * (any priority greater than core's own 10) that independently applies
-	 * `the_content` to the real, to-be-displayed excerpt — even though core's
-	 * outer `get_the_excerpt` filter application is technically still "in
-	 * progress" per doing_filter()/current_filter() alone at that point.
-	 * mark_trim_excerpt_leaving() (priority 11) has already run by then,
-	 * bringing trim_excerpt_depth back to 0, so this must still get real
-	 * auto-linking rather than being mistaken for wp_trim_excerpt()'s own
-	 * discardable pass.
-	 */
-	public function test_process_still_links_for_a_later_get_the_excerpt_callback_after_wp_trim_excerpt() {
-		$post_id = $this->create_kb_post( 'Unused body.' );
-		$this->create_term( 'API' );
-
-		// Mirrors register()'s own bracket around core's priority-10
-		// wp_trim_excerpt() callback, without register()'s `the_content`
-		// hook (which would double-process content through this plugin's
-		// already-booted singleton instance — see set_up()'s own docblock).
-		add_filter( 'get_the_excerpt', array( $this->autolinker, 'mark_trim_excerpt_entering' ), 9 );
-		add_filter( 'get_the_excerpt', array( $this->autolinker, 'mark_trim_excerpt_leaving' ), 11 );
-
-		// Stands in for a THIRD-PARTY get_the_excerpt callback — running
-		// after both wp_trim_excerpt() and this plugin's own priority-11
-		// bracket have already closed — that applies real, displayed
-		// manual-excerpt content through process_content() directly.
+		// Registered at priority 10 — the SAME priority as core's own
+		// wp_trim_excerpt(), which WP core registers at plugin/theme
+		// bootstrap, long before this test runs. WP_Hook runs same-priority
+		// callbacks in registration order, so this one runs SECOND in that
+		// bucket, right after wp_trim_excerpt() itself has already returned.
 		add_filter(
 			'get_the_excerpt',
 			function () use ( $post_id ) {
@@ -847,7 +799,7 @@ class Test_Autolinker extends WP_UnitTestCase {
 
 				return $this->autolinker->process_content( 'This mentions API directly.' );
 			},
-			20
+			10
 		);
 
 		$result = apply_filters( 'get_the_excerpt', 'manual excerpt placeholder', get_post( $post_id ) );
