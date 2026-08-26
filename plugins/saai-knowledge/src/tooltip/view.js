@@ -16,15 +16,21 @@ let anchorIdCounter = 0;
 // is ever meaningful.
 let hoverExitWatch = null;
 
-// The pointer's last known viewport position, kept up to date by a
-// permanent listener set up once in initTooltipListeners() below — null
-// until the first mousemove (e.g. a keyboard-only user who never moves the
-// mouse at all). hide()'s blur branch needs this: a blur event carries no
-// coordinates of its own, but still has to tell a pointer already
-// travelling toward the tooltip (mid-transit through VIEWPORT_MARGIN's gap,
-// not yet over either box) apart from one that's nowhere near it.
+// The pointer's last known viewport position while a tooltip is shown, kept
+// up to date by the mousemove listener started/stopped in
+// startPointerTracking()/stopPointerTracking() below — null whenever no
+// tooltip is open, or before the first mousemove of the current episode
+// (e.g. a keyboard-only user who never moves the mouse at all). hide()'s
+// blur branch needs this: a blur event carries no coordinates of its own,
+// but still has to tell a pointer already travelling toward the tooltip
+// (mid-transit through VIEWPORT_MARGIN's gap, not yet over either box)
+// apart from one that's nowhere near it.
 let lastPointerX = null;
 let lastPointerY = null;
+
+// The active mousemove listener from startPointerTracking() below, or null
+// when nothing is being tracked.
+let pointerTrackerCleanup = null;
 
 // Each anchor's touchstart/tap-confirmed expiry is a fresh setTimeout per
 // event, uncoalesced with any timer already pending for that same anchor.
@@ -292,6 +298,46 @@ function positionTooltip( tooltip, anchor ) {
 	tooltip.style.top = `${ top - parentRect.top }px`;
 }
 
+// Starts tracking the pointer's viewport position via mousemove, feeding
+// lastPointerX/lastPointerY above. A no-op if already tracking, so show()
+// re-entering for a hand-off between two anchors (hideTooltip() then a new
+// show()) doesn't tear down and rebuild the listener for no reason. Scoped
+// to only run while a tooltip is actually shown (started in show(), stopped
+// in hideTooltip() below) rather than for the page's entire lifetime: the
+// only consumer, hide()'s blur branch, is itself unreachable unless a
+// tooltip is already open for the anchor receiving that blur, so tracking
+// any other time would just spend cycles on every page that merely has term
+// links, whether or not their tooltip has ever been shown.
+function startPointerTracking() {
+	if ( pointerTrackerCleanup ) {
+		return;
+	}
+
+	const onMouseMove = ( event ) => {
+		lastPointerX = event.clientX;
+		lastPointerY = event.clientY;
+	};
+
+	document.addEventListener( 'mousemove', onMouseMove, { passive: true } );
+
+	pointerTrackerCleanup = () => {
+		document.removeEventListener( 'mousemove', onMouseMove );
+	};
+}
+
+// Stops the listener above and clears the last known position — a stale
+// position left over from THIS episode must not leak into a blur decision
+// for a later, different anchor's episode.
+function stopPointerTracking() {
+	if ( pointerTrackerCleanup ) {
+		pointerTrackerCleanup();
+		pointerTrackerCleanup = null;
+	}
+
+	lastPointerX = null;
+	lastPointerY = null;
+}
+
 // Returns the anchor that WAS shown (before this call hid it), or null if
 // the tooltip was already hidden. Doesn't touch saaiTapConfirmed itself:
 // show() needs to keep it when re-entering for the SAME anchor (see its own
@@ -306,11 +352,16 @@ function hideTooltip( tooltip = getTooltipElement() ) {
 	// relevant (see hoverExitWatch's own comment) — a pending
 	// watchHoverExit() from hide()'s hover-exit grace shouldn't outlive it:
 	// left running, its next mousemove would re-evaluate a safe zone built
-	// from a DIFFERENT anchor's now-stale `data-saai-shown-for` state.
+	// from a DIFFERENT anchor's now-stale `data-saai-shown-for` state. The
+	// pointer tracker started for this same episode (see
+	// startPointerTracking()'s own comment) is stopped alongside it for the
+	// same reason.
 	if ( hoverExitWatch ) {
 		hoverExitWatch();
 		hoverExitWatch = null;
 	}
+
+	stopPointerTracking();
 
 	if ( ! tooltip || tooltip.hasAttribute( 'hidden' ) ) {
 		return null;
@@ -472,6 +523,13 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 			if ( ! hasPreview( ref ) ) {
 				return;
 			}
+
+			// Started for the whole time this anchor's tooltip is open, not
+			// just once hide() is already deciding what to do with a blur —
+			// blur itself carries no pointer coordinates, so hide()'s blur
+			// branch needs a position already captured from BEFORE that event
+			// fires (see startPointerTracking()'s own comment).
+			startPointerTracking();
 
 			tooltip.textContent = ref.getAttribute( 'data-saai-tooltip' );
 			tooltip.setAttribute(
@@ -714,21 +772,6 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 					dismissTooltip();
 				}
 			} );
-
-			// Kept up to date for the lifetime of the page so hide()'s blur
-			// branch (see its own comment) always has a recent pointer
-			// position to test against the hover safe zone, even though blur
-			// itself carries no coordinates — a listener started only once a
-			// tooltip is already open would miss exactly the movement that
-			// happens right before the blur that needs it.
-			document.addEventListener(
-				'mousemove',
-				( event ) => {
-					lastPointerX = event.clientX;
-					lastPointerY = event.clientY;
-				},
-				{ passive: true }
-			);
 
 			// A tooltip can stay open long enough (up to
 			// TAP_CONFIRMED_EXPIRY_MS on touch, or indefinitely on
