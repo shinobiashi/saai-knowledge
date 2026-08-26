@@ -10,6 +10,28 @@ const TAP_CONFIRMED_EXPIRY_MS = 15000;
 let escapeListenerAttached = false;
 let anchorIdCounter = 0;
 
+// The active mousemove listener from watchHoverExit() below, or null when
+// nothing is being watched. Module-scope since at most one anchor can ever
+// be the singleton tooltip's shown episode at a time, so at most one watch
+// is ever meaningful.
+let hoverExitWatch = null;
+
+// The pointer's last known viewport position while a tooltip is shown, kept
+// up to date by the mousemove listener started/stopped in
+// startPointerTracking()/stopPointerTracking() below — null whenever no
+// tooltip is open, or before the first mousemove of the current episode
+// (e.g. a keyboard-only user who never moves the mouse at all). hide()'s
+// blur branch needs this: a blur event carries no coordinates of its own,
+// but still has to tell a pointer already travelling toward the tooltip
+// (mid-transit through VIEWPORT_MARGIN's gap, not yet over either box)
+// apart from one that's nowhere near it.
+let lastPointerX = null;
+let lastPointerY = null;
+
+// The active mousemove listener from startPointerTracking() below, or null
+// when nothing is being tracked.
+let pointerTrackerCleanup = null;
+
 // Each anchor's touchstart/tap-confirmed expiry is a fresh setTimeout per
 // event, uncoalesced with any timer already pending for that same anchor.
 // Without cancelling the previous one, an earlier touchstart's (or tap's)
@@ -276,6 +298,46 @@ function positionTooltip( tooltip, anchor ) {
 	tooltip.style.top = `${ top - parentRect.top }px`;
 }
 
+// Starts tracking the pointer's viewport position via mousemove, feeding
+// lastPointerX/lastPointerY above. A no-op if already tracking, so show()
+// re-entering for a hand-off between two anchors (hideTooltip() then a new
+// show()) doesn't tear down and rebuild the listener for no reason. Scoped
+// to only run while a tooltip is actually shown (started in show(), stopped
+// in hideTooltip() below) rather than for the page's entire lifetime: the
+// only consumer, hide()'s blur branch, is itself unreachable unless a
+// tooltip is already open for the anchor receiving that blur, so tracking
+// any other time would just spend cycles on every page that merely has term
+// links, whether or not their tooltip has ever been shown.
+function startPointerTracking() {
+	if ( pointerTrackerCleanup ) {
+		return;
+	}
+
+	const onMouseMove = ( event ) => {
+		lastPointerX = event.clientX;
+		lastPointerY = event.clientY;
+	};
+
+	document.addEventListener( 'mousemove', onMouseMove, { passive: true } );
+
+	pointerTrackerCleanup = () => {
+		document.removeEventListener( 'mousemove', onMouseMove );
+	};
+}
+
+// Stops the listener above and clears the last known position — a stale
+// position left over from THIS episode must not leak into a blur decision
+// for a later, different anchor's episode.
+function stopPointerTracking() {
+	if ( pointerTrackerCleanup ) {
+		pointerTrackerCleanup();
+		pointerTrackerCleanup = null;
+	}
+
+	lastPointerX = null;
+	lastPointerY = null;
+}
+
 // Returns the anchor that WAS shown (before this call hid it), or null if
 // the tooltip was already hidden. Doesn't touch saaiTapConfirmed itself:
 // show() needs to keep it when re-entering for the SAME anchor (see its own
@@ -285,6 +347,22 @@ function positionTooltip( tooltip, anchor ) {
 // themselves (show(), hide()) don't force a second getElementById() lookup
 // and reparent check for the same element within the same event handler.
 function hideTooltip( tooltip = getTooltipElement() ) {
+	// Whichever caller is actually ending the shown episode here — the
+	// singleton itself, unconditionally, since at most one watch is ever
+	// relevant (see hoverExitWatch's own comment) — a pending
+	// watchHoverExit() from hide()'s hover-exit grace shouldn't outlive it:
+	// left running, its next mousemove would re-evaluate a safe zone built
+	// from a DIFFERENT anchor's now-stale `data-saai-shown-for` state. The
+	// pointer tracker started for this same episode (see
+	// startPointerTracking()'s own comment) is stopped alongside it for the
+	// same reason.
+	if ( hoverExitWatch ) {
+		hoverExitWatch();
+		hoverExitWatch = null;
+	}
+
+	stopPointerTracking();
+
 	if ( ! tooltip || tooltip.hasAttribute( 'hidden' ) ) {
 		return null;
 	}
@@ -326,6 +404,101 @@ function dismissTooltip( tooltip = getTooltipElement() ) {
 
 	if ( anchor ) {
 		clearTapConfirmed( anchor );
+	}
+}
+
+// Whether (x, y) — a mousemove event's viewport coordinates — falls inside
+// the smallest rectangle containing BOTH the anchor's and the tooltip's
+// current bounding boxes. Recomputed fresh on every call (not cached at
+// watch-start) so a scroll/reflow mid-transit is still measured correctly.
+// This is an approximation of a true "safe polygon" (a pointer resting in
+// an unoccupied corner of that bounding rectangle, when the two boxes
+// aren't already axis-aligned, would still count as safe) — accepted
+// because it only ever errs toward keeping the tooltip open longer than
+// strictly necessary, never toward closing it prematurely out from under a
+// pointer that's still genuinely travelling toward it.
+function isWithinHoverSafeZone( anchor, tooltip, x, y ) {
+	const anchorRect = anchor.getBoundingClientRect();
+	const tooltipRect = tooltip.getBoundingClientRect();
+
+	const left = Math.min( anchorRect.left, tooltipRect.left );
+	const right = Math.max( anchorRect.right, tooltipRect.right );
+	const top = Math.min( anchorRect.top, tooltipRect.top );
+	const bottom = Math.max( anchorRect.bottom, tooltipRect.bottom );
+
+	return x >= left && x <= right && y >= top && y <= bottom;
+}
+
+// Ends the hover-exit watch below the instant (x, y) — a real mousemove
+// position, or the last known one re-checked after some OTHER event moved
+// the boxes under a stationary pointer (see repositionIfShown()'s own call
+// site) — falls outside isWithinHoverSafeZone(). Shared so both triggers
+// apply the exact same verdict.
+function checkHoverExit( tooltip, anchor, x, y ) {
+	if ( isWithinHoverSafeZone( anchor, tooltip, x, y ) ) {
+		return;
+	}
+
+	hoverExitWatch();
+	hoverExitWatch = null;
+
+	if ( anchor.id === tooltip.getAttribute( 'data-saai-shown-for' ) ) {
+		dismissTooltip( tooltip );
+	}
+}
+
+// Defers dismissing `anchor`'s tooltip past the instant its mouseleave
+// fired: mouseleave fires the moment the pointer exits the anchor's own
+// box, before it has necessarily crossed VIEWPORT_MARGIN's gap to reach the
+// tooltip below/above it, and dismissing right then would make it
+// impossible to move the pointer into the tooltip to read more or select
+// its text (WCAG 1.4.13 "Content on Hover or Focus" requires hover-
+// triggered content stay reachable, with no arbitrary time limit on doing
+// so — deliberately NOT a setTimeout-based grace period for that reason).
+// Tracks real pointer position instead: as long as it stays within
+// isWithinHoverSafeZone()'s bounds — which the pointer must cross to reach
+// the tooltip at all — the episode stays open; the instant it doesn't, this
+// is the genuine, unambiguous signal to close. Supersedes needing any
+// listener on the tooltip element itself: this already re-evaluates on
+// every pointer move, including ones over the tooltip's own box (part of
+// the safe zone), so a separate tooltip-mouseleave handler would be
+// redundant.
+//
+// mousemove is NOT the only thing that can move the boxes this watch is
+// measuring, though: repositionIfShown() (a scroll/resize/reflow) can shift
+// the anchor and/or tooltip out from under a pointer that never itself
+// moves, and this watch would otherwise miss that entirely until (if ever)
+// a real mousemove happens to follow — see its own call to checkHoverExit()
+// with the last known position for how that gap is closed.
+//
+// (x, y) is the position at the moment this watch STARTS — the triggering
+// mouseleave/blur's own coordinates (or the last tracked position, for
+// blur, which carries none of its own) — checked immediately rather than
+// only from the next mousemove onward: the pointer can already be outside
+// the safe zone right as this begins (e.g. it left the anchor moving AWAY
+// from the tooltip, then stopped), and waiting for a mousemove that may
+// never come would otherwise leave this watch, and the tooltip, open
+// indefinitely.
+function watchHoverExit( tooltip, anchor, x, y ) {
+	if ( hoverExitWatch ) {
+		hoverExitWatch();
+	}
+
+	const onMouseMove = ( event ) =>
+		checkHoverExit( tooltip, anchor, event.clientX, event.clientY );
+
+	document.addEventListener( 'mousemove', onMouseMove, { passive: true } );
+
+	hoverExitWatch = () =>
+		document.removeEventListener( 'mousemove', onMouseMove );
+
+	// blur's caller (hide()) can reach here with x/y still null — no
+	// mousemove has ever fired for this episode, but tooltip.matches(
+	// ':hover' ) already proved it's currently safe — in which case there's
+	// nothing to check yet; the listener above is enough to catch the real
+	// exit whenever it happens.
+	if ( null !== x && null !== y ) {
+		checkHoverExit( tooltip, anchor, x, y );
 	}
 }
 
@@ -377,6 +550,13 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 				return;
 			}
 
+			// Started for the whole time this anchor's tooltip is open, not
+			// just once hide() is already deciding what to do with a blur —
+			// blur itself carries no pointer coordinates, so hide()'s blur
+			// branch needs a position already captured from BEFORE that event
+			// fires (see startPointerTracking()'s own comment).
+			startPointerTracking();
+
 			tooltip.textContent = ref.getAttribute( 'data-saai-tooltip' );
 			tooltip.setAttribute(
 				'data-saai-shown-for',
@@ -386,7 +566,7 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 			positionTooltip( tooltip, ref );
 			ref.setAttribute( 'aria-expanded', 'true' );
 		},
-		hide() {
+		hide( event ) {
 			const { ref } = getElement();
 			const tooltip = getTooltipElement();
 
@@ -420,6 +600,63 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 				ref.matches( ':hover' ) ||
 				ref.ownerDocument.activeElement === ref
 			) {
+				return;
+			}
+
+			// Only a mouse-triggered mouseleave gets the hover-exit watch
+			// below (see its own comment: mouseleave firing here doesn't by
+			// itself mean the pointer is done with this episode, only that
+			// it's left the anchor's own box — it may still be travelling
+			// toward the tooltip through VIEWPORT_MARGIN's gap). blur
+			// (keyboard focus moving away, e.g. Tab) has no such "pointer
+			// transiting a gap" concern to defer for, and waiting on mouse
+			// movement that may never come — a keyboard-only user's mouse
+			// just sitting still — would otherwise leave this open
+			// indefinitely instead of closing it right away as expected.
+			if ( event && 'mouseleave' === event.type ) {
+				watchHoverExit( tooltip, ref, event.clientX, event.clientY );
+
+				return;
+			}
+
+			// blur otherwise ends the episode immediately (see above) — except
+			// when the pointer is already travelling toward, or resting on,
+			// the tooltip as focus leaves the anchor: tab to a term, then move
+			// the mouse toward the tooltip before tabbing again. That sequence
+			// never starts the watch via the anchor's own mouseleave, because
+			// the activeElement check above keeps returning early for as long
+			// as focus stays on the anchor — so blur is the only event left to
+			// pick it up. Two independent checks both need to pass this
+			// through to watchHoverExit(): tooltip.matches( ':hover' ) alone
+			// misses the pointer still being mid-transit through
+			// VIEWPORT_MARGIN's gap (not yet over the tooltip box), which is
+			// why the safe-zone/lastPointerX check below exists — but relying
+			// on lastPointerX alone regressed the reverse case, a pointer that
+			// was ALREADY resting motionless over the tooltip's position the
+			// entire time focus moved to the anchor: startPointerTracking()
+			// only begins capturing coordinates once show() runs for this
+			// episode, and a pointer that never subsequently moves fires no
+			// mousemove to populate lastPointerX at all, leaving it null even
+			// though the tooltip is genuinely hovered. tooltip.matches(
+			// ':hover' ) still catches that resting case directly, so both
+			// checks are OR'd together. A null lastPointerX with the pointer
+			// truly elsewhere (a keyboard-only user) still fails both checks,
+			// so blur there still dismisses right away instead of waiting on
+			// mouse movement that may never come.
+			if (
+				event &&
+				'blur' === event.type &&
+				( tooltip.matches( ':hover' ) ||
+					( null !== lastPointerX &&
+						isWithinHoverSafeZone(
+							ref,
+							tooltip,
+							lastPointerX,
+							lastPointerY
+						) ) )
+			) {
+				watchHoverExit( tooltip, ref, lastPointerX, lastPointerY );
+
 				return;
 			}
 
@@ -590,6 +827,22 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 
 				if ( tooltip && anchor && ! tooltip.hasAttribute( 'hidden' ) ) {
 					positionTooltip( tooltip, anchor );
+
+					// A pending hover-exit watch (see watchHoverExit()'s own
+					// comment) only re-evaluates on mousemove — this
+					// reposition can itself move the anchor/tooltip away from
+					// a pointer that never moves at all, which a mousemove-only
+					// check would miss until (if ever) a real one follows.
+					// Re-check against the pointer's last known position
+					// immediately instead of waiting for that.
+					if ( hoverExitWatch && null !== lastPointerX ) {
+						checkHoverExit(
+							tooltip,
+							anchor,
+							lastPointerX,
+							lastPointerY
+						);
+					}
 				}
 			};
 

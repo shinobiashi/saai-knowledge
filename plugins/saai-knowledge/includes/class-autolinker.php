@@ -139,6 +139,26 @@ final class Autolinker {
 	private $has_rendered_links = false;
 
 	/**
+	 * Guards get_cached_dictionary_entries() against reentrant rebuilds.
+	 * build_dictionary_entries() calls entry_excerpt(), which calls
+	 * get_the_excerpt() for a term with a manual excerpt — and process() is
+	 * documented (docs/DESIGN-HOOKS-API.md section 5) as a generic public
+	 * entry point third-party code (a `get_the_excerpt` callback, e.g. the
+	 * paid add-on) can apply from ANY filter. If it does, that reentrant
+	 * process() call reaches dictionary_for_context() while the ORIGINAL
+	 * build is still running and hasn't cached/persisted anything yet,
+	 * triggering a second full build — which hits the same term again and
+	 * recurses without end, exhausting memory. Set for the duration of one
+	 * real build; a reentrant call sees it true and returns an empty
+	 * dictionary instead of rebuilding, safely short-circuiting the cycle
+	 * (that reentrant process() call then has nothing to link against, per
+	 * the `! $entries` check below it).
+	 *
+	 * @var bool
+	 */
+	private $building_dictionary = false;
+
+	/**
 	 * Hooks the auto-link engine into WordPress.
 	 */
 	public function register(): void {
@@ -146,6 +166,51 @@ final class Autolinker {
 		add_action( 'save_post_saai_glossary', array( $this, 'handle_glossary_saved' ) );
 		add_action( 'deleted_post', array( $this, 'handle_post_deleted' ), 10, 2 );
 		add_action( 'admin_notices', array( $this, 'render_dictionary_truncated_notice' ) );
+	}
+
+	/**
+	 * Whether core's wp_trim_excerpt() is presently, actually executing
+	 * somewhere in the current call stack. See process()'s own docblock for
+	 * why filter-name/priority signals (doing_filter(), current_filter(),
+	 * or bracketing `get_the_excerpt` callbacks at priorities either side of
+	 * core's own priority-10 one) can't reliably answer this: any of them
+	 * can also be true for an entirely different callback that merely
+	 * happens to run while `get_the_excerpt`'s filter chain is still in
+	 * progress, or at the same priority as wp_trim_excerpt() itself.
+	 * Checking for the function BY NAME sidesteps all of that — it can only
+	 * be true while wp_trim_excerpt()'s own stack frame genuinely hasn't
+	 * returned yet, regardless of what priority anything is registered at or
+	 * what order callbacks ran in.
+	 *
+	 * Only called from behind a `doing_filter( 'get_the_excerpt' )` check
+	 * (process()'s own guard): debug_backtrace() isn't free, but the
+	 * overwhelming majority of process()/process_content() calls — a normal
+	 * page's own `the_content` rendering, with no excerpt anywhere on the
+	 * stack — never reach this at all.
+	 *
+	 * @return bool
+	 */
+	private function is_inside_wp_trim_excerpt(): bool {
+		// DEBUG_BACKTRACE_IGNORE_ARGS: this only needs function names, not
+		// the arguments each frame was called with (which can include whole
+		// WP_Post objects/large content strings — needless copies here). No
+		// depth limit: process()/process_content() are NOT always a fixed,
+		// small number of frames below wp_trim_excerpt()'s own
+		// apply_filters( 'the_content', ... ) call — a dynamic block deep
+		// inside that pass reaches process() through WP_Block::render()'s
+		// own recursion for each level of nested inner blocks, which has no
+		// fixed depth. A bounded limit here would silently stop "seeing"
+		// wp_trim_excerpt() past that depth, letting a discardable excerpt
+		// pass get auto-linked (and has_rendered_links() wrongly flip true)
+		// exactly like the bug this whole guard exists to prevent.
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_debug_backtrace -- Not leftover debug code: used at runtime to detect wp_trim_excerpt() on the call stack, see this method's own docblock.
+		foreach ( debug_backtrace( DEBUG_BACKTRACE_IGNORE_ARGS ) as $frame ) {
+			if ( 'wp_trim_excerpt' === $frame['function'] && ! isset( $frame['class'] ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
@@ -192,20 +257,59 @@ final class Autolinker {
 	 * supported way to apply auto-linking outside the free version's own
 	 * post types (e.g. a WooCommerce product description filter).
 	 *
-	 * Skipped while `wp_trim_excerpt()` is running (detected via
-	 * `doing_filter( 'get_the_excerpt' )` — core hooks wp_trim_excerpt() onto
-	 * the `get_the_excerpt` filter, and it applies `the_content` to the full
-	 * post content internally just to strip shortcodes/blocks before
-	 * `wp_trim_words()` discards all tags, including any term link this
-	 * service would insert): auto-linking that content would set
+	 * Skipped specifically while `wp_trim_excerpt()`'s own internal,
+	 * discardable `the_content` pass is running — not any time
+	 * `get_the_excerpt()` merely happens to be somewhere on the call stack.
+	 * Core hooks wp_trim_excerpt() onto the `get_the_excerpt` filter; when
+	 * the post has no manual excerpt, that function applies `the_content` to
+	 * the full post content internally just to strip shortcodes/blocks
+	 * before `wp_trim_words()` discards all tags, including any term link
+	 * this service would insert. Auto-linking that content would set
 	 * has_rendered_links() true from links nothing ever renders, causing
 	 * Tooltip::render() to needlessly enqueue its module/style/singleton
 	 * element on archive/listing pages whose only auto-linkable content is
-	 * an automatic excerpt. Checked here rather than only in
-	 * process_content() (the free version's own `the_content` callback) so
-	 * every caller of this public entry point — including a paid add-on
-	 * invoking it directly from its own excerpt-style rendering — gets the
-	 * same protection.
+	 * an automatic excerpt.
+	 *
+	 * `doing_filter( 'get_the_excerpt' )` alone is NOT a reliable proxy for
+	 * that specific pass: get_the_excerpt() also carries a post's MANUAL
+	 * excerpt through the same filter, and wp_trim_excerpt() never touches
+	 * `the_content` at all when the excerpt is non-empty (it returns the raw
+	 * excerpt text as-is, just word-trimmed) — so any OTHER caller invoking
+	 * this public entry point on real, displayed manual-excerpt HTML (e.g.
+	 * a future `get_the_excerpt` callback, or the paid add-on's own
+	 * excerpt-style rendering) while get_the_excerpt() happens to still be
+	 * executing further up the call stack would have its genuine autolinking
+	 * silently suppressed by a bare `doing_filter( 'get_the_excerpt' )`
+	 * check. Nor can `current_filter()`, `doing_filter( 'the_content' )`, or
+	 * bracketing `get_the_excerpt` callbacks at priorities either side of
+	 * core's own priority-10 wp_trim_excerpt() reliably narrow this further:
+	 * every one of those infers wp_trim_excerpt()'s execution from filter
+	 * NAMES and PRIORITIES on a stack shared with arbitrary other code, and
+	 * each can also be satisfied by some entirely different callback that
+	 * merely happens to run while `get_the_excerpt`'s filter chain is still
+	 * in progress overall — including another callback registered at the
+	 * very same priority 10, since `WP_Hook::apply_filters()` runs
+	 * same-priority callbacks in registration order, not just one at a time.
+	 *
+	 * is_inside_wp_trim_excerpt() sidesteps all of that by checking for
+	 * wp_trim_excerpt() BY NAME on the actual call stack instead — see its
+	 * own docblock.
+	 *
+	 * A reentrant call while building_dictionary is true (see its own
+	 * comment) is short-circuited HERE, before anything else runs, rather
+	 * than only inside get_cached_dictionary_entries() returning an empty
+	 * base dictionary: dictionary_for_context() applies the public
+	 * `saai_autolink_dictionary` filter to whatever get_cached_dictionary_entries()
+	 * returns, and a callback on that filter can replace an empty array
+	 * with its own non-empty entries regardless of input. Left unguarded
+	 * here, the reentrant call would then genuinely call replace_in_html()
+	 * against that filtered dictionary — flipping has_rendered_links() true
+	 * from a link that never survives past entry_excerpt()'s own
+	 * wp_strip_all_tags() call, causing Tooltip::render() to needlessly
+	 * enqueue its module/style/singleton element on a page with no term
+	 * link actually rendered anywhere. Skipping process() entirely here
+	 * guarantees a reentrant call has zero side effects, independent of
+	 * whatever any downstream filter chooses to do.
 	 *
 	 * @param string               $html    HTML to auto-link.
 	 * @param array<string, mixed> $context Context: `post_id` (int, optional) and
@@ -214,7 +318,11 @@ final class Autolinker {
 	 * @return string
 	 */
 	public function process( string $html, array $context = array() ): string {
-		if ( '' === $html || doing_filter( 'get_the_excerpt' ) ) {
+		if (
+			'' === $html ||
+			$this->building_dictionary ||
+			( doing_filter( 'get_the_excerpt' ) && $this->is_inside_wp_trim_excerpt() )
+		) {
 			return $html;
 		}
 
@@ -497,7 +605,20 @@ final class Autolinker {
 			return $stored['entries'];
 		}
 
-		$entries = $this->build_dictionary_entries();
+		// See building_dictionary's own comment for why this reentrancy can
+		// happen at all and why returning empty here (rather than rebuilding)
+		// is the safe way to break the cycle.
+		if ( $this->building_dictionary ) {
+			return array();
+		}
+
+		$this->building_dictionary = true;
+
+		try {
+			$entries = $this->build_dictionary_entries();
+		} finally {
+			$this->building_dictionary = false;
+		}
 
 		update_option(
 			self::DICTIONARY_OPTION,
