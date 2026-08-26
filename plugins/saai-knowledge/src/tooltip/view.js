@@ -429,6 +429,24 @@ function isWithinHoverSafeZone( anchor, tooltip, x, y ) {
 	return x >= left && x <= right && y >= top && y <= bottom;
 }
 
+// Ends the hover-exit watch below the instant (x, y) — a real mousemove
+// position, or the last known one re-checked after some OTHER event moved
+// the boxes under a stationary pointer (see repositionIfShown()'s own call
+// site) — falls outside isWithinHoverSafeZone(). Shared so both triggers
+// apply the exact same verdict.
+function checkHoverExit( tooltip, anchor, x, y ) {
+	if ( isWithinHoverSafeZone( anchor, tooltip, x, y ) ) {
+		return;
+	}
+
+	hoverExitWatch();
+	hoverExitWatch = null;
+
+	if ( anchor.id === tooltip.getAttribute( 'data-saai-shown-for' ) ) {
+		dismissTooltip( tooltip );
+	}
+}
+
 // Defers dismissing `anchor`'s tooltip past the instant its mouseleave
 // fired: mouseleave fires the moment the pointer exits the anchor's own
 // box, before it has necessarily crossed VIEWPORT_MARGIN's gap to reach the
@@ -445,30 +463,20 @@ function isWithinHoverSafeZone( anchor, tooltip, x, y ) {
 // every pointer move, including ones over the tooltip's own box (part of
 // the safe zone), so a separate tooltip-mouseleave handler would be
 // redundant.
+//
+// mousemove is NOT the only thing that can move the boxes this watch is
+// measuring, though: repositionIfShown() (a scroll/resize/reflow) can shift
+// the anchor and/or tooltip out from under a pointer that never itself
+// moves, and this watch would otherwise miss that entirely until (if ever)
+// a real mousemove happens to follow — see its own call to checkHoverExit()
+// with the last known position for how that gap is closed.
 function watchHoverExit( tooltip, anchor ) {
 	if ( hoverExitWatch ) {
 		hoverExitWatch();
 	}
 
-	const onMouseMove = ( event ) => {
-		if (
-			isWithinHoverSafeZone(
-				anchor,
-				tooltip,
-				event.clientX,
-				event.clientY
-			)
-		) {
-			return;
-		}
-
-		hoverExitWatch();
-		hoverExitWatch = null;
-
-		if ( anchor.id === tooltip.getAttribute( 'data-saai-shown-for' ) ) {
-			dismissTooltip( tooltip );
-		}
-	};
+	const onMouseMove = ( event ) =>
+		checkHoverExit( tooltip, anchor, event.clientX, event.clientY );
 
 	document.addEventListener( 'mousemove', onMouseMove, { passive: true } );
 
@@ -801,6 +809,22 @@ const { actions } = store( 'saai-knowledge/tooltip', {
 
 				if ( tooltip && anchor && ! tooltip.hasAttribute( 'hidden' ) ) {
 					positionTooltip( tooltip, anchor );
+
+					// A pending hover-exit watch (see watchHoverExit()'s own
+					// comment) only re-evaluates on mousemove — this
+					// reposition can itself move the anchor/tooltip away from
+					// a pointer that never moves at all, which a mousemove-only
+					// check would miss until (if ever) a real one follows.
+					// Re-check against the pointer's last known position
+					// immediately instead of waiting for that.
+					if ( hoverExitWatch && null !== lastPointerX ) {
+						checkHoverExit(
+							tooltip,
+							anchor,
+							lastPointerX,
+							lastPointerY
+						);
+					}
 				}
 			};
 
