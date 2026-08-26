@@ -193,13 +193,18 @@ final class Autolinker {
 	private function is_inside_wp_trim_excerpt(): bool {
 		// DEBUG_BACKTRACE_IGNORE_ARGS: this only needs function names, not
 		// the arguments each frame was called with (which can include whole
-		// WP_Post objects/large content strings — needless copies here).
-		// A generous but bounded limit: process()/process_content() are only
-		// ever a fixed, small number of frames below wp_trim_excerpt()'s own
-		// apply_filters( 'the_content', ... ) call, regardless of how deeply
-		// nested the ORIGINAL get_the_excerpt()/get_the_excerpt caller is.
+		// WP_Post objects/large content strings — needless copies here). No
+		// depth limit: process()/process_content() are NOT always a fixed,
+		// small number of frames below wp_trim_excerpt()'s own
+		// apply_filters( 'the_content', ... ) call — a dynamic block deep
+		// inside that pass reaches process() through WP_Block::render()'s
+		// own recursion for each level of nested inner blocks, which has no
+		// fixed depth. A bounded limit here would silently stop "seeing"
+		// wp_trim_excerpt() past that depth, letting a discardable excerpt
+		// pass get auto-linked (and has_rendered_links() wrongly flip true)
+		// exactly like the bug this whole guard exists to prevent.
 		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_debug_backtrace -- Not leftover debug code: used at runtime to detect wp_trim_excerpt() on the call stack, see this method's own docblock.
-		foreach ( debug_backtrace( DEBUG_BACKTRACE_IGNORE_ARGS, 30 ) as $frame ) {
+		foreach ( debug_backtrace( DEBUG_BACKTRACE_IGNORE_ARGS ) as $frame ) {
 			if ( 'wp_trim_excerpt' === $frame['function'] && ! isset( $frame['class'] ) ) {
 				return true;
 			}
@@ -290,6 +295,22 @@ final class Autolinker {
 	 * wp_trim_excerpt() BY NAME on the actual call stack instead — see its
 	 * own docblock.
 	 *
+	 * A reentrant call while building_dictionary is true (see its own
+	 * comment) is short-circuited HERE, before anything else runs, rather
+	 * than only inside get_cached_dictionary_entries() returning an empty
+	 * base dictionary: dictionary_for_context() applies the public
+	 * `saai_autolink_dictionary` filter to whatever get_cached_dictionary_entries()
+	 * returns, and a callback on that filter can replace an empty array
+	 * with its own non-empty entries regardless of input. Left unguarded
+	 * here, the reentrant call would then genuinely call replace_in_html()
+	 * against that filtered dictionary — flipping has_rendered_links() true
+	 * from a link that never survives past entry_excerpt()'s own
+	 * wp_strip_all_tags() call, causing Tooltip::render() to needlessly
+	 * enqueue its module/style/singleton element on a page with no term
+	 * link actually rendered anywhere. Skipping process() entirely here
+	 * guarantees a reentrant call has zero side effects, independent of
+	 * whatever any downstream filter chooses to do.
+	 *
 	 * @param string               $html    HTML to auto-link.
 	 * @param array<string, mixed> $context Context: `post_id` (int, optional) and
 	 *                                      `post_type` (string, optional). Passed through
@@ -297,7 +318,11 @@ final class Autolinker {
 	 * @return string
 	 */
 	public function process( string $html, array $context = array() ): string {
-		if ( '' === $html || ( doing_filter( 'get_the_excerpt' ) && $this->is_inside_wp_trim_excerpt() ) ) {
+		if (
+			'' === $html ||
+			$this->building_dictionary ||
+			( doing_filter( 'get_the_excerpt' ) && $this->is_inside_wp_trim_excerpt() )
+		) {
 			return $html;
 		}
 
