@@ -151,6 +151,24 @@ class Test_Search extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Titles/excerpts must come back plain-text decoded, not as the raw HTML
+	 * entity references get_the_title()/get_the_excerpt() produce — the REST
+	 * response is consumed by JS via textContent, which does not decode them.
+	 */
+	public function test_results_decodes_html_entities_in_title_and_excerpt() {
+		$this->create_post(
+			'saai_faq',
+			'Widgets & Gadgets',
+			array( 'post_excerpt' => 'Mentions R&D for excerpt purposes.' )
+		);
+
+		$results = $this->search->results( 'Widgets', array( 'faq' ), 10 );
+
+		$this->assertSame( 'Widgets & Gadgets', $results[0]['title'] );
+		$this->assertStringContainsString( 'R&D', $results[0]['excerpt'] );
+	}
+
+	/**
 	 * The `types` filter should actually exclude non-selected types, not
 	 * just label results.
 	 */

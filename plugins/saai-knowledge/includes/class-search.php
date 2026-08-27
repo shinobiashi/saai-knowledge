@@ -234,12 +234,17 @@ final class Search {
 				continue;
 			}
 
+			// get_the_title()/get_the_excerpt() encode characters as HTML
+			// references (the_title/get_the_excerpt filters); decode them
+			// since this is plain-text JSON consumed via JS textContent, not
+			// an HTML sink (see class-glossary-term.php for the same pattern
+			// applied to JSON-LD output).
 			$results[] = array(
 				'id'      => $post->ID,
 				'type'    => $type_key,
-				'title'   => get_the_title( $post ),
+				'title'   => html_entity_decode( wp_strip_all_tags( get_the_title( $post ) ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' ),
 				'url'     => (string) get_permalink( $post ),
-				'excerpt' => wp_strip_all_tags( get_the_excerpt( $post ) ),
+				'excerpt' => html_entity_decode( wp_strip_all_tags( get_the_excerpt( $post ) ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' ),
 			);
 		}
 
