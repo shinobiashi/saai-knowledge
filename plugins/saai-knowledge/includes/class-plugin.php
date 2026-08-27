@@ -70,6 +70,7 @@ final class Plugin {
 		( new Faq_List() )->register();
 		( new Faq_Question() )->register();
 		( new Glossary_Term() )->register();
+		( new Search() )->register();
 		( new Blocks() )->register();
 		( new Shortcodes() )->register();
 

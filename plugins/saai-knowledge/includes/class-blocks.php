@@ -25,6 +25,7 @@ final class Blocks {
 		'breadcrumbs',
 		'faq-list',
 		'glossary-index',
+		'search',
 	);
 
 	/**
