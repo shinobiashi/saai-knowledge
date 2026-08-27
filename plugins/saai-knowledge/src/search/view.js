@@ -3,6 +3,7 @@ import {
 	getContext,
 	getElement,
 	getConfig,
+	withScope,
 } from '@wordpress/interactivity';
 
 import './style.scss';
@@ -32,10 +33,12 @@ function clearChildren( element ) {
 	}
 }
 
-// Results arrive already grouped by relevance, not by type; re-render them
-// grouped by type (consecutive same-type runs get one heading) per
-// docs/DESIGN.md section 4.4. Built with createElement/textContent, never
-// innerHTML, since result titles/excerpts are untrusted third-party content.
+// Results arrive ordered by relevance, not by type; partition into one group
+// per type (in order of each type's first, most-relevant appearance) per
+// docs/DESIGN.md section 4.4 — a plain consecutive-run merge would split a
+// type into multiple groups whenever relevance interleaves types. Built with
+// createElement/textContent, never innerHTML, since result titles/excerpts
+// are untrusted third-party content.
 function renderResults( results ) {
 	const container = resultsContainer();
 
@@ -47,48 +50,45 @@ function renderResults( results ) {
 
 	const { typeLabels = {} } = getConfig( 'saai-knowledge/search' );
 
-	let lastType = null;
+	const groups = new Map();
 
 	results.forEach( ( result ) => {
-		if ( result.type !== lastType ) {
-			lastType = result.type;
-
-			const heading = document.createElement( 'li' );
-			heading.className = 'saai-search__group-title';
-			heading.setAttribute( 'role', 'presentation' );
-			heading.textContent = typeLabels[ result.type ] ?? result.type;
-			container.appendChild( heading );
+		if ( ! groups.has( result.type ) ) {
+			groups.set( result.type, [] );
 		}
 
-		const item = document.createElement( 'li' );
-		item.className = 'saai-search__item';
-		item.setAttribute( 'role', 'option' );
+		groups.get( result.type ).push( result );
+	} );
 
-		const link = document.createElement( 'a' );
-		link.href = result.url;
-		link.textContent = result.title;
-		item.appendChild( link );
+	groups.forEach( ( items, type ) => {
+		const heading = document.createElement( 'li' );
+		heading.className = 'saai-search__group-title';
+		heading.textContent = typeLabels[ type ] ?? type;
+		container.appendChild( heading );
 
-		if ( result.excerpt ) {
-			const excerpt = document.createElement( 'span' );
-			excerpt.className = 'saai-search__item-excerpt';
-			excerpt.textContent = result.excerpt;
-			item.appendChild( excerpt );
-		}
+		items.forEach( ( result ) => {
+			const item = document.createElement( 'li' );
+			item.className = 'saai-search__item';
 
-		container.appendChild( item );
+			const link = document.createElement( 'a' );
+			link.href = result.url;
+			link.textContent = result.title;
+			item.appendChild( link );
+
+			if ( result.excerpt ) {
+				const excerpt = document.createElement( 'span' );
+				excerpt.className = 'saai-search__item-excerpt';
+				excerpt.textContent = result.excerpt;
+				item.appendChild( excerpt );
+			}
+
+			container.appendChild( item );
+		} );
 	} );
 }
 
 const { actions } = store( 'saai-knowledge/search', {
 	state: {
-		get hasResults() {
-			const context = getContext();
-
-			return (
-				Array.isArray( context.results ) && context.results.length > 0
-			);
-		},
 		get statusText() {
 			const context = getContext();
 			const { statusText = {} } = getConfig( 'saai-knowledge/search' );
@@ -108,20 +108,36 @@ const { actions } = store( 'saai-knowledge/search', {
 				clearTimeout( existingTimer );
 			}
 
+			// Abort immediately, on every keystroke, so a stale in-flight
+			// response can never land after newer input — waiting for the
+			// next debounce to fire (search() aborts too) would leave a
+			// window where an older response is still the "current" one.
+			activeRequests.get( context )?.abort();
+
 			if ( '' === context.query.trim() ) {
-				activeRequests.get( context )?.abort();
 				context.results = [];
 				context.status = 'idle';
 				renderResults( context.results );
 				return;
 			}
 
+			// setTimeout runs outside any Interactivity scope, so getContext()/
+			// getElement() would throw once the timer fires — withScope()
+			// re-establishes the scope active right now (see @wordpress/
+			// interactivity's own guidance for setTimeout-deferred actions).
 			debounceTimers.set(
 				context,
-				setTimeout( () => actions.search(), DEBOUNCE_MS )
+				setTimeout(
+					withScope( () => actions.search() ),
+					DEBOUNCE_MS
+				)
 			);
 		},
-		async search() {
+		// A generator, not an async function: withScope() only restores scope
+		// around each step up to the next yield, so getElement() inside
+		// renderResults() (called after the fetch resolves) still has a valid
+		// scope. A plain `await` would lose scope the moment it suspends.
+		*search() {
 			const context = getContext();
 			const query = context.query.trim();
 
@@ -142,7 +158,7 @@ const { actions } = store( 'saai-knowledge/search', {
 			url.searchParams.set( 'per_page', String( context.perPage ?? 5 ) );
 
 			try {
-				const response = await window.fetch( url.toString(), {
+				const response = yield window.fetch( url.toString(), {
 					signal: controller.signal,
 					headers: { Accept: 'application/json' },
 				} );
@@ -153,7 +169,7 @@ const { actions } = store( 'saai-knowledge/search', {
 					);
 				}
 
-				const results = await response.json();
+				const results = yield response.json();
 
 				// A later keystroke may have started a newer request while this
 				// one was in flight; only the still-current controller's result

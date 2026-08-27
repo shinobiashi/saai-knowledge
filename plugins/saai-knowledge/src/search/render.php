@@ -70,10 +70,10 @@ printf(
 	'<div %1$s>' .
 		'<div class="saai-search__field">' .
 			'<label class="screen-reader-text" for="%2$s">%3$s</label>' .
-			'<input type="search" id="%2$s" class="saai-search__input" placeholder="%4$s" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="%5$s" aria-autocomplete="list" data-wp-on--input="actions.onInput" data-wp-bind--aria-expanded="state.hasResults">' .
+			'<input type="search" id="%2$s" class="saai-search__input" placeholder="%4$s" autocomplete="off" aria-controls="%5$s" data-wp-on--input="actions.onInput">' .
 		'</div>' .
 		'<p class="saai-search__status" id="%6$s" role="status" aria-live="polite" data-wp-text="state.statusText"></p>' .
-		'<ul class="saai-search__results" id="%5$s" role="listbox"></ul>' .
+		'<ul class="saai-search__results" id="%5$s"></ul>' .
 	'</div>',
 	$saai_wrapper_attributes, // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- get_block_wrapper_attributes() already escapes.
 	esc_attr( $saai_input_id ),

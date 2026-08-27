@@ -59,35 +59,46 @@ final class Search {
 			self::NAMESPACE_ROUTE,
 			self::ROUTE,
 			array(
-				'methods'             => \WP_REST_Server::READABLE,
-				'callback'            => array( $this, 'handle_request' ),
-				'permission_callback' => '__return_true',
-				'args'                => array(
-					'query'    => array(
-						'description'       => __( 'Search query string.', 'saai-knowledge' ),
-						'type'              => 'string',
-						'required'          => true,
-						'sanitize_callback' => 'sanitize_text_field',
-						'validate_callback' => 'rest_validate_request_arg',
-					),
-					'types'    => array(
-						'description'       => __( 'Comma-separated content types to search (e.g. faq,kb,glossary). Defaults to all registered types.', 'saai-knowledge' ),
-						'type'              => 'string',
-						'default'           => '',
-						'sanitize_callback' => 'sanitize_text_field',
-						'validate_callback' => 'rest_validate_request_arg',
-					),
-					'per_page' => array(
-						'description'       => __( 'Maximum number of results to return.', 'saai-knowledge' ),
-						'type'              => 'integer',
-						'default'           => self::DEFAULT_PER_PAGE,
-						'minimum'           => 1,
-						'maximum'           => self::MAX_PER_PAGE,
-						'sanitize_callback' => 'absint',
-						'validate_callback' => 'rest_validate_request_arg',
+				// A numeric-keyed handler entry, with 'schema' as a sibling
+				// route option: register_rest_route() only special-cases a
+				// bare `array( 'callback' => ..., 'schema' => ... )` shape by
+				// hoisting 'args' out before wrapping it as the single
+				// handler — 'schema' has no such hoisting, so nesting it
+				// alongside 'callback' would bury it inside the handler
+				// entry, where WP_REST_Server::get_data_for_route() never
+				// looks (it reads route_options, populated only from
+				// non-numeric siblings of the handler array).
+				array(
+					'methods'             => \WP_REST_Server::READABLE,
+					'callback'            => array( $this, 'handle_request' ),
+					'permission_callback' => '__return_true',
+					'args'                => array(
+						'query'    => array(
+							'description'       => __( 'Search query string.', 'saai-knowledge' ),
+							'type'              => 'string',
+							'required'          => true,
+							'sanitize_callback' => 'sanitize_text_field',
+							'validate_callback' => 'rest_validate_request_arg',
+						),
+						'types'    => array(
+							'description'       => __( 'Comma-separated content types to search (e.g. faq,kb,glossary). Defaults to all registered types.', 'saai-knowledge' ),
+							'type'              => 'string',
+							'default'           => '',
+							'sanitize_callback' => 'sanitize_text_field',
+							'validate_callback' => 'rest_validate_request_arg',
+						),
+						'per_page' => array(
+							'description'       => __( 'Maximum number of results to return.', 'saai-knowledge' ),
+							'type'              => 'integer',
+							'default'           => self::DEFAULT_PER_PAGE,
+							'minimum'           => 1,
+							'maximum'           => self::MAX_PER_PAGE,
+							'sanitize_callback' => 'absint',
+							'validate_callback' => 'rest_validate_request_arg',
+						),
 					),
 				),
-				'schema'              => array( $this, 'item_schema' ),
+				'schema' => array( $this, 'item_schema' ),
 			)
 		);
 	}

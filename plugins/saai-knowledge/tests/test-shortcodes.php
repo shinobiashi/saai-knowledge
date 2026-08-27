@@ -19,6 +19,7 @@ class Test_Shortcodes extends WP_UnitTestCase {
 		$this->assertTrue( shortcode_exists( 'saai_breadcrumbs' ) );
 		$this->assertTrue( shortcode_exists( 'saai_faq' ) );
 		$this->assertTrue( shortcode_exists( 'saai_glossary' ) );
+		$this->assertTrue( shortcode_exists( 'saai_search' ) );
 	}
 
 	/**
