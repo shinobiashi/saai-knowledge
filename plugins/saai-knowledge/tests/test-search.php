@@ -27,6 +27,16 @@ class Test_Search extends WP_UnitTestCase {
 	private $server;
 
 	/**
+	 * The global `$wp_rest_server` value before set_up() replaced it, so
+	 * tear_down() can restore it (rest_get_server() reuses a non-null global
+	 * as-is, so leaking ours would hand later tests a server pre-populated
+	 * with this class's routes).
+	 *
+	 * @var WP_REST_Server|null
+	 */
+	private $original_wp_rest_server;
+
+	/**
 	 * Sets up the service and REST server under test.
 	 */
 	public function set_up() {
@@ -36,10 +46,23 @@ class Test_Search extends WP_UnitTestCase {
 
 		global $wp_rest_server;
 
+		$this->original_wp_rest_server = $wp_rest_server;
+
 		$wp_rest_server = new WP_REST_Server();
 		$this->server   = $wp_rest_server;
 
 		do_action( 'rest_api_init', $this->server );
+	}
+
+	/**
+	 * Restores the global REST server replaced in set_up().
+	 */
+	public function tear_down() {
+		global $wp_rest_server;
+
+		$wp_rest_server = $this->original_wp_rest_server;
+
+		parent::tear_down();
 	}
 
 	/**

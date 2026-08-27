@@ -33,6 +33,20 @@ function clearChildren( element ) {
 	}
 }
 
+// The saai_search_results filter (and, in principle, a 'post_link'/
+// 'post_type_link' filter behind get_permalink()) is documented as raw,
+// pre-escaping output — a misbehaving callback could return a `javascript:`
+// URL, which would execute on click if assigned to `.href` unchecked.
+function isHttpUrl( url ) {
+	try {
+		return [ 'http:', 'https:' ].includes(
+			new URL( url, window.location.origin ).protocol
+		);
+	} catch {
+		return false;
+	}
+}
+
 // Results arrive ordered by relevance, not by type; partition into one group
 // per type (in order of each type's first, most-relevant appearance) per
 // docs/DESIGN.md section 4.4 — a plain consecutive-run merge would split a
@@ -71,7 +85,9 @@ function renderResults( results ) {
 			item.className = 'saai-search__item';
 
 			const link = document.createElement( 'a' );
-			link.href = result.url;
+			if ( isHttpUrl( result.url ) ) {
+				link.href = result.url;
+			}
 			link.textContent = result.title;
 			item.appendChild( link );
 

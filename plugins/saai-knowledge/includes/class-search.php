@@ -118,12 +118,27 @@ final class Search {
 	}
 
 	/**
+	 * Memoized post_types() result, so a single request's handle_request()
+	 * (which resolves types once via requested_type_keys(), then again
+	 * inside results()) always sees the same registered set, even if the
+	 * saai_search_post_types callback behaves inconsistently across calls
+	 * (e.g. a stateful callback that unhooks itself after running once).
+	 *
+	 * @var array<string, array{post_type: string, label: string}>|null
+	 */
+	private ?array $post_types_cache = null;
+
+	/**
 	 * Registered searchable content types, keyed by the value the `types`
 	 * request param accepts.
 	 *
 	 * @return array<string, array{post_type: string, label: string}>
 	 */
 	public function post_types(): array {
+		if ( null !== $this->post_types_cache ) {
+			return $this->post_types_cache;
+		}
+
 		$default_types = array(
 			'faq'      => array(
 				'post_type' => 'saai_faq',
@@ -149,7 +164,9 @@ final class Search {
 		$types = apply_filters( 'saai_search_post_types', $default_types );
 
 		// @phpstan-ignore ternary.elseUnreachable (PHPStan trusts the docblock @param type above, but a third-party saai_search_post_types callback can violate it at runtime.)
-		return is_array( $types ) ? $types : $default_types;
+		$this->post_types_cache = is_array( $types ) ? $types : $default_types;
+
+		return $this->post_types_cache;
 	}
 
 	/**
