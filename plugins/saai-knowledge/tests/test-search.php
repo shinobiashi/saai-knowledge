@@ -221,6 +221,31 @@ class Test_Search extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A saai_search_query_args callback must not be able to widen this
+	 * public, unauthenticated endpoint past publish/non-password-protected
+	 * content — docs/DESIGN.md section 4.4 fixes post_status to 'publish'.
+	 */
+	public function test_results_query_args_filter_cannot_widen_visibility() {
+		$this->create_post( 'saai_faq', 'Widget secret draft', array( 'post_status' => 'draft' ) );
+		$this->create_post( 'saai_faq', 'Widget secret locked', array( 'post_password' => 'secret' ) );
+
+		$widen_visibility = static function ( array $args ): array {
+			$args['post_status']  = 'any';
+			$args['has_password'] = null;
+
+			return $args;
+		};
+
+		add_filter( 'saai_search_query_args', $widen_visibility );
+
+		$results = $this->search->results( 'Widget', array( 'faq' ), 10 );
+
+		remove_filter( 'saai_search_query_args', $widen_visibility );
+
+		$this->assertSame( array(), $results );
+	}
+
+	/**
 	 * The per_page param should cap the number of results returned.
 	 */
 	public function test_results_respects_per_page() {
@@ -277,6 +302,47 @@ class Test_Search extends WP_UnitTestCase {
 		remove_filter( 'saai_search_results', $tag_results );
 
 		$this->assertTrue( $results[0]['tagged'] );
+	}
+
+	/**
+	 * The memoized post_types() result must not survive past a single
+	 * handle_request() call: this Search instance is the same long-lived
+	 * object across every
+	 * request on a persistent worker (Swoole/FrankenPHP/WP-CLI), so a stale
+	 * cache would keep serving the first request's saai_search_post_types
+	 * snapshot indefinitely.
+	 */
+	public function test_handle_request_does_not_leak_post_types_cache_across_dispatches() {
+		$first_request = new WP_REST_Request( 'GET', '/saai-knowledge/v1/search' );
+		$first_request->set_param( 'query', 'Widget' );
+
+		$this->search->handle_request( $first_request );
+
+		$add_extra_type = static function ( array $types ): array {
+			// Reuses the faq post_type under a new key; avoids depending on
+			// a post type this test suite doesn't otherwise register.
+			$types['extra'] = array(
+				'post_type' => 'saai_faq',
+				'label'     => 'Extra',
+			);
+
+			return $types;
+		};
+
+		add_filter( 'saai_search_post_types', $add_extra_type );
+
+		$this->create_post( 'saai_faq', 'Widget extra' );
+
+		$second_request = new WP_REST_Request( 'GET', '/saai-knowledge/v1/search' );
+		$second_request->set_param( 'query', 'Widget' );
+		$second_request->set_param( 'types', 'extra' );
+
+		$response = $this->search->handle_request( $second_request );
+
+		remove_filter( 'saai_search_post_types', $add_extra_type );
+
+		$this->assertCount( 1, $response->get_data() );
+		$this->assertSame( 'extra', $response->get_data()[0]['type'] );
 	}
 
 	/**

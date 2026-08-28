@@ -111,18 +111,31 @@ final class Search {
 	 */
 	public function handle_request( \WP_REST_Request $request ): \WP_REST_Response {
 		$query    = (string) $request->get_param( 'query' );
-		$types    = $this->requested_type_keys( (string) $request->get_param( 'types' ) );
 		$per_page = (int) $request->get_param( 'per_page' );
 
-		return rest_ensure_response( $this->results( $query, $types, $per_page ) );
+		try {
+			$types = $this->requested_type_keys( (string) $request->get_param( 'types' ) );
+
+			return rest_ensure_response( $this->results( $query, $types, $per_page ) );
+		} finally {
+			// post_types_cache is scoped to this one dispatch (see its own
+			// docblock): this instance is the same long-lived object across
+			// every request on a persistent worker (Swoole/FrankenPHP/WP-CLI),
+			// since Plugin::register_services() constructs it once at boot and
+			// binds handle_request() to it via add_action(). Without clearing
+			// this, the first request's saai_search_post_types snapshot (and
+			// its translated labels) would silently outlive that request.
+			$this->post_types_cache = null;
+		}
 	}
 
 	/**
-	 * Memoized post_types() result, so a single request's handle_request()
-	 * (which resolves types once via requested_type_keys(), then again
-	 * inside results()) always sees the same registered set, even if the
-	 * saai_search_post_types callback behaves inconsistently across calls
-	 * (e.g. a stateful callback that unhooks itself after running once).
+	 * Memoized post_types() result, scoped to a single handle_request()
+	 * dispatch (cleared there in a finally block) so that one call's
+	 * requested_type_keys() and results() agree on the registered set even
+	 * if the saai_search_post_types callback behaves inconsistently across
+	 * calls (e.g. a stateful callback that unhooks itself after running
+	 * once) — without the cache outliving that request.
 	 *
 	 * @var array<string, array{post_type: string, label: string}>|null
 	 */
@@ -245,7 +258,17 @@ final class Search {
 		$query_args = apply_filters( 'saai_search_query_args', $query_args, $query, $types );
 
 		// @phpstan-ignore ternary.elseUnreachable (PHPStan trusts the docblock @param type above, but a third-party saai_search_query_args callback can violate it at runtime.)
-		$wp_query = new \WP_Query( is_array( $query_args ) ? $query_args : array() );
+		$query_args = is_array( $query_args ) ? $query_args : array();
+
+		// Re-pin after the filter: this is a public, unauthenticated REST
+		// endpoint (docs/DESIGN.md section 4.4 fixes post_status to
+		// 'publish'), so a saai_search_query_args callback widening these —
+		// even unintentionally — would leak draft/private/password-protected
+		// titles and excerpts to anonymous requests.
+		$query_args['post_status']  = 'publish';
+		$query_args['has_password'] = false;
+
+		$wp_query = new \WP_Query( $query_args );
 
 		$results = array();
 
