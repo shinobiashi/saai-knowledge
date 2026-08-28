@@ -315,15 +315,15 @@ final class Search {
 	}
 
 	/**
-	 * JSON Schema for one result item, exposed via the route's `schema`
-	 * callback (OPTIONS discovery).
+	 * JSON Schema for the response: an array of result items, exposed via
+	 * the route's `schema` callback (OPTIONS discovery).
 	 *
 	 * @return array<string, mixed>
 	 */
 	public function item_schema(): array {
 		return array(
 			'$schema' => 'http://json-schema.org/draft-04/schema#',
-			'title'   => 'saai-knowledge-search-result',
+			'title'   => 'saai-knowledge-search-results',
 			'type'    => 'array',
 			'items'   => array(
 				'type'       => 'object',
