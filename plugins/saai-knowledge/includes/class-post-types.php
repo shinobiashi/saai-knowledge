@@ -61,7 +61,7 @@ final class Post_Types {
 				'labels'    => $this->labels( __( 'FAQ', 'saai-knowledge' ), __( 'FAQs', 'saai-knowledge' ) ),
 				'menu_icon' => 'dashicons-editor-help',
 				'rewrite'   => array(
-					'slug'       => 'faq',
+					'slug'       => $this->slug( 'slug_faq', 'faq' ),
 					'with_front' => false,
 				),
 			)
@@ -81,7 +81,7 @@ final class Post_Types {
 				'labels'    => $this->labels( __( 'KB Article', 'saai-knowledge' ), __( 'Knowledge Base', 'saai-knowledge' ) ),
 				'menu_icon' => 'dashicons-book',
 				'rewrite'   => array(
-					'slug'       => 'kb',
+					'slug'       => $this->slug( 'slug_kb', 'kb' ),
 					'with_front' => false,
 				),
 			)
@@ -105,11 +105,31 @@ final class Post_Types {
 				'labels'    => $this->labels( __( 'Term', 'saai-knowledge' ), __( 'Glossary', 'saai-knowledge' ) ),
 				'menu_icon' => 'dashicons-open-folder',
 				'rewrite'   => array(
-					'slug'       => 'glossary',
+					'slug'       => $this->slug( 'slug_glossary', 'glossary' ),
 					'with_front' => false,
 				),
 			)
 		);
+	}
+
+	/**
+	 * Reads a post type's rewrite slug from the `saai_knowledge_settings`
+	 * option (docs/DESIGN.md section 3.4); falls back to the built-in slug
+	 * when unset. Same defensive read pattern as
+	 * Breadcrumbs::structured_data_enabled() et al.
+	 *
+	 * @param string $key     Settings array key (e.g. `slug_kb`).
+	 * @param string $fallback Built-in fallback slug.
+	 * @return string
+	 */
+	private function slug( string $key, string $fallback ): string {
+		$settings = get_option( 'saai_knowledge_settings' );
+
+		if ( is_array( $settings ) && isset( $settings[ $key ] ) && is_string( $settings[ $key ] ) && '' !== $settings[ $key ] ) {
+			return $settings[ $key ];
+		}
+
+		return $fallback;
 	}
 
 	/**

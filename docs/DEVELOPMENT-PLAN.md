@@ -122,9 +122,9 @@ M1〜M5 の全タスクは GitHub Issues #1〜#27（マイルストーン M1〜M
 - [ ] Markdown 出力: FAQ/KB/用語の個別ページを `?format=markdown` で提供（`saai_markdown_output` フィルター、キャッシュあり）
 - [ ] llms.txt 連携（第1層+第2層）: SEOプラグイン向け注入アダプター + 自名前空間 Markdown インデックス ※ルート `/llms.txt` の自前生成（第3層）はバックログ
 - [ ] RAG エクスポート: REST `/saai-knowledge/v1/export`（jsonl/json、`modified_after` 増分、KB は h2 セクション配列付き）+ 管理画面 JSONL/CSV ダウンロード
-- [ ] 設定画面（Settings API: スラッグ、自動リンク、構造化データ、AI可読性機能の on/off、アンインストール時削除）
-- [ ] スラッグ変更時の deferred rewrite flush
-- [ ] `uninstall.php` 実装（設定で有効時のみ CPT・メタ・オプション削除）
+- [x] 設定画面（Settings API: スラッグ、自動リンク、構造化データ、アンインストール時削除。AI可読性機能の on/off は Issue #25 で追加予定）
+- [x] スラッグ変更時の deferred rewrite flush
+- [x] `uninstall.php` 実装（設定で有効時のみ CPT・メタ・オプション削除）
 - [ ] i18n: POT 生成、`make-json`、日本語翻訳同梱
 - [ ] セキュリティ監査（`wp-security-check` を実施）
 - [ ] readme.txt（タグ・説明・FAQ・スクリーンショット）、アセット（banner / icon / screenshots）
