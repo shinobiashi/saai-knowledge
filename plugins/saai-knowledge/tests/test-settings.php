@@ -46,12 +46,15 @@ class Test_Settings extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Unknown post type values must be dropped; known ones kept in the
-	 * fixed AUTOLINK_POST_TYPE_CHOICES order.
+	 * Unknown post type values must be dropped, in the field's declared
+	 * `options` order. `saai_glossary` must be dropped too — it's not one of
+	 * the field's offered choices (Autolinker::process() always bails out
+	 * for a saai_glossary post itself, so offering it would be a no-op
+	 * checkbox).
 	 */
 	public function test_sanitize_filters_unknown_post_types() {
 		$sanitized = $this->settings->sanitize(
-			array( 'autolink_post_types' => array( 'saai_faq', 'not-a-real-post-type', 'post' ) )
+			array( 'autolink_post_types' => array( 'saai_faq', 'not-a-real-post-type', 'post', 'saai_glossary' ) )
 		);
 
 		$this->assertSame( array( 'post', 'saai_faq' ), $sanitized['autolink_post_types'] );
@@ -100,6 +103,68 @@ class Test_Settings extends WP_UnitTestCase {
 
 		$this->settings->sanitize( array( 'slug_kb' => 'articles' ) );
 		$this->assertNotFalse( get_option( 'saai_flush_rewrite_rules' ) );
+	}
+
+	/**
+	 * A slug_glossary change must bump saai_dict_generation, invalidating
+	 * Autolinker's cached dictionary (its entries embed get_permalink(),
+	 * which changes when the slug does). An unrelated slug change must not.
+	 */
+	public function test_sanitize_bumps_dictionary_generation_only_on_glossary_slug_change() {
+		update_option( 'saai_dict_generation', 5 );
+
+		$this->settings->sanitize( array( 'slug_kb' => 'articles' ) );
+		$this->assertSame( 5, (int) get_option( 'saai_dict_generation' ) );
+
+		$this->settings->sanitize( array( 'slug_glossary' => 'dictionary' ) );
+		$this->assertSame( 6, (int) get_option( 'saai_dict_generation' ) );
+	}
+
+	/**
+	 * A field a `saai_settings_sections` consumer (e.g. the paid add-on)
+	 * declares must actually be persisted — including its own `sanitize`
+	 * callable — and must survive a later save that doesn't include it in
+	 * $value, instead of being dropped by a fixed, built-in-only key list.
+	 */
+	public function test_sanitize_persists_third_party_section_fields() {
+		$add_default = static function ( array $defaults ): array {
+			$defaults['saai_test_field'] = 'built-in default';
+			return $defaults;
+		};
+		$add_section = static function ( array $sections ): array {
+			$sections['test'] = array(
+				'title'  => 'Test',
+				'fields' => array(
+					'saai_test_field' => array(
+						'type'     => 'text',
+						'label'    => 'Test field',
+						'sanitize' => static function ( $raw, $fallback ) {
+							return is_string( $raw ) ? 'sanitized:' . $raw : $fallback;
+						},
+					),
+				),
+			);
+			return $sections;
+		};
+
+		add_filter( 'saai_default_settings', $add_default );
+		add_filter( 'saai_settings_sections', $add_section );
+
+		try {
+			$sanitized = $this->settings->sanitize( array( 'saai_test_field' => 'raw value' ) );
+			$this->assertSame( 'sanitized:raw value', $sanitized['saai_test_field'] );
+
+			update_option( 'saai_knowledge_settings', $sanitized );
+
+			// A later save that doesn't include this field at all (e.g. a
+			// separate submission of just the built-in fields) must not
+			// reset it back to the default.
+			$sanitized_again = $this->settings->sanitize( array( 'structured_data' => '1' ) );
+			$this->assertSame( 'sanitized:raw value', $sanitized_again['saai_test_field'] );
+		} finally {
+			remove_filter( 'saai_default_settings', $add_default );
+			remove_filter( 'saai_settings_sections', $add_section );
+		}
 	}
 
 	/**
@@ -191,6 +256,22 @@ class Test_Settings extends WP_UnitTestCase {
 		$this->assertNull( get_post( $kb_id ) );
 		$this->assertNull( get_term( $term_id, 'saai_category' ) );
 		$this->assertFalse( get_option( 'saai_knowledge_settings' ) );
+	}
+
+	/**
+	 * `post_status => 'any'` excludes 'trash' (WordPress core registers it
+	 * exclude_from_search), so a trashed FAQ must still be deleted.
+	 */
+	public function test_uninstall_deletes_trashed_posts_when_enabled() {
+		$faq_id = self::factory()->post->create( array( 'post_type' => 'saai_faq' ) );
+		wp_trash_post( $faq_id );
+		$this->assertSame( 'trash', get_post_status( $faq_id ) );
+
+		update_option( 'saai_knowledge_settings', array( 'delete_data_on_uninstall' => true ) );
+
+		$this->run_uninstall();
+
+		$this->assertNull( get_post( $faq_id ) );
 	}
 
 	/**

@@ -52,13 +52,6 @@ final class Settings {
 	private const FLUSH_FLAG_OPTION = 'saai_flush_rewrite_rules';
 
 	/**
-	 * Post types eligible for auto-linking, offered as checkboxes.
-	 *
-	 * @var string[]
-	 */
-	private const AUTOLINK_POST_TYPE_CHOICES = array( 'post', 'page', 'saai_kb', 'saai_faq', 'saai_glossary' );
-
-	/**
 	 * Hooks the admin screen, the auto-link post type filter, and the
 	 * deferred rewrite flush into WordPress.
 	 *
@@ -228,9 +221,16 @@ final class Settings {
 	 * planned for Issue #25, or the paid add-on) can add its own section to
 	 * this same page instead of building a separate one.
 	 *
+	 * Field shape (per docs/DESIGN-HOOKS-API.md section 3.5): `type`, `label`,
+	 * and optionally `default` and a `sanitize` callable of the form
+	 * `function( mixed $raw, mixed $fallback ): mixed`. sanitize() honors
+	 * both — see sanitize()/sanitize_by_type() — so a `saai_settings_sections`
+	 * consumer's fields are actually persisted, not just rendered.
+	 *
 	 * The value is intentionally typed loosely: a `saai_settings_sections`
 	 * callback can return anything, so callers must not assume 'title'/
-	 * 'fields' exist (see the is_array()/isset() guards in register_setting()).
+	 * 'fields' exist (see the is_array()/isset() guards in register_setting()
+	 * and sanitize()).
 	 *
 	 * @return array<string, mixed>
 	 */
@@ -243,16 +243,22 @@ final class Settings {
 						'type'        => 'text',
 						'label'       => __( 'Knowledge Base slug', 'saai-knowledge' ),
 						'description' => __( 'Articles are served at /{slug}/article-name/.', 'saai-knowledge' ),
+						'default'     => 'kb',
+						'sanitize'    => array( $this, 'sanitize_slug' ),
 					),
 					'slug_faq'      => array(
 						'type'        => 'text',
 						'label'       => __( 'FAQ slug', 'saai-knowledge' ),
 						'description' => __( 'The FAQ archive is served at /{slug}/.', 'saai-knowledge' ),
+						'default'     => 'faq',
+						'sanitize'    => array( $this, 'sanitize_slug' ),
 					),
 					'slug_glossary' => array(
 						'type'        => 'text',
 						'label'       => __( 'Glossary slug', 'saai-knowledge' ),
 						'description' => __( 'The glossary index is served at /{slug}/.', 'saai-knowledge' ),
+						'default'     => 'glossary',
+						'sanitize'    => array( $this, 'sanitize_slug' ),
 					),
 				),
 			),
@@ -262,19 +268,25 @@ final class Settings {
 					'autolink_post_types' => array(
 						'type'    => 'checkboxes',
 						'label'   => __( 'Auto-link terms in', 'saai-knowledge' ),
+						// saai_glossary is intentionally absent: Autolinker::process()
+						// always bails out for a saai_glossary post itself (keeping
+						// term definitions free of outgoing auto-links takes
+						// priority — see the comment there), so offering it here
+						// would be a checkbox with no effect.
 						'options' => array(
-							'post'          => __( 'Posts', 'saai-knowledge' ),
-							'page'          => __( 'Pages', 'saai-knowledge' ),
-							'saai_kb'       => __( 'Knowledge Base articles', 'saai-knowledge' ),
-							'saai_faq'      => __( 'FAQs', 'saai-knowledge' ),
-							'saai_glossary' => __( 'Glossary terms', 'saai-knowledge' ),
+							'post'     => __( 'Posts', 'saai-knowledge' ),
+							'page'     => __( 'Pages', 'saai-knowledge' ),
+							'saai_kb'  => __( 'Knowledge Base articles', 'saai-knowledge' ),
+							'saai_faq' => __( 'FAQs', 'saai-knowledge' ),
 						),
+						'default' => array( 'post', 'page', 'saai_kb', 'saai_faq' ),
 					),
 					'autolink_max_links'  => array(
 						'type'        => 'number',
 						'min'         => 1,
 						'label'       => __( 'Maximum links per post', 'saai-knowledge' ),
 						'description' => __( 'A term is only ever linked once per post, regardless of this limit.', 'saai-knowledge' ),
+						'default'     => 20,
 					),
 				),
 			),
@@ -286,6 +298,7 @@ final class Settings {
 						'label'          => __( 'Structured data', 'saai-knowledge' ),
 						'checkbox_label' => __( 'Output FAQPage / QAPage / DefinedTerm / BreadcrumbList JSON-LD', 'saai-knowledge' ),
 						'description'    => __( 'Turn this off if an SEO plugin already outputs this structured data.', 'saai-knowledge' ),
+						'default'        => true,
 					),
 				),
 			),
@@ -296,6 +309,7 @@ final class Settings {
 						'type'           => 'checkbox',
 						'label'          => __( 'Delete data on uninstall', 'saai-knowledge' ),
 						'checkbox_label' => __( 'Permanently delete all FAQs, KB articles, glossary terms, categories, and settings when this plugin is deleted.', 'saai-knowledge' ),
+						'default'        => false,
 					),
 				),
 			),
@@ -359,28 +373,169 @@ final class Settings {
 	 * Sanitizes a submitted settings array; the register_setting()
 	 * sanitize_callback.
 	 *
-	 * Also detects a post type slug change and, if found, flags a deferred
-	 * rewrite flush (see maybe_flush_rewrite_rules()).
+	 * Starts from the previously stored settings (merged with defaults) and
+	 * updates only the fields declared by sections() that are actually
+	 * present in $value — a text/number field absent from the submission
+	 * entirely (as opposed to present-but-empty) keeps its stored value
+	 * rather than resetting to a fallback/default; only checkbox/checkboxes
+	 * fields treat absence itself as meaningful ("unchecked"). This is what
+	 * lets a `saai_settings_sections` consumer's field (e.g. the paid
+	 * add-on's own tab) actually persist through options.php instead of
+	 * being silently dropped by a fixed, built-in-only key list. Each
+	 * field's own `sanitize` callable (per the docs/DESIGN-HOOKS-API.md
+	 * field shape) is honored when present; sanitize_by_type() covers the
+	 * common `type`s otherwise, so a consumer that only sets `type` still
+	 * gets reasonable sanitization for free.
+	 *
+	 * Also detects a slug change and, if found, flags a deferred rewrite
+	 * flush (and, for slug_glossary, an auto-link dictionary rebuild) — see
+	 * finalize_slugs().
 	 *
 	 * @param mixed $value Raw submitted value.
 	 * @return array<string, mixed>
 	 */
 	public function sanitize( $value ): array {
-		$value    = is_array( $value ) ? $value : array();
-		$defaults = $this->defaults();
-		$old      = array_merge( $defaults, $this->stored_settings() );
+		$value     = is_array( $value ) ? $value : array();
+		$defaults  = $this->defaults();
+		$old       = array_merge( $defaults, $this->stored_settings() );
+		$sanitized = $old;
 
-		$sanitized = array(
-			'slug_kb'                  => $this->sanitize_slug( $value['slug_kb'] ?? '', $defaults['slug_kb'] ),
-			'slug_faq'                 => $this->sanitize_slug( $value['slug_faq'] ?? '', $defaults['slug_faq'] ),
-			'slug_glossary'            => $this->sanitize_slug( $value['slug_glossary'] ?? '', $defaults['slug_glossary'] ),
-			'autolink_post_types'      => $this->sanitize_post_types( $value['autolink_post_types'] ?? array() ),
-			'autolink_max_links'       => $this->sanitize_max_links( $value['autolink_max_links'] ?? null, $defaults['autolink_max_links'] ),
-			'structured_data'          => ! empty( $value['structured_data'] ),
-			'delete_data_on_uninstall' => ! empty( $value['delete_data_on_uninstall'] ),
+		foreach ( $this->sections() as $section ) {
+			if ( ! is_array( $section ) || ! isset( $section['fields'] ) || ! is_array( $section['fields'] ) ) {
+				continue;
+			}
+
+			foreach ( $section['fields'] as $field_id => $field ) {
+				if ( ! is_string( $field_id ) || '' === $field_id || ! is_array( $field ) ) {
+					continue;
+				}
+
+				$present = array_key_exists( $field_id, $value );
+				$type    = isset( $field['type'] ) ? (string) $field['type'] : 'text';
+
+				// A checkbox/checkboxes field's key is legitimately absent from
+				// $_POST when unchecked — that absence must still be processed
+				// (as "off"/empty). Any other field type is always submitted by
+				// its <input> when the containing form is, so a genuine absence
+				// means this field isn't part of *this* submission at all (e.g.
+				// it's declared for a different page/form that also targets this
+				// option) — leave its previously stored value alone rather than
+				// resetting it to a fallback/default.
+				if ( ! $present && ! in_array( $type, array( 'checkbox', 'checkboxes' ), true ) ) {
+					continue;
+				}
+
+				$raw      = $present ? $value[ $field_id ] : null;
+				$fallback = array_key_exists( $field_id, $defaults ) ? $defaults[ $field_id ] : ( $field['default'] ?? null );
+
+				if ( isset( $field['sanitize'] ) && is_callable( $field['sanitize'] ) ) {
+					$sanitized[ $field_id ] = call_user_func( $field['sanitize'], $raw, $fallback );
+				} else {
+					$sanitized[ $field_id ] = $this->sanitize_by_type( $field, $raw, $fallback );
+				}
+			}
+		}
+
+		return $this->finalize_slugs( $sanitized, $old );
+	}
+
+	/**
+	 * Generic sanitizer used when a field declares a `type` but no explicit
+	 * `sanitize` callable (see sanitize()).
+	 *
+	 * @param array<string, mixed> $field    Field definition.
+	 * @param mixed                $raw      Raw submitted value.
+	 * @param mixed                $fallback Fallback value for an empty/invalid `number`.
+	 * @return mixed
+	 */
+	private function sanitize_by_type( array $field, $raw, $fallback ) {
+		$type = isset( $field['type'] ) ? (string) $field['type'] : 'text';
+
+		switch ( $type ) {
+			case 'checkbox':
+				return ! empty( $raw );
+
+			case 'checkboxes':
+				if ( ! is_array( $raw ) ) {
+					return array();
+				}
+
+				$clean = array_map(
+					static function ( $item ) {
+						return is_string( $item ) ? sanitize_key( $item ) : '';
+					},
+					$raw
+				);
+
+				// Restrict to the field's own offered choices when it declares
+				// any (e.g. autolink_post_types) — an empty result stays valid,
+				// it just means the feature is off for every eligible type.
+				if ( isset( $field['options'] ) && is_array( $field['options'] ) ) {
+					$allowed = array_map( 'strval', array_keys( $field['options'] ) );
+
+					return array_values( array_intersect( $allowed, $clean ) );
+				}
+
+				return array_values( array_filter( $clean ) );
+
+			case 'number':
+				$value = absint( $raw );
+
+				return $value > 0 ? $value : $fallback;
+
+			default:
+				return is_string( $raw ) ? sanitize_text_field( $raw ) : $fallback;
+		}
+	}
+
+	/**
+	 * Sanitizes a slug field: `sanitize_title()`'d, falling back to the
+	 * default when that leaves nothing (blank input, or input that was only
+	 * punctuation/whitespace). The built-in slug_kb/slug_faq/slug_glossary
+	 * fields wire this in as their `sanitize` callable (see sections()).
+	 *
+	 * @param mixed $raw      Raw submitted value.
+	 * @param mixed $fallback Fallback slug (a non-string here — a corrupted
+	 *                        `saai_default_settings` filter, say — falls
+	 *                        through to '' rather than throwing).
+	 * @return string
+	 */
+	private function sanitize_slug( $raw, $fallback ): string {
+		$slug = sanitize_title( is_string( $raw ) ? $raw : '' );
+
+		if ( '' !== $slug ) {
+			return $slug;
+		}
+
+		return is_string( $fallback ) ? $fallback : '';
+	}
+
+	/**
+	 * Cross-field validation and side effects for the three built-in slug
+	 * fields, run after the per-field loop in sanitize() has populated them.
+	 *
+	 * Rejects a duplicate slug (reverting all three to the previous values)
+	 * and, on a real change, flags a deferred rewrite flush (see
+	 * maybe_flush_rewrite_rules()). A slug_glossary change additionally
+	 * bumps the auto-link dictionary generation: Autolinker's cached
+	 * dictionary (`saai_autolink_dict`) stores each glossary term's
+	 * get_permalink(), which embeds this slug, so leaving it alone would
+	 * keep inserting links to the old (now 404ing) URLs until some unrelated
+	 * glossary term save happened to invalidate it. By the time any
+	 * front-end request actually rebuilds the dictionary, `init` has already
+	 * re-registered saai_glossary with the new slug (same deferred ordering
+	 * as the rewrite flush), so the rebuilt permalinks are correct.
+	 *
+	 * @param array<string, mixed> $sanitized Sanitized settings so far.
+	 * @param array<string, mixed> $old       Previously stored settings (merged with defaults).
+	 * @return array<string, mixed>
+	 */
+	private function finalize_slugs( array $sanitized, array $old ): array {
+		$slugs = array(
+			$sanitized['slug_kb'] ?? $old['slug_kb'],
+			$sanitized['slug_faq'] ?? $old['slug_faq'],
+			$sanitized['slug_glossary'] ?? $old['slug_glossary'],
 		);
-
-		$slugs = array( $sanitized['slug_kb'], $sanitized['slug_faq'], $sanitized['slug_glossary'] );
 
 		if ( count( $slugs ) !== count( array_unique( $slugs ) ) ) {
 			add_settings_error(
@@ -398,57 +553,12 @@ final class Settings {
 			update_option( self::FLUSH_FLAG_OPTION, 1, false );
 		}
 
-		return $sanitized;
-	}
-
-	/**
-	 * Sanitizes a slug field: `sanitize_title()`'d, falling back to the
-	 * default when that leaves nothing (blank input, or input that was only
-	 * punctuation/whitespace).
-	 *
-	 * @param mixed  $raw     Raw submitted value.
-	 * @param string $fallback Fallback slug.
-	 * @return string
-	 */
-	private function sanitize_slug( $raw, string $fallback ): string {
-		$slug = sanitize_title( is_string( $raw ) ? $raw : '' );
-
-		return '' !== $slug ? $slug : $fallback;
-	}
-
-	/**
-	 * Sanitizes the auto-link target post types to a subset of the known
-	 * choices. An empty result is valid — it means auto-linking is off.
-	 *
-	 * @param mixed $raw Raw submitted value.
-	 * @return string[]
-	 */
-	private function sanitize_post_types( $raw ): array {
-		if ( ! is_array( $raw ) ) {
-			return array();
+		if ( $sanitized['slug_glossary'] !== $old['slug_glossary'] ) {
+			$generation = (int) get_option( 'saai_dict_generation', 1 );
+			update_option( 'saai_dict_generation', $generation + 1, false );
 		}
 
-		$clean = array_map(
-			static function ( $post_type ) {
-				return is_string( $post_type ) ? sanitize_key( $post_type ) : '';
-			},
-			$raw
-		);
-
-		return array_values( array_intersect( self::AUTOLINK_POST_TYPE_CHOICES, $clean ) );
-	}
-
-	/**
-	 * Sanitizes the max-links-per-post field to a positive integer.
-	 *
-	 * @param mixed $raw     Raw submitted value.
-	 * @param int   $fallback Fallback value.
-	 * @return int
-	 */
-	private function sanitize_max_links( $raw, int $fallback ): int {
-		$value = absint( $raw );
-
-		return $value > 0 ? $value : $fallback;
+		return $sanitized;
 	}
 
 	/**

@@ -39,7 +39,11 @@ foreach ( array( 'saai_faq', 'saai_kb', 'saai_glossary' ) as $saai_uninstall_pos
 	$saai_uninstall_post_ids = get_posts(
 		array(
 			'post_type'      => $saai_uninstall_post_type,
-			'post_status'    => 'any',
+			// 'any' expands to "every status not registered exclude_from_search",
+			// which excludes 'trash' (WordPress core registers it that way) —
+			// pass every registered status explicitly so a trashed FAQ/KB/term
+			// isn't left behind.
+			'post_status'    => array_keys( get_post_stati() ),
 			'posts_per_page' => -1,
 			'fields'         => 'ids',
 		)
@@ -79,3 +83,12 @@ foreach (
 ) {
 	delete_option( $saai_uninstall_option );
 }
+
+// On a persistent object cache (Redis/Memcached), Autolinker's saai_autolink
+// cache group (dictionary + processed-HTML entries, both wp_cache_set()) would
+// otherwise survive this deletion. A later reinstall starts saai_dict_generation
+// back at 1 — the same value a low-traffic site would still have been on at
+// deletion time — so a stale entry could be served again, re-inserting links to
+// now-deleted glossary terms. wp_cache_flush_group() is a WP 6.1+ core function;
+// this plugin requires WP 6.9+.
+wp_cache_flush_group( 'saai_autolink' );
