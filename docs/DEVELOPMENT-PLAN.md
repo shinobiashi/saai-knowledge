@@ -117,8 +117,8 @@ M1〜M5 の全タスクは GitHub Issues #1〜#27（マイルストーン M1〜M
 
 ### タスク
 
-- [ ] REST 検索エンドポイント `/saai-knowledge/v1/search`（公開コンテンツのみ、スキーマ定義、レート配慮）
-- [ ] `saai-knowledge/search` ブロック（ライブ検索、debounce、タイプ別グルーピング）
+- [x] REST 検索エンドポイント `/saai-knowledge/v1/search`（公開コンテンツのみ、スキーマ定義、レート配慮）
+- [x] `saai-knowledge/search` ブロック（ライブ検索、debounce、タイプ別グルーピング）
 - [ ] Markdown 出力: FAQ/KB/用語の個別ページを `?format=markdown` で提供（`saai_markdown_output` フィルター、キャッシュあり）
 - [ ] llms.txt 連携（第1層+第2層）: SEOプラグイン向け注入アダプター + 自名前空間 Markdown インデックス ※ルート `/llms.txt` の自前生成（第3層）はバックログ
 - [ ] RAG エクスポート: REST `/saai-knowledge/v1/export`（jsonl/json、`modified_after` 増分、KB は h2 セクション配列付き）+ 管理画面 JSONL/CSV ダウンロード

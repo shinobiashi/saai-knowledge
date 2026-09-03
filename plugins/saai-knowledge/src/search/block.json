@@ -1,0 +1,28 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "saai-knowledge/search",
+	"title": "Knowledge Search",
+	"category": "widgets",
+	"description": "Live search across FAQ, Knowledge Base, and glossary content.",
+	"textdomain": "saai-knowledge",
+	"attributes": {
+		"placeholder": {
+			"type": "string",
+			"default": ""
+		},
+		"perPage": {
+			"type": "number",
+			"default": 5
+		}
+	},
+	"editorScript": "file:./index.js",
+	"editorStyle": "file:./index.css",
+	"style": "file:./style-view.css",
+	"viewScriptModule": "file:./view.js",
+	"render": "file:./render.php",
+	"supports": {
+		"html": false,
+		"align": [ "wide", "full" ]
+	}
+}

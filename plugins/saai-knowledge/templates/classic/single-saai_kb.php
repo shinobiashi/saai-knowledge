@@ -18,6 +18,7 @@ get_header();
 <div class="saai-kb-layout__grid">
 	<details class="saai-kb-layout__sidebar" open>
 		<summary><?php esc_html_e( 'Categories', 'saai-knowledge' ); ?></summary>
+		<?php echo do_blocks( '<!-- wp:saai-knowledge/search /-->' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- do_blocks() output of a trusted, hardcoded block. ?>
 		<?php echo do_blocks( '<!-- wp:saai-knowledge/kb-sidebar /-->' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- do_blocks() output of a trusted, hardcoded block. ?>
 	</details>
 
