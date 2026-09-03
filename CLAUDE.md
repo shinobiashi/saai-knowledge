@@ -79,6 +79,9 @@ FAQ / Knowledge Base / 用語集を提供する WordPress プラグインのモ�
 - `aria-describedby`が参照する要素は`hidden`属性や`display:none`で非表示でも、その`textContent`はアクセシブルな説明の読み上げ対象になりうる（「視覚的に隠したヘルパーテキスト」パターンが機能する仕組みそのもの）。単一要素を複数トリガーで使い回す実装では、非表示化と同時に`textContent`もクリアしないと、直前に表示していた別トリガーの説明文が読み上げられ続ける。
 - サーバー側が固定`id`（例: `id="saai-tooltip"`）を出力する要素をJSから参照する場合、`document.getElementById()`は文書内で最初に一致した要素を返すだけでid衝突（既存コンテンツや他プラグインが偶然同じidを使う）を検知できない。役割を示す別の属性（例: `role="tooltip"`）も条件に含める（`document.querySelector('#id[role="tooltip"]')`）ことで、衝突した無関係要素を誤って操作するリスクを大きく下げられる。
 - 開いたままの要素をレイアウト変化に追従させたい場合、`window`の`resize`イベントはビューポートサイズの変化にしか発火せず（画像/Webフォント読み込みによるレイアウトシフトでは発火しない）、`scroll`イベントはバブリングしないため`window`のbubbling phaseでは`window`自身のスクロールしか拾えない。`ResizeObserver`を`document.documentElement`に張って両方の意味でのリサイズ・リフローをカバーしつつ、`window.addEventListener('scroll', handler, { capture: true, passive: true })`でcapturingフェーズに登録して`overflow:auto`な祖先コンテナのスクロールも別途拾う、の2本立てが必要。
+- `register_rest_route()` の `args` に `minimum`/`maximum` 等のスキーマ制約を書いても、`validate_callback` を明示的に `rest_validate_request_arg` にしない限り自動検証されない（out-of-range値が黙って通る）。また `array( 'callback' => ..., 'schema' => ... )` 形式以外（複数メソッドの配列など）で登録する場合、`schema` は各メソッド定義の兄弟オプションとして置く必要がある——`callback` と同じ配列の内側に置くと `WP_REST_Server::get_data_for_route()` がOPTIONS discoveryで拾えない。
+- Interactivity APIのアクションを `setTimeout` から呼ぶ場合、bare コールバックはスコープ外で実行されるため `getContext()`/`getElement()` が例外になる。エクスポートされた `withScope()` でラップする必要があるが、それだけでは不十分——ラップ対象が `async function` だと `withScope` の非generator分岐が最初の `await` 到達時点で同期的にスコープを解除してしまい、`await` 後のコードは依然スコープを失う。`await` の代わりに `yield` を使う generator 関数（`function*`）に書き換えて初めて、`yield` の各ステップ境界でスコープが正しく維持される（`core/query` の `navigate: withSyncEvent(function* ...)` が確立パターン）。
+- シングルトンサービスの結果メモ化（例: 高コストなフィルター呼び出しの結果キャッシュ）は、Swoole/FrankenPHP/WP-CLI等の永続ワーカーではインスタンスがリクエストをまたいで生存するため、キャッシュのクリアをリクエスト境界（例: REST `callback` の `finally` ブロック）で明示的に行う。クリアし忘れると最初のリクエストのスナップショットが以後のリクエストへ漏れ続ける。
 
 ## Git 運用（重要）
 
