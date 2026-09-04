@@ -5,3 +5,4 @@
 | 2026-08-27 | R1-L1 | Low | plugins/saai-knowledge/includes/class-search.php | `saai_search_post_types` フィルターが複数の type key を同じ post_type にマッピングした場合、後勝ちで片方が無言で結果から欠落しうる | 未起票 |
 | 2026-09-03 | R1-L2 | Low | plugins/saai-knowledge/includes/class-settings.php | `render_field()` が呼び出しごとに `defaults()`/`stored_settings()` を再計算（設定ページ1回の描画で7回）。管理画面専用・低頻度のため実害小 | 未起票 |
 | 2026-09-03 | R1-L3 | Low | plugins/saai-knowledge/includes/class-settings.php | `slug_kb`/`slug_faq`/`slug_glossary` の重複チェックが3スラッグ間のみで、`knowledge-category` や既存ページスラッグとの衝突は未検証（WP一般的な制約として許容） | 未起票 |
+| 2026-09-04 | R1-L4 | Low | plugins/saai-knowledge/includes/class-markdown-output.php | `render_cached()` のキャッシュキーは投稿自身の `post_modified` のみに依存するため、`saai_category` タームのリネームや `ai_readability_enabled` のOFF→ON切り替えでは、対象記事が再保存されるまでキャッシュ済みMarkdownの表記が古いまま残りうる（既存の自動リンク辞書キャッシュと同種のtradeoffとして許容） | 未起票 |

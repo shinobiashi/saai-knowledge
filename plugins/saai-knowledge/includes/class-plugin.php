@@ -74,6 +74,9 @@ final class Plugin {
 		( new Search() )->register();
 		( new Blocks() )->register();
 		( new Shortcodes() )->register();
+		( new Markdown_Output() )->register();
+		( new Llms_Index() )->register();
+		( new Llms_Txt_Adapter() )->register();
 
 		$this->autolinker = new Autolinker();
 		$this->autolinker->register();
