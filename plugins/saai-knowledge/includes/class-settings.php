@@ -36,11 +36,14 @@ final class Settings {
 	private const OPTION_GROUP = 'saai_knowledge_settings_group';
 
 	/**
-	 * The settings page slug (also used as the top-level admin menu slug).
+	 * The settings page slug — also the top-level admin menu slug that
+	 * Post_Types nests the saai_faq/saai_kb/saai_glossary admin screens
+	 * under (docs/DESIGN.md section 5: "SAAI Knowledge" top-level menu
+	 * with the 3 CPTs + settings consolidated under it), so this is public.
 	 *
 	 * @var string
 	 */
-	private const PAGE_SLUG = 'saai-knowledge-settings';
+	public const PAGE_SLUG = 'saai-knowledge-settings';
 
 	/**
 	 * Option flagging that a slug changed and rewrite rules need a flush on
@@ -71,6 +74,21 @@ final class Settings {
 
 	/**
 	 * Adds the top-level "SAAI Knowledge" settings page.
+	 *
+	 * Wp-admin/menu-header.php always points the top-level link's href (and
+	 * "current" state) at `$submenu[ $parent_slug ][0]` — the *first*
+	 * registered child — regardless of what add_menu_page() itself pointed
+	 * to. Post_Types nests saai_faq/saai_kb/saai_glossary under this same
+	 * slug (Post_Types::shared_args()), and wp-admin/menu.php inserts post
+	 * type admin menu items *before* the `admin_menu` action fires (its own
+	 * comment: "Post types are registered before the admin menu, so we can
+	 * add them 1st-priority") — before this method even runs. So a plain
+	 * add_submenu_page() call here only appends "Settings" to the end,
+	 * leaving the top-level link pointing at the first CPT ("All FAQs")
+	 * instead of the settings page (confirmed against a live wp-env
+	 * instance). The only way to win is to add it, then move it to index 0
+	 * in the global $submenu array directly — there's no earlier hook to
+	 * register it into that position through the normal API.
 	 */
 	public function register_menu(): void {
 		add_menu_page(
@@ -82,6 +100,31 @@ final class Settings {
 			'dashicons-database',
 			26
 		);
+
+		add_submenu_page(
+			self::PAGE_SLUG,
+			__( 'SAAI Knowledge Settings', 'saai-knowledge' ),
+			__( 'Settings', 'saai-knowledge' ),
+			'manage_options',
+			self::PAGE_SLUG,
+			array( $this, 'render_page' )
+		);
+
+		global $submenu;
+
+		if ( ! isset( $submenu[ self::PAGE_SLUG ] ) ) {
+			return;
+		}
+
+		foreach ( $submenu[ self::PAGE_SLUG ] as $index => $item ) {
+			if ( ! isset( $item[2] ) || self::PAGE_SLUG !== $item[2] ) {
+				continue;
+			}
+
+			unset( $submenu[ self::PAGE_SLUG ][ $index ] );
+			array_unshift( $submenu[ self::PAGE_SLUG ], $item );
+			break;
+		}
 	}
 
 	/**
@@ -111,8 +154,14 @@ final class Settings {
 				self::PAGE_SLUG
 			);
 
-			foreach ( $section['fields'] as $field_id => $field ) {
+			foreach ( $section['fields'] as $field_key => $field ) {
 				if ( ! is_array( $field ) ) {
+					continue;
+				}
+
+				$field_id = $this->field_id( $field_key, $field );
+
+				if ( null === $field_id ) {
 					continue;
 				}
 
@@ -162,7 +211,7 @@ final class Settings {
 	public function render_field( array $args ): void {
 		$field_id = $args['field_id'];
 		$field    = $args['field'];
-		$settings = array_merge( $this->defaults(), $this->stored_settings() );
+		$value    = $this->field_value( $field_id, $field );
 		$name     = self::OPTION_KEY . '[' . $field_id . ']';
 		$type     = isset( $field['type'] ) ? (string) $field['type'] : 'text';
 
@@ -171,21 +220,21 @@ final class Settings {
 				printf(
 					'<label><input type="checkbox" name="%1$s" value="1" %2$s /> %3$s</label>',
 					esc_attr( $name ),
-					checked( ! empty( $settings[ $field_id ] ), true, false ),
+					checked( ! empty( $value ), true, false ),
 					esc_html( isset( $field['checkbox_label'] ) ? (string) $field['checkbox_label'] : '' )
 				);
 				break;
 
 			case 'checkboxes':
-				$selected = isset( $settings[ $field_id ] ) && is_array( $settings[ $field_id ] ) ? $settings[ $field_id ] : array();
+				$selected = is_array( $value ) ? $value : array();
 				$options  = isset( $field['options'] ) && is_array( $field['options'] ) ? $field['options'] : array();
 
-				foreach ( $options as $value => $label ) {
+				foreach ( $options as $option_value => $label ) {
 					printf(
 						'<label><input type="checkbox" name="%1$s[]" value="%2$s" %3$s /> %4$s</label><br />',
 						esc_attr( $name ),
-						esc_attr( (string) $value ),
-						checked( in_array( (string) $value, $selected, true ), true, false ),
+						esc_attr( (string) $option_value ),
+						checked( in_array( (string) $option_value, $selected, true ), true, false ),
 						esc_html( (string) $label )
 					);
 				}
@@ -196,7 +245,7 @@ final class Settings {
 					'<input type="number" min="%1$s" step="1" name="%2$s" value="%3$s" class="small-text" />',
 					esc_attr( isset( $field['min'] ) ? (string) $field['min'] : '0' ),
 					esc_attr( $name ),
-					esc_attr( (string) ( $settings[ $field_id ] ?? '' ) )
+					esc_attr( is_scalar( $value ) ? (string) $value : '' )
 				);
 				break;
 
@@ -204,7 +253,7 @@ final class Settings {
 				printf(
 					'<input type="text" name="%1$s" value="%2$s" class="regular-text" />',
 					esc_attr( $name ),
-					esc_attr( (string) ( $settings[ $field_id ] ?? '' ) )
+					esc_attr( is_scalar( $value ) ? (string) $value : '' )
 				);
 				break;
 		}
@@ -212,6 +261,35 @@ final class Settings {
 		if ( ! empty( $field['description'] ) ) {
 			printf( '<p class="description">%s</p>', esc_html( (string) $field['description'] ) );
 		}
+	}
+
+	/**
+	 * The current value to display for a field: the stored option value,
+	 * else defaults() (the `saai_default_settings` filter), else the
+	 * field's own declared `default` — the docs/DESIGN-HOOKS-API.md field
+	 * shape allows a consumer to set this without also duplicating the same
+	 * value via `saai_default_settings`. Same source priority as sanitize()'s
+	 * per-field `$fallback` for the latter two, but stored_settings() is
+	 * checked first here since this renders what's actually saved.
+	 *
+	 * @param string               $field_id Field identifier.
+	 * @param array<string, mixed> $field    Field definition.
+	 * @return mixed
+	 */
+	private function field_value( string $field_id, array $field ) {
+		$stored = $this->stored_settings();
+
+		if ( array_key_exists( $field_id, $stored ) ) {
+			return $stored[ $field_id ];
+		}
+
+		$defaults = $this->defaults();
+
+		if ( array_key_exists( $field_id, $defaults ) ) {
+			return $defaults[ $field_id ];
+		}
+
+		return $field['default'] ?? null;
 	}
 
 	/**
@@ -329,6 +407,31 @@ final class Settings {
 	}
 
 	/**
+	 * Resolves a field's identifier.
+	 *
+	 * Docs/DESIGN-HOOKS-API.md section 3.5 documents the
+	 * `saai_settings_sections` field shape as a list (`'fields' => field[]`)
+	 * where each field carries its own `id` — e.g.
+	 * `array( array( 'id' => 'wc_insert', ... ) )`, a plain numerically
+	 * indexed list. This class's own built-in fields instead use the
+	 * simpler associative `'field_id' => array( ... )` form. Support both:
+	 * an explicit `id` wins; otherwise the array key is used, but only when
+	 * it's a non-empty string — a numeric list index (0, 1, 2, ...) is never
+	 * a usable option key.
+	 *
+	 * @param int|string           $field_key The field's key in `$section['fields']`.
+	 * @param array<string, mixed> $field     Field definition.
+	 * @return string|null Null when neither yields a usable identifier.
+	 */
+	private function field_id( $field_key, array $field ): ?string {
+		if ( isset( $field['id'] ) && is_string( $field['id'] ) && '' !== $field['id'] ) {
+			return $field['id'];
+		}
+
+		return is_string( $field_key ) && '' !== $field_key ? $field_key : null;
+	}
+
+	/**
 	 * The built-in default settings, run through the `saai_default_settings`
 	 * filter documented in docs/DESIGN.md section 3.4.
 	 *
@@ -405,8 +508,14 @@ final class Settings {
 				continue;
 			}
 
-			foreach ( $section['fields'] as $field_id => $field ) {
-				if ( ! is_string( $field_id ) || '' === $field_id || ! is_array( $field ) ) {
+			foreach ( $section['fields'] as $field_key => $field ) {
+				if ( ! is_array( $field ) ) {
+					continue;
+				}
+
+				$field_id = $this->field_id( $field_key, $field );
+
+				if ( null === $field_id ) {
 					continue;
 				}
 

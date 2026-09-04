@@ -37,14 +37,20 @@ final class Post_Types {
 	 */
 	private function shared_args(): array {
 		return array(
-			'public'        => true,
-			'has_archive'   => true,
-			'hierarchical'  => false,
-			'supports'      => array( 'title', 'editor', 'excerpt', 'revisions', 'custom-fields' ),
-			'show_in_rest'  => true,
-			'show_ui'       => true,
-			'show_in_menu'  => true,
-			'menu_position' => 25,
+			'public'       => true,
+			'has_archive'  => true,
+			'hierarchical' => false,
+			'supports'     => array( 'title', 'editor', 'excerpt', 'revisions', 'custom-fields' ),
+			'show_in_rest' => true,
+			'show_ui'      => true,
+			// A top-level menu slug (rather than `true`) nests this CPT's admin
+			// screens under the "SAAI Knowledge" settings page (Settings class)
+			// as submenu items instead of giving it its own top-level menu —
+			// docs/DESIGN.md section 5 consolidates all 3 CPTs + settings under
+			// one top-level menu. `menu_position` is meaningless once
+			// `show_in_menu` is a parent slug (it only orders top-level menus),
+			// so it's dropped here.
+			'show_in_menu' => Settings::PAGE_SLUG,
 		);
 	}
 

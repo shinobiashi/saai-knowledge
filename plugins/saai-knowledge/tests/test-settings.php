@@ -168,6 +168,69 @@ class Test_Settings extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Docs/DESIGN-HOOKS-API.md section 3.5 documents the
+	 * `saai_settings_sections` field shape as a numerically indexed list
+	 * (`'fields' => field[]`) where each field carries its own `id` — not
+	 * the associative `'field_id' => array(...)` form this class's own
+	 * built-in fields use. A field declared that way must be resolved by
+	 * its `id` and persisted, not skipped because the list index (0) isn't
+	 * a usable option key.
+	 */
+	public function test_sanitize_persists_list_shaped_fields_with_an_id_key() {
+		$add_section = static function ( array $sections ): array {
+			$sections['woo'] = array(
+				'title'  => 'WooCommerce',
+				'fields' => array(
+					array(
+						'id'       => 'wc_insert',
+						'type'     => 'checkbox',
+						'label'    => 'Insert into product pages',
+						'sanitize' => static function ( $raw ) {
+							return ! empty( $raw );
+						},
+					),
+				),
+			);
+			return $sections;
+		};
+
+		add_filter( 'saai_settings_sections', $add_section );
+
+		try {
+			$sanitized = $this->settings->sanitize( array( 'wc_insert' => '1' ) );
+			$this->assertArrayHasKey( 'wc_insert', $sanitized );
+			$this->assertTrue( $sanitized['wc_insert'] );
+		} finally {
+			remove_filter( 'saai_settings_sections', $add_section );
+		}
+	}
+
+	/**
+	 * A field's own `default` (per the documented field shape) must be
+	 * reflected in the rendered current value even when the consumer didn't
+	 * also duplicate it via `saai_default_settings` — and even when nothing
+	 * has been saved yet. render_field() takes the field definition directly
+	 * from its $args (as add_settings_field() would pass it), so this needs
+	 * no `saai_settings_sections` filter to exercise the code path.
+	 */
+	public function test_render_field_uses_the_fields_own_default() {
+		ob_start();
+		$this->settings->render_field(
+			array(
+				'field_id' => 'wc_insert',
+				'field'    => array(
+					'type'           => 'checkbox',
+					'checkbox_label' => 'Enabled',
+					'default'        => true,
+				),
+			)
+		);
+		$html = ob_get_clean();
+
+		$this->assertStringContainsString( 'checked=', $html );
+	}
+
+	/**
 	 * The maybe_flush_rewrite_rules() flag should be consumed exactly once.
 	 */
 	public function test_maybe_flush_rewrite_rules_clears_the_flag() {
@@ -223,6 +286,59 @@ class Test_Settings extends WP_UnitTestCase {
 			// every later test in the same PHPUnit process.
 			delete_option( 'saai_knowledge_settings' );
 			( new \SAAI\Knowledge\Post_Types() )->register_post_types();
+		}
+	}
+
+	/**
+	 * Docs/DESIGN.md section 5 consolidates the 3 CPTs under the "SAAI
+	 * Knowledge" top-level settings menu rather than each getting its own.
+	 */
+	public function test_post_types_nest_under_the_settings_menu() {
+		foreach ( array( 'saai_faq', 'saai_kb', 'saai_glossary' ) as $post_type ) {
+			$object = get_post_type_object( $post_type );
+			$this->assertSame( \SAAI\Knowledge\Settings::PAGE_SLUG, $object->show_in_menu );
+		}
+	}
+
+	/**
+	 * Wp-admin/menu-header.php always points the top-level menu link at
+	 * `$submenu[ $parent_slug ][0]`. wp-admin/menu.php inserts the CPT
+	 * submenu items (see test_post_types_nest_under_the_settings_menu())
+	 * *before* the `admin_menu` action — and thus before register_menu()
+	 * itself — runs, so register_menu() must reorder $submenu after adding
+	 * its own entry, not just append it, or the top-level "SAAI Knowledge"
+	 * link would silently become "All FAQs" instead of the settings page.
+	 */
+	public function test_register_menu_places_settings_first_in_submenu() {
+		global $submenu;
+
+		$slug          = \SAAI\Knowledge\Settings::PAGE_SLUG;
+		$previous_sub  = $submenu[ $slug ] ?? null;
+		$previous_user = get_current_user_id();
+
+		// add_menu_page()/add_submenu_page() both no-op (returning false)
+		// for a user lacking the target capability, so this needs a real
+		// administrator, not the CLI test runner's default logged-out user.
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
+
+		// Simulate wp-admin/menu.php having already inserted a CPT's entry
+		// ahead of this method running.
+		$submenu[ $slug ] = array(
+			array( 'All FAQs', 'edit_posts', 'edit.php?post_type=saai_faq', 'FAQs' ),
+		);
+
+		try {
+			$this->settings->register_menu();
+
+			$this->assertSame( $slug, $submenu[ $slug ][0][2] );
+		} finally {
+			if ( null === $previous_sub ) {
+				unset( $submenu[ $slug ] );
+			} else {
+				$submenu[ $slug ] = $previous_sub;
+			}
+
+			wp_set_current_user( $previous_user );
 		}
 	}
 
