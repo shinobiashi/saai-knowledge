@@ -525,7 +525,11 @@ final class Settings {
 	}
 
 	/**
-	 * The currently stored option value, or an empty array when unset.
+	 * The resolved option value: what was actually saved, or — since
+	 * filter_default_option() is registered unconditionally in register()
+	 * — defaults() when nothing has been saved yet. Only ever an empty
+	 * array if get_option() itself returns something other than an array
+	 * (e.g. a third-party callback on this same filter hook misbehaving).
 	 *
 	 * @return array<string, mixed>
 	 */
@@ -782,10 +786,15 @@ final class Settings {
 
 	/**
 	 * Filters `saai_autolink_post_types` (see Autolinker::target_post_types())
-	 * to the configured value, when the admin has ever saved one. Leaves the
-	 * incoming default (or any other filter's value) untouched otherwise, so
-	 * a fresh install with no settings saved yet keeps Autolinker's own
-	 * built-in default.
+	 * to Settings' resolved 'autolink_post_types' value — get_option() itself
+	 * always resolves to one via filter_default_option() (registered
+	 * unconditionally in register()), whether an admin has explicitly saved
+	 * one or not. Absent a `saai_default_settings` customization, that
+	 * default is identical to Autolinker's own hardcoded
+	 * DEFAULT_POST_TYPES, so this is not observably a no-op pre-save; it's
+	 * just redundant with it. The incoming $post_types (or any other
+	 * filter's value) is only left untouched in the unlikely case
+	 * get_option() itself returns something other than an array.
 	 *
 	 * @param mixed $post_types Post type slugs passed down the filter chain.
 	 * @return mixed
