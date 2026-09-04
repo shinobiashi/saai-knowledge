@@ -24,6 +24,15 @@ if ( ! is_array( $saai_uninstall_settings ) || empty( $saai_uninstall_settings['
 // need them registered first — same reasoning as Plugin::activate() directly
 // calling register_post_types()/register_taxonomies() instead of waiting for
 // `init`, which has already fired by the time this file runs.
+//
+// class-settings.php must load *before* class-post-types.php: Post_Types::
+// shared_args() references Settings::PAGE_SLUG (to nest the CPTs' admin
+// screens under the settings page — docs/DESIGN.md section 5), and nothing
+// else in this file's own require list defines that class.
+if ( ! class_exists( '\SAAI\Knowledge\Settings' ) ) {
+	require __DIR__ . '/includes/class-settings.php';
+}
+
 if ( ! class_exists( '\SAAI\Knowledge\Post_Types' ) ) {
 	require __DIR__ . '/includes/class-post-types.php';
 }

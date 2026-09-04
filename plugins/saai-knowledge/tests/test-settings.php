@@ -231,6 +231,92 @@ class Test_Settings extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Filter_default_option() — registered unconditionally in register(),
+	 * unlike register_option() (admin-only; see its docblock) — must make a
+	 * plain get_option() reflect a `saai_default_settings` customization
+	 * even when nothing has ever been saved, not just the admin settings
+	 * form's pre-fill. Without it, every front-end consumer
+	 * (Post_Types::slug(), Breadcrumbs, Faq_List, ...) calling get_option()
+	 * directly would ignore the filtered default until an admin saved the
+	 * page once.
+	 */
+	public function test_filter_default_option_reflects_filtered_defaults() {
+		$override        = static function ( array $defaults ): array {
+			$defaults['structured_data'] = false;
+			return $defaults;
+		};
+		$filter_callback = array( $this->settings, 'filter_default_option' );
+
+		add_filter( 'saai_default_settings', $override );
+		// register() normally adds this; added directly here to test it in
+		// isolation without exercising the rest of register()'s admin-only
+		// side effects.
+		add_filter( 'default_option_saai_knowledge_settings', $filter_callback, 10, 3 );
+		delete_option( 'saai_knowledge_settings' );
+
+		try {
+			$value = get_option( 'saai_knowledge_settings' );
+			$this->assertIsArray( $value );
+			$this->assertFalse( $value['structured_data'] );
+		} finally {
+			remove_filter( 'saai_default_settings', $override );
+			remove_filter( 'default_option_saai_knowledge_settings', $filter_callback, 10 );
+		}
+	}
+
+	/**
+	 * A caller that passes its own explicit fallback to get_option() must
+	 * get it back unchanged when the option is unset — matching how
+	 * WordPress's own register_setting() default handling behaves — rather
+	 * than always being overridden by this plugin's defaults.
+	 */
+	public function test_filter_default_option_respects_an_explicit_caller_default() {
+		$filter_callback = array( $this->settings, 'filter_default_option' );
+
+		add_filter( 'default_option_saai_knowledge_settings', $filter_callback, 10, 3 );
+		delete_option( 'saai_knowledge_settings' );
+
+		try {
+			$sentinel = 'caller-supplied-default';
+			$this->assertSame( $sentinel, get_option( 'saai_knowledge_settings', $sentinel ) );
+		} finally {
+			remove_filter( 'default_option_saai_knowledge_settings', $filter_callback, 10 );
+		}
+	}
+
+	/**
+	 * A field's `sanitize` callable declared per the "Settings API
+	 * compliant" wording in docs/DESIGN-HOOKS-API.md may be a plain
+	 * 1-argument callback — including a PHP built-in like `boolval` — which
+	 * would fatal with ArgumentCountError if always called with the 2
+	 * arguments this class's own built-in fields use.
+	 */
+	public function test_sanitize_supports_a_one_argument_settings_api_sanitizer() {
+		$add_section = static function ( array $sections ): array {
+			$sections['woo'] = array(
+				'title'  => 'WooCommerce',
+				'fields' => array(
+					'wc_insert' => array(
+						'type'     => 'checkbox',
+						'label'    => 'Insert into product pages',
+						'sanitize' => 'boolval',
+					),
+				),
+			);
+			return $sections;
+		};
+
+		add_filter( 'saai_settings_sections', $add_section );
+
+		try {
+			$sanitized = $this->settings->sanitize( array( 'wc_insert' => '1' ) );
+			$this->assertTrue( $sanitized['wc_insert'] );
+		} finally {
+			remove_filter( 'saai_settings_sections', $add_section );
+		}
+	}
+
+	/**
 	 * The maybe_flush_rewrite_rules() flag should be consumed exactly once.
 	 */
 	public function test_maybe_flush_rewrite_rules_clears_the_flag() {
@@ -242,13 +328,18 @@ class Test_Settings extends WP_UnitTestCase {
 	}
 
 	/**
-	 * With no settings ever saved, the saai_autolink_post_types filter must
-	 * leave Autolinker's own default untouched.
+	 * With no value ever explicitly saved, get_option() itself now always
+	 * resolves to Settings' defaults (filter_default_option(), the thread-2
+	 * fix — see its test), so the saai_autolink_post_types filter no longer
+	 * "passes through" the incoming value unmodified: it returns Settings'
+	 * own 'autolink_post_types' default, which (absent a
+	 * saai_default_settings customization) happens to be identical to
+	 * Autolinker's own hardcoded default.
 	 */
-	public function test_filter_autolink_post_types_passes_through_when_unset() {
-		$result = $this->settings->filter_autolink_post_types( array( 'post', 'page' ) );
+	public function test_filter_autolink_post_types_returns_the_default_when_unset() {
+		$result = $this->settings->filter_autolink_post_types( array( 'unrelated-marker' ) );
 
-		$this->assertSame( array( 'post', 'page' ), $result );
+		$this->assertSame( array( 'post', 'page', 'saai_kb', 'saai_faq' ), $result );
 	}
 
 	/**
@@ -371,7 +462,14 @@ class Test_Settings extends WP_UnitTestCase {
 		$this->assertNull( get_post( $faq_id ) );
 		$this->assertNull( get_post( $kb_id ) );
 		$this->assertNull( get_term( $term_id, 'saai_category' ) );
-		$this->assertFalse( get_option( 'saai_knowledge_settings' ) );
+
+		// A plain get_option() can't tell "row deleted" apart from "row never
+		// existed" once filter_default_option() is active (it always resolves
+		// to Settings' defaults() rather than false) — pass an explicit
+		// sentinel default instead, which filter_default_option() returns
+		// unchanged (see test_filter_default_option_respects_an_explicit_caller_default()).
+		$sentinel = 'saai-option-should-not-exist';
+		$this->assertSame( $sentinel, get_option( 'saai_knowledge_settings', $sentinel ) );
 	}
 
 	/**

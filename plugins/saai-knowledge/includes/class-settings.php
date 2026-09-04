@@ -58,14 +58,24 @@ final class Settings {
 	 * Hooks the admin screen, the auto-link post type filter, and the
 	 * deferred rewrite flush into WordPress.
 	 *
-	 * The admin-only hooks are gated the same way Term_Order gates its own
-	 * admin hooks; the filter and the flush check must run on every request,
-	 * so they're registered unconditionally.
+	 * Filter_default_option() is registered unconditionally (not just
+	 * admin-side) — see its docblock for why: without it, a
+	 * `saai_default_settings` customization only ever takes effect in the
+	 * admin form's pre-fill, never in actual front-end behavior, until an
+	 * admin saves the page once. It's a deliberately narrow, read-only
+	 * filter rather than giving register_setting() (below) itself global
+	 * reach — see the same docblock for why that would be unsafe. The rest
+	 * of the admin-only hooks are gated the same way Term_Order gates its
+	 * own; the filter and the flush check must run on every request, so
+	 * they're registered unconditionally too.
 	 */
 	public function register(): void {
+		add_filter( 'default_option_' . self::OPTION_KEY, array( $this, 'filter_default_option' ), 10, 3 );
+
 		if ( is_admin() ) {
 			add_action( 'admin_menu', array( $this, 'register_menu' ) );
-			add_action( 'admin_init', array( $this, 'register_setting' ) );
+			add_action( 'admin_init', array( $this, 'register_option' ) );
+			add_action( 'admin_init', array( $this, 'register_fields' ) );
 		}
 
 		add_filter( 'saai_autolink_post_types', array( $this, 'filter_autolink_post_types' ) );
@@ -128,10 +138,26 @@ final class Settings {
 	}
 
 	/**
-	 * Registers the option and the Settings API sections/fields that make up
-	 * the settings page.
+	 * Registers the `saai_knowledge_settings` option with WordPress core:
+	 * the sanitize_callback that validates an actual settings-page
+	 * submission, plus the 'default' WordPress core itself uses to back its
+	 * own `default_option_{$name}` filter (redundant with, but harmless
+	 * alongside, filter_default_option() below).
+	 *
+	 * Deliberately admin-only. Giving this global reach (instead of the
+	 * narrower filter_default_option()) would also activate its
+	 * sanitize_callback for every plain
+	 * `update_option( 'saai_knowledge_settings', $partial_array )` call
+	 * anywhere — including existing tests, e.g.
+	 * Test_Autolinker::test_max_links_per_post_is_enforced(), which sets
+	 * only `autolink_max_links` and expects every other key to be left
+	 * alone. sanitize()'s full-form semantics (an omitted checkbox/
+	 * checkboxes field means "off") would silently zero out
+	 * `autolink_post_types` on a call like that instead of leaving it
+	 * untouched (confirmed — this exact scenario was reproduced when
+	 * register_setting() briefly ran unconditionally during development).
 	 */
-	public function register_setting(): void {
+	public function register_option(): void {
 		register_setting(
 			self::OPTION_GROUP,
 			self::OPTION_KEY,
@@ -141,7 +167,14 @@ final class Settings {
 				'default'           => $this->defaults(),
 			)
 		);
+	}
 
+	/**
+	 * Registers the Settings API sections/fields that make up the settings
+	 * page. Admin-only: add_settings_section()/add_settings_field() have no
+	 * effect outside wp-admin.
+	 */
+	public function register_fields(): void {
 		foreach ( $this->sections() as $section_id => $section ) {
 			if ( ! is_array( $section ) || ! isset( $section['fields'] ) || ! is_array( $section['fields'] ) ) {
 				continue;
@@ -293,6 +326,31 @@ final class Settings {
 	}
 
 	/**
+	 * Makes a bare `get_option( 'saai_knowledge_settings' )` return
+	 * defaults() (the `saai_default_settings`-filtered defaults) when the
+	 * option row doesn't exist, on every request — see register().
+	 *
+	 * Mirrors the `$passed_default` handling WordPress's own
+	 * register_setting() uses for its own `default_option_{$name}` filter:
+	 * a caller that explicitly passed its own fallback to get_option() gets
+	 * that back unchanged; only the bare `get_option( self::OPTION_KEY )`
+	 * (no second argument — the common case, used throughout this plugin)
+	 * is substituted.
+	 *
+	 * @param mixed  $fallback       The default value passed to get_option().
+	 * @param string $option         Option name. Unused — this filter is only ever attached to one option's hook name.
+	 * @param bool   $passed_default Whether get_option() was called with an explicit $default argument.
+	 * @return mixed
+	 */
+	public function filter_default_option( $fallback, string $option = '', bool $passed_default = false ) { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed -- $option kept to match the default_option_{$name} filter signature.
+		if ( $passed_default ) {
+			return $fallback;
+		}
+
+		return $this->defaults();
+	}
+
+	/**
 	 * The settings page's sections and fields.
 	 *
 	 * Filterable so a future consumer (e.g. the AI-readability toggles
@@ -300,14 +358,19 @@ final class Settings {
 	 * this same page instead of building a separate one.
 	 *
 	 * Field shape (per docs/DESIGN-HOOKS-API.md section 3.5): `type`, `label`,
-	 * and optionally `default` and a `sanitize` callable of the form
-	 * `function( mixed $raw, mixed $fallback ): mixed`. sanitize() honors
-	 * both — see sanitize()/sanitize_by_type() — so a `saai_settings_sections`
-	 * consumer's fields are actually persisted, not just rendered.
+	 * and optionally `default` and a `sanitize` callable. Per the "Settings
+	 * API compliant" wording in that doc, a plain 1-argument sanitize
+	 * callback (`function( mixed $raw ): mixed` — including a built-in like
+	 * `'boolval'`) is valid; this class's own built-in fields use a 2nd
+	 * `$fallback` parameter, which call_field_sanitizer() only passes to a
+	 * callable that actually declares it. sanitize() honors both — see
+	 * sanitize()/sanitize_by_type()/call_field_sanitizer() — so a
+	 * `saai_settings_sections` consumer's fields are actually persisted, not
+	 * just rendered.
 	 *
 	 * The value is intentionally typed loosely: a `saai_settings_sections`
 	 * callback can return anything, so callers must not assume 'title'/
-	 * 'fields' exist (see the is_array()/isset() guards in register_setting()
+	 * 'fields' exist (see the is_array()/isset() guards in register_fields()
 	 * and sanitize()).
 	 *
 	 * @return array<string, mixed>
@@ -538,7 +601,7 @@ final class Settings {
 				$fallback = array_key_exists( $field_id, $defaults ) ? $defaults[ $field_id ] : ( $field['default'] ?? null );
 
 				if ( isset( $field['sanitize'] ) && is_callable( $field['sanitize'] ) ) {
-					$sanitized[ $field_id ] = call_user_func( $field['sanitize'], $raw, $fallback );
+					$sanitized[ $field_id ] = $this->call_field_sanitizer( $field['sanitize'], $raw, $fallback );
 				} else {
 					$sanitized[ $field_id ] = $this->sanitize_by_type( $field, $raw, $fallback );
 				}
@@ -546,6 +609,53 @@ final class Settings {
 		}
 
 		return $this->finalize_slugs( $sanitized, $old );
+	}
+
+	/**
+	 * Calls a field's `sanitize` callable, passing `$fallback` as a second
+	 * argument only when the callable actually declares one.
+	 *
+	 * Docs/DESIGN-HOOKS-API.md describes a field's `sanitize` as "Settings
+	 * API compliant" — a plain 1-argument sanitize_callback (e.g.
+	 * `'sanitize' => 'boolval'`) is a valid, unremarkable case under that
+	 * wording. This class's own built-in slug fields use a 2nd `$fallback`
+	 * parameter (sanitize_slug()), which is not part of the standard
+	 * Settings API convention. Unconditionally calling every callable with
+	 * 2 arguments would work fine for a user-defined function (PHP silently
+	 * ignores extra arguments there) but PHP 8 throws ArgumentCountError for
+	 * an *internal* function like `boolval()` called with more arguments
+	 * than it declares — which would fatal the entire settings save, not
+	 * just this one field.
+	 *
+	 * @param callable $callback The field's `sanitize` callable.
+	 * @param mixed    $raw      Raw submitted value.
+	 * @param mixed    $fallback Fallback value.
+	 * @return mixed
+	 */
+	private function call_field_sanitizer( callable $callback, $raw, $fallback ) {
+		$accepts_fallback = true;
+
+		try {
+			if ( is_array( $callback ) && 2 === count( $callback ) ) {
+				$reflection = new \ReflectionMethod( $callback[0], $callback[1] );
+			} elseif ( is_string( $callback ) || $callback instanceof \Closure ) {
+				$reflection = new \ReflectionFunction( $callback );
+			} else {
+				$reflection = null;
+			}
+
+			if ( null !== $reflection ) {
+				$accepts_fallback = $reflection->getNumberOfParameters() >= 2;
+			}
+		} catch ( \ReflectionException $e ) {
+			// An unresolvable callable (e.g. a private method on another
+			// object) is a contract violation on the consumer's part; erring
+			// toward the plain Settings API 1-argument convention is the
+			// safer default.
+			$accepts_fallback = false;
+		}
+
+		return $accepts_fallback ? call_user_func( $callback, $raw, $fallback ) : call_user_func( $callback, $raw );
 	}
 
 	/**
