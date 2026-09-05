@@ -114,10 +114,16 @@ final class Plugin {
 	 * the activation callback runs (the plugin file is only `include`d
 	 * inside `activate_plugin()`, after WordPress's own `init`). Register
 	 * them directly here so the first flush includes their rewrite rules.
+	 *
+	 * Llms_Index::add_rewrite_rule() needs the same direct call for the
+	 * same reason — without it, `/{kb slug}/llms.txt` would 404 on a fresh
+	 * install until some unrelated later event (a slug change, a manual
+	 * permalinks re-save) happens to trigger another flush (Codex review).
 	 */
 	public static function activate(): void {
 		( new Post_Types() )->register_post_types();
 		( new Taxonomies() )->register_taxonomies();
+		( new Llms_Index() )->add_rewrite_rule();
 
 		flush_rewrite_rules();
 	}

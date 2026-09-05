@@ -151,4 +151,62 @@ class Test_Llms_Index extends WP_UnitTestCase {
 		$fresh = $this->index->build_index_cached();
 		$this->assertStringContainsString( 'Cache Busting Article', $fresh );
 	}
+
+	/**
+	 * A `]` (or `[`) in a post title is escaped before being placed inside
+	 * the index's `[title](url)` link syntax — otherwise it would close the
+	 * link label early and corrupt the URL that follows (Codex review).
+	 */
+	public function test_build_index_escapes_brackets_in_title() {
+		self::factory()->post->create(
+			array(
+				'post_type'   => 'saai_faq',
+				'post_title'  => 'Is [Feature] broken?',
+				'post_status' => 'publish',
+			)
+		);
+
+		$markdown = $this->index->build_index();
+
+		$this->assertStringContainsString( 'Is \\[Feature\\] broken?', $markdown );
+	}
+
+	/**
+	 * The maybe_remove_canonical_redirect() method only strips redirect_canonical for
+	 * the real `/{kb slug}/llms.txt` route, not for an unrelated article
+	 * whose slug merely starts with the same characters (e.g.
+	 * `/kb/llms.txt-guide/`) — a bare substring match would incorrectly
+	 * disable that article's own trailing-slash canonicalization (Codex
+	 * review).
+	 */
+	public function test_maybe_remove_canonical_redirect_requires_exact_boundary_match() {
+		$original_priority = has_filter( 'template_redirect', 'redirect_canonical' );
+
+		if ( false === $original_priority ) {
+			add_action( 'template_redirect', 'redirect_canonical' );
+			$original_priority = 10;
+		}
+
+		try {
+			$_SERVER['REQUEST_URI'] = '/kb/llms.txt-guide/';
+			$this->index->maybe_remove_canonical_redirect();
+			$this->assertNotFalse(
+				has_filter( 'template_redirect', 'redirect_canonical' ),
+				'An unrelated article whose slug merely starts with "llms.txt" must not have redirect_canonical removed.'
+			);
+
+			$_SERVER['REQUEST_URI'] = '/kb/llms.txt';
+			$this->index->maybe_remove_canonical_redirect();
+			$this->assertFalse(
+				has_filter( 'template_redirect', 'redirect_canonical' ),
+				'The real llms.txt index route must still have redirect_canonical removed.'
+			);
+		} finally {
+			unset( $_SERVER['REQUEST_URI'] );
+
+			if ( false === has_filter( 'template_redirect', 'redirect_canonical' ) ) {
+				add_action( 'template_redirect', 'redirect_canonical', $original_priority );
+			}
+		}
+	}
 }

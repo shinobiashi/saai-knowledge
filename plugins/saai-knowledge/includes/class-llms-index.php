@@ -97,11 +97,20 @@ final class Llms_Index {
 	 * The wp_loaded action fires before request parsing, so the query var
 	 * isn't available yet here; checking the raw request URI is what Rank
 	 * Math's own equivalent does too.
+	 *
+	 * The match requires a `/`, `?`, or end-of-string right after
+	 * "llms.txt" rather than a bare strpos() substring check: a real
+	 * article at e.g. `/{kb slug}/llms.txt-guide/` would otherwise also
+	 * match (its path starts with the exact same characters), incorrectly
+	 * disabling that unrelated page's own trailing-slash canonical redirect
+	 * (Codex review). It stays a substring search (not an anchored
+	 * full-path match) so a subdirectory-install prefix still matches.
 	 */
 	public function maybe_remove_canonical_redirect(): void {
 		$request_uri = isset( $_SERVER['REQUEST_URI'] ) ? wp_unslash( (string) $_SERVER['REQUEST_URI'] ) : '';
+		$pattern     = '#/' . preg_quote( $this->kb_slug(), '#' ) . '/llms\.txt(?:[/?]|$)#';
 
-		if ( false !== strpos( $request_uri, '/' . $this->kb_slug() . '/llms.txt' ) ) {
+		if ( 1 === preg_match( $pattern, $request_uri ) ) {
 			remove_filter( 'template_redirect', 'redirect_canonical' );
 		}
 	}
@@ -120,7 +129,12 @@ final class Llms_Index {
 		}
 
 		header( 'Content-Type: text/markdown; charset=utf-8' );
-		header( 'X-Robots-Tag: noindex, nofollow' );
+		// noindex (this listing page itself isn't meant to rank) but
+		// deliberately not nofollow: this index's entire purpose is being a
+		// discovery/link hub crawlers follow into the actual FAQ/KB/glossary
+		// pages (docs/DESIGN.md section 7.2, layer 2) — nofollow would
+		// defeat that (Codex review).
+		header( 'X-Robots-Tag: noindex' );
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- build_index_cached() builds a plain-text Markdown document (not HTML) for a text/markdown response; see build_index()'s docblock.
 		echo $this->build_index_cached();
 		exit;
@@ -181,7 +195,12 @@ final class Llms_Index {
 			$lines[] = '## ' . ( $labels[ $type ] ?? ucfirst( $type ) );
 
 			foreach ( $type_items as $item ) {
-				$title   = str_replace( array( "\r", "\n" ), ' ', (string) $item['title'] );
+				// An unescaped ']' or '[' in the title would close the link
+				// label early (or open a bogus nested one), corrupting the
+				// URL that follows or getting misread as a separate link
+				// (Codex review) — titles are arbitrary display strings, so
+				// this can't just be assumed away.
+				$title   = str_replace( array( "\r", "\n", '[', ']' ), array( ' ', ' ', '\\[', '\\]' ), (string) $item['title'] );
 				$lines[] = '- [' . $title . '](' . $item['url'] . ') ([Markdown](' . $item['markdown_url'] . '))';
 			}
 
