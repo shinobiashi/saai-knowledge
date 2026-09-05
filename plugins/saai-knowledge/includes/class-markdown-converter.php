@@ -38,7 +38,7 @@ final class Markdown_Converter {
 		}
 
 		if ( ! class_exists( '\DOMDocument' ) ) {
-			return trim( wp_strip_all_tags( $html ) );
+			return self::fallback_plain_text( $html );
 		}
 
 		$dom             = new \DOMDocument();
@@ -53,13 +53,13 @@ final class Markdown_Converter {
 		libxml_use_internal_errors( $previous_errors );
 
 		if ( ! $loaded ) {
-			return trim( wp_strip_all_tags( $html ) );
+			return self::fallback_plain_text( $html );
 		}
 
 		$body = $dom->getElementsByTagName( 'body' )->item( 0 );
 
 		if ( ! $body instanceof \DOMElement ) {
-			return trim( wp_strip_all_tags( $html ) );
+			return self::fallback_plain_text( $html );
 		}
 
 		$markdown = self::convert_children( $body, 0 );
@@ -67,6 +67,26 @@ final class Markdown_Converter {
 		// Collapse the blank-line runs that naturally accumulate from
 		// block-level elements each emitting their own trailing "\n\n".
 		return trim( (string) preg_replace( "/\n{3,}/", "\n\n", $markdown ) ) . "\n";
+	}
+
+	/**
+	 * The no-DOMDocument (or unparsable-HTML) fallback: strips tags without
+	 * losing block-boundary separation. A bare wp_strip_all_tags() call
+	 * concatenates adjacent block elements with nothing between them (e.g.
+	 * `<p>First</p><p>Second</p>` becomes "FirstSecond"), so a newline is
+	 * inserted after each common block-level closing tag (and for `<br>`)
+	 * before stripping.
+	 *
+	 * @param string $html Rendered HTML.
+	 * @return string
+	 */
+	private static function fallback_plain_text( string $html ): string {
+		$with_breaks = (string) preg_replace( '#</(?:p|div|h[1-6]|li|blockquote|pre|tr|table|ul|ol)>#i', "$0\n\n", $html );
+		$with_breaks = (string) preg_replace( '#<br\s*/?>#i', "\n", $with_breaks );
+
+		$plain = wp_strip_all_tags( $with_breaks );
+
+		return trim( (string) preg_replace( "/\n{3,}/", "\n\n", $plain ) );
 	}
 
 	/**
@@ -95,7 +115,7 @@ final class Markdown_Converter {
 	 */
 	private static function convert_node( \DOMNode $node, int $list_depth ): string {
 		if ( $node instanceof \DOMText ) {
-			return (string) preg_replace( '/\s+/', ' ', $node->wholeText );
+			return self::escape_text( (string) preg_replace( '/\s+/', ' ', $node->wholeText ) );
 		}
 
 		if ( ! $node instanceof \DOMElement ) {
@@ -149,7 +169,13 @@ final class Markdown_Converter {
 				return '`' . trim( $node->textContent ) . '`';
 
 			case 'pre':
-				return "```\n" . trim( $node->textContent ) . "\n```\n\n";
+				// trim(..., "\n") strips only the wrapping newline(s) a
+				// serializer typically adds around <pre> content, not
+				// leading whitespace on the first content line itself —
+				// a bare trim() would strip that too, corrupting a
+				// snippet whose first line is meaningfully indented
+				// (Python, YAML, etc.).
+				return "```\n" . trim( $node->textContent, "\n" ) . "\n```\n\n";
 
 			case 'a':
 				$href = trim( (string) $node->getAttribute( 'href' ) );
@@ -202,6 +228,26 @@ final class Markdown_Converter {
 	}
 
 	/**
+	 * Escapes characters in a plain-text run that would otherwise be
+	 * (mis)read as Markdown syntax once this text sits next to the syntax
+	 * this converter itself emits — e.g. literal text containing
+	 * `[literal](not-a-link)` must not become an actual link. Only applied
+	 * to DOMText nodes: text that this converter itself wraps in syntax
+	 * (inline `<code>`/`<pre>` content, link/image targets) bypasses this
+	 * text-node branch entirely and is emitted as-is.
+	 *
+	 * @param string $text Plain text.
+	 * @return string
+	 */
+	private static function escape_text( string $text ): string {
+		return str_replace(
+			array( '\\', '`', '*', '_', '[', ']' ),
+			array( '\\\\', '\\`', '\\*', '\\_', '\\[', '\\]' ),
+			$text
+		);
+	}
+
+	/**
 	 * Converts a <ul>/<ol>, recursing into nested lists so they render
 	 * indented beneath their parent item.
 	 *
@@ -212,7 +258,7 @@ final class Markdown_Converter {
 	 */
 	private static function convert_list( \DOMElement $list_node, string $tag, int $depth ): string {
 		$out    = '';
-		$index  = 1;
+		$index  = self::list_start( $list_node, $tag );
 		$indent = str_repeat( '  ', $depth );
 
 		foreach ( $list_node->childNodes as $child ) {
@@ -243,6 +289,25 @@ final class Markdown_Converter {
 		}
 
 		return $out;
+	}
+
+	/**
+	 * Resolves an <ol>'s starting number from its `start` attribute
+	 * (defaulting to 1, same as the browser/HTML default, and for <ul>,
+	 * which has no such attribute).
+	 *
+	 * @param \DOMElement $list_node The <ul> or <ol> element.
+	 * @param string      $tag       'ul' or 'ol'.
+	 * @return int
+	 */
+	private static function list_start( \DOMElement $list_node, string $tag ): int {
+		if ( 'ol' !== $tag || ! $list_node->hasAttribute( 'start' ) ) {
+			return 1;
+		}
+
+		$start = filter_var( $list_node->getAttribute( 'start' ), FILTER_VALIDATE_INT );
+
+		return false !== $start ? $start : 1;
 	}
 
 	/**

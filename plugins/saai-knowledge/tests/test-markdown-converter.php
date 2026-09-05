@@ -132,4 +132,55 @@ class Test_Markdown_Converter extends WP_UnitTestCase {
 		$this->assertStringNotContainsString( 'alert', $markdown );
 		$this->assertStringNotContainsString( 'color:red', $markdown );
 	}
+
+	/**
+	 * A <pre><code> block's own leading indentation (e.g. an indented
+	 * Python/YAML snippet) survives conversion — only the wrapping
+	 * newline(s) around the block are trimmed, not whitespace that's part
+	 * of the code itself (Codex review).
+	 */
+	public function test_pre_code_preserves_leading_indentation_on_first_line() {
+		$markdown = Markdown_Converter::convert( "<pre><code>    def foo():\n        return 1</code></pre>" );
+
+		$this->assertStringContainsString( "```\n    def foo():\n        return 1\n```", $markdown );
+	}
+
+	/**
+	 * Literal Markdown syntax characters in ordinary text (not text this
+	 * converter itself wraps in syntax) are escaped so they can't be
+	 * misread as real Markdown once emitted (Codex review).
+	 */
+	public function test_plain_text_special_characters_are_escaped() {
+		$markdown = Markdown_Converter::convert( '<p>See [literal](not-a-link) and *not bold* here.</p>' );
+
+		$this->assertStringContainsString( '\\[literal\\](not-a-link)', $markdown );
+		$this->assertStringContainsString( '\\*not bold\\*', $markdown );
+	}
+
+	/**
+	 * An <ol start="N"> begins numbering at N instead of always at 1
+	 * (Codex review).
+	 */
+	public function test_ordered_list_honors_start_attribute() {
+		$markdown = Markdown_Converter::convert( '<ol start="5"><li>Fifth</li><li>Sixth</li></ol>' );
+
+		$this->assertStringContainsString( "5. Fifth\n", $markdown );
+		$this->assertStringContainsString( "6. Sixth\n", $markdown );
+	}
+
+	/**
+	 * The no-DOMDocument/unparsable-HTML fallback path (fallback_plain_text(),
+	 * exercised directly via reflection since DOMDocument is present in this
+	 * test environment) inserts block-boundary separation instead of
+	 * concatenating adjacent block elements with nothing between them
+	 * (Codex review).
+	 */
+	public function test_fallback_plain_text_preserves_block_separation() {
+		$method = new \ReflectionMethod( Markdown_Converter::class, 'fallback_plain_text' );
+		$method->setAccessible( true );
+
+		$result = $method->invoke( null, '<p>First</p><p>Second</p>' );
+
+		$this->assertSame( "First\n\nSecond", $result );
+	}
 }
