@@ -191,4 +191,40 @@ class Test_Markdown_Output extends WP_UnitTestCase {
 		$second = $this->service->render_cached( get_post( $post_id ) );
 		$this->assertStringContainsString( 'Updated body.', $second );
 	}
+
+	/**
+	 * A logged-in visitor's render never reads or writes the shared
+	 * transient, so a viewer-dependent render can't leak into what
+	 * subsequent anonymous visitors see (Codex review).
+	 */
+	public function test_render_cached_bypasses_shared_cache_for_logged_in_users() {
+		$post_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_content' => 'Public body.',
+				'post_status'  => 'publish',
+			)
+		);
+
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
+
+		$override = static function ( $markdown, $post ) {
+			return 'ADMIN-ONLY-CONTENT:' . $post->ID;
+		};
+
+		add_filter( 'saai_markdown_output', $override, 10, 2 );
+
+		try {
+			$logged_in_render = $this->service->render_cached( get_post( $post_id ) );
+			$this->assertSame( 'ADMIN-ONLY-CONTENT:' . $post_id, $logged_in_render );
+		} finally {
+			remove_filter( 'saai_markdown_output', $override );
+		}
+
+		wp_set_current_user( 0 );
+
+		$anonymous_render = $this->service->render_cached( get_post( $post_id ) );
+		$this->assertStringNotContainsString( 'ADMIN-ONLY-CONTENT', $anonymous_render );
+		$this->assertStringContainsString( 'Public body.', $anonymous_render );
+	}
 }

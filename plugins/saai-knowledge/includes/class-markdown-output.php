@@ -105,10 +105,27 @@ final class Markdown_Output {
 	 * Returns the cached Markdown for a post, building and caching it on a
 	 * miss.
 	 *
+	 * The transient this caches into is shared site-wide across every
+	 * anonymous visitor, but render()'s `apply_filters( 'the_content', ... )`
+	 * call runs the same core the_content chain (do_shortcode(), do_blocks())
+	 * a theme template would — and post_content, being ordinary block-editor
+	 * content, can legitimately contain a shortcode/block whose output
+	 * varies by viewer (e.g. a login-state-dependent block, or one that
+	 * reveals more to a user with elevated capabilities). Caching and
+	 * replaying a logged-in user's render for every subsequent anonymous
+	 * visitor would leak whatever that render exposed. Logged-in requests
+	 * therefore bypass the shared cache entirely — both reading and writing
+	 * it — so the cache is only ever populated by, and served to, genuinely
+	 * anonymous renders.
+	 *
 	 * @param \WP_Post $post The post to render.
 	 * @return string
 	 */
 	public function render_cached( \WP_Post $post ): string {
+		if ( is_user_logged_in() ) {
+			return $this->render( $post );
+		}
+
 		$key    = self::CACHE_PREFIX . $post->ID . '_' . get_post_modified_time( 'U', true, $post );
 		$cached = get_transient( $key );
 
