@@ -15,6 +15,15 @@ defined( 'ABSPATH' ) || exit;
 final class Plugin {
 
 	/**
+	 * Option storing the plugin version as of the last rewrite-rule flush
+	 * this class triggered, so maybe_flush_rewrite_rules_on_upgrade() can
+	 * detect a version change that happened without activate() running.
+	 *
+	 * @var string
+	 */
+	private const VERSION_OPTION = 'saai_knowledge_version';
+
+	/**
 	 * Booted singleton instance.
 	 *
 	 * @var self|null
@@ -85,6 +94,31 @@ final class Plugin {
 		if ( is_admin() ) {
 			( new Glossary_Editor() )->register();
 		}
+
+		add_action( 'init', array( $this, 'maybe_flush_rewrite_rules_on_upgrade' ), 20 );
+	}
+
+	/**
+	 * Flushes rewrite rules once after a version change picked up outside
+	 * activate() — e.g. a WordPress.org auto-update via
+	 * Plugin_Upgrader::upgrade()/bulk_upgrade(), which replaces the plugin
+	 * files but never runs the activation hook (Codex review). Without
+	 * this, a route a new version adds (Llms_Index's `/{kb slug}/llms.txt`,
+	 * say) would 404 on every already-installed site until an unrelated
+	 * event (a slug change, a manual Settings > Permalinks re-save)
+	 * happened to flush again.
+	 *
+	 * Priority 20: after Post_Types/Taxonomies/Llms_Index have all
+	 * registered their rewrite rules at the default priority 10 on this
+	 * same `init`.
+	 */
+	public function maybe_flush_rewrite_rules_on_upgrade(): void {
+		if ( get_option( self::VERSION_OPTION ) === SAAI_KNOWLEDGE_VERSION ) {
+			return;
+		}
+
+		flush_rewrite_rules();
+		update_option( self::VERSION_OPTION, SAAI_KNOWLEDGE_VERSION, false );
 	}
 
 	/**
@@ -126,6 +160,12 @@ final class Plugin {
 		( new Llms_Index() )->add_rewrite_rule();
 
 		flush_rewrite_rules();
+
+		// Records the current version as already flushed, so the next
+		// request's maybe_flush_rewrite_rules_on_upgrade() doesn't also
+		// flush a second time for the version this activation already
+		// covered.
+		update_option( self::VERSION_OPTION, SAAI_KNOWLEDGE_VERSION, false );
 	}
 
 	/**
