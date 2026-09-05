@@ -25,21 +25,41 @@ final class Markdown_Output {
 	private const POST_TYPES = array( 'saai_faq', 'saai_kb', 'saai_glossary' );
 
 	/**
-	 * Transient key prefix. The post's own modified timestamp is folded into
-	 * the key (see render_cached()) so an edit invalidates the cache by
-	 * simply changing the key, without needing a save_post hook.
+	 * Transient key prefix. The key is a stable saai_markdown_{post ID} —
+	 * see flush_cache() for why it's invalidated explicitly on save/trash
+	 * rather than by folding the post's modified time into the key itself
+	 * (Codex review: that approach missed a second edit within the same
+	 * second, since get_post_modified_time( 'U', ... ) only has
+	 * second-level resolution).
 	 *
 	 * @var string
 	 */
 	private const CACHE_PREFIX = 'saai_markdown_';
 
 	/**
-	 * Hooks the query var and the template_redirect short-circuit into
-	 * WordPress.
+	 * Hooks the query var, the template_redirect short-circuit, and cache
+	 * invalidation into WordPress.
 	 */
 	public function register(): void {
 		add_filter( 'query_vars', array( $this, 'register_query_var' ) );
 		add_action( 'template_redirect', array( $this, 'maybe_serve' ) );
+
+		add_action( 'save_post_saai_faq', array( $this, 'flush_cache' ) );
+		add_action( 'save_post_saai_kb', array( $this, 'flush_cache' ) );
+		add_action( 'save_post_saai_glossary', array( $this, 'flush_cache' ) );
+		add_action( 'trashed_post', array( $this, 'flush_cache' ) );
+	}
+
+	/**
+	 * Deletes one post's cached Markdown. Hooked to save/trash of the three
+	 * content post types (see register()); a stale cache otherwise only
+	 * self-heals when some other post edit happens to touch the same
+	 * transient (it never will, since the key is now per-post).
+	 *
+	 * @param int $post_id The post whose cache entry to clear.
+	 */
+	public function flush_cache( int $post_id ): void {
+		delete_transient( self::CACHE_PREFIX . $post_id );
 	}
 
 	/**
@@ -106,27 +126,32 @@ final class Markdown_Output {
 	 * miss.
 	 *
 	 * The transient this caches into is shared site-wide across every
-	 * anonymous visitor, but render()'s `apply_filters( 'the_content', ... )`
+	 * visitor that uses it, but render()'s `apply_filters( 'the_content', ... )`
 	 * call runs the same core the_content chain (do_shortcode(), do_blocks())
 	 * a theme template would — and post_content, being ordinary block-editor
 	 * content, can legitimately contain a shortcode/block whose output
-	 * varies by viewer (e.g. a login-state-dependent block, or one that
-	 * reveals more to a user with elevated capabilities). Caching and
-	 * replaying a logged-in user's render for every subsequent anonymous
-	 * visitor would leak whatever that render exposed. Logged-in requests
-	 * therefore bypass the shared cache entirely — both reading and writing
-	 * it — so the cache is only ever populated by, and served to, genuinely
-	 * anonymous renders.
+	 * varies by viewer: not just by login state, but by anything an
+	 * anonymous visitor's own cookies drive (a cart, a language switcher, a
+	 * geo/currency preference). Caching and replaying one such visitor's
+	 * render to every other visitor for up to a day would leak whatever
+	 * that render exposed. A request that carries *any* cookie at all —
+	 * logged in or not — therefore bypasses the shared cache entirely, both
+	 * reading and writing it, the same heuristic full-page-cache plugins
+	 * (WP Super Cache et al.) use to decide a request is safe to serve from
+	 * a shared cache (Codex review: an earlier version of this check only
+	 * looked at is_user_logged_in()). This plugin's actual target audience
+	 * for ?format=markdown — AI/RAG crawlers — overwhelmingly send no
+	 * cookies at all, so the cache still serves its purpose for them.
 	 *
 	 * @param \WP_Post $post The post to render.
 	 * @return string
 	 */
 	public function render_cached( \WP_Post $post ): string {
-		if ( is_user_logged_in() ) {
+		if ( ! empty( $_COOKIE ) ) {
 			return $this->render( $post );
 		}
 
-		$key    = self::CACHE_PREFIX . $post->ID . '_' . get_post_modified_time( 'U', true, $post );
+		$key    = self::CACHE_PREFIX . $post->ID;
 		$cached = get_transient( $key );
 
 		if ( is_string( $cached ) ) {

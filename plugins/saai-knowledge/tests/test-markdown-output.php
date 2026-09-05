@@ -152,11 +152,46 @@ class Test_Markdown_Output extends WP_UnitTestCase {
 
 	/**
 	 * The render_cached() method returns identical content across calls
-	 * (i.e. the transient round-trip doesn't corrupt the value) and
-	 * reflects an edit once the post's modified time changes (its cache
-	 * key embeds that timestamp).
+	 * (i.e. the transient round-trip doesn't corrupt the value), and an
+	 * edit is reflected once flush_cache() runs — including two edits
+	 * within the same second, which a modified-time-keyed cache would have
+	 * missed (Codex review).
 	 */
-	public function test_render_cached_reflects_post_updates() {
+	public function test_render_cached_reflects_post_updates_via_flush_cache() {
+		$post_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_content' => 'Original body.',
+				'post_status'  => 'publish',
+			)
+		);
+		$post    = get_post( $post_id );
+
+		$first = $this->service->render_cached( $post );
+		$this->assertStringContainsString( 'Original body.', $first );
+		$this->assertSame( $first, $this->service->render_cached( $post ) );
+
+		$this->service->flush_cache( $post_id );
+		wp_update_post(
+			array(
+				'ID'           => $post_id,
+				'post_content' => 'Updated body.',
+			)
+		);
+		$this->service->flush_cache( $post_id );
+
+		$second = $this->service->render_cached( get_post( $post_id ) );
+		$this->assertStringContainsString( 'Updated body.', $second );
+	}
+
+	/**
+	 * The flush_cache() method is wired to save_post_saai_kb, so an ordinary
+	 * wp_update_post() call alone (without a manual flush_cache() call)
+	 * already invalidates that post's cached Markdown.
+	 */
+	public function test_save_post_hook_invalidates_cache() {
+		$this->service->register();
+
 		$post_id = self::factory()->post->create(
 			array(
 				'post_type'    => 'saai_kb',
@@ -165,39 +200,28 @@ class Test_Markdown_Output extends WP_UnitTestCase {
 			)
 		);
 
-		$first = $this->service->render_cached( get_post( $post_id ) );
-		$this->assertStringContainsString( 'Original body.', $first );
-		$this->assertSame( $first, $this->service->render_cached( get_post( $post_id ) ) );
+		$this->service->render_cached( get_post( $post_id ) );
 
-		// Write the new content and a deliberately distinct post_modified
-		// straight to the DB (bypassing wp_update_post(), which recomputes
-		// post_modified from the current time itself — indistinguishable
-		// from the first render_cached() call above at test speed) so the
-		// cache key change this asserts on is deterministic rather than a
-		// same-second race.
-		global $wpdb;
-		$new_modified = gmdate( 'Y-m-d H:i:s', time() + 60 );
-		$wpdb->update(
-			$wpdb->posts,
+		wp_update_post(
 			array(
-				'post_content'      => 'Updated body.',
-				'post_modified'     => $new_modified,
-				'post_modified_gmt' => $new_modified,
-			),
-			array( 'ID' => $post_id )
+				'ID'           => $post_id,
+				'post_content' => 'Updated body.',
+			)
 		);
-		clean_post_cache( $post_id );
 
 		$second = $this->service->render_cached( get_post( $post_id ) );
 		$this->assertStringContainsString( 'Updated body.', $second );
 	}
 
 	/**
-	 * A logged-in visitor's render never reads or writes the shared
-	 * transient, so a viewer-dependent render can't leak into what
-	 * subsequent anonymous visitors see (Codex review).
+	 * A request carrying any cookie at all — not just a logged-in
+	 * auth cookie — never reads or writes the shared transient, so a
+	 * viewer-dependent render (a cart, a language preference, ...) can't
+	 * leak into what a cookie-less visitor (this endpoint's actual target
+	 * audience: AI/RAG crawlers) sees (Codex review: an earlier version of
+	 * this check only looked at is_user_logged_in()).
 	 */
-	public function test_render_cached_bypasses_shared_cache_for_logged_in_users() {
+	public function test_render_cached_bypasses_shared_cache_for_any_cookie() {
 		$post_id = self::factory()->post->create(
 			array(
 				'post_type'    => 'saai_kb',
@@ -206,25 +230,24 @@ class Test_Markdown_Output extends WP_UnitTestCase {
 			)
 		);
 
-		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
-
 		$override = static function ( $markdown, $post ) {
-			return 'ADMIN-ONLY-CONTENT:' . $post->ID;
+			return 'SESSION-SPECIFIC-CONTENT:' . $post->ID;
 		};
 
 		add_filter( 'saai_markdown_output', $override, 10, 2 );
 
+		$_COOKIE['saai_test_session'] = '1';
+
 		try {
-			$logged_in_render = $this->service->render_cached( get_post( $post_id ) );
-			$this->assertSame( 'ADMIN-ONLY-CONTENT:' . $post_id, $logged_in_render );
+			$cookied_render = $this->service->render_cached( get_post( $post_id ) );
+			$this->assertSame( 'SESSION-SPECIFIC-CONTENT:' . $post_id, $cookied_render );
 		} finally {
 			remove_filter( 'saai_markdown_output', $override );
+			unset( $_COOKIE['saai_test_session'] );
 		}
 
-		wp_set_current_user( 0 );
-
 		$anonymous_render = $this->service->render_cached( get_post( $post_id ) );
-		$this->assertStringNotContainsString( 'ADMIN-ONLY-CONTENT', $anonymous_render );
+		$this->assertStringNotContainsString( 'SESSION-SPECIFIC-CONTENT', $anonymous_render );
 		$this->assertStringContainsString( 'Public body.', $anonymous_render );
 	}
 }
