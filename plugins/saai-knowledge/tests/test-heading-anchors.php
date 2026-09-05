@@ -129,6 +129,32 @@ class Test_Heading_Anchors extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Each heading must report whether it sits among the post's own
+	 * root-level blocks or is nested inside another block's innerBlocks
+	 * (e.g. a Group) — Export::build_sections() relies on this to avoid
+	 * mismatching a top-level section against a nested heading that merely
+	 * happens to share array position with it (Codex review).
+	 */
+	public function test_extract_flags_top_level_vs_nested_headings() {
+		$content  = '<!-- wp:group --><div class="wp-block-group">';
+		$content .= "<!-- wp:heading -->\n<h2>Nested</h2>\n<!-- /wp:heading -->";
+		$content .= '</div><!-- /wp:group -->';
+		$content .= "<!-- wp:heading -->\n<h2>Top level</h2>\n<!-- /wp:heading -->";
+
+		$post = self::factory()->post->create_and_get(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_content' => $content,
+			)
+		);
+
+		$headings = ( new \SAAI\Knowledge\Heading_Anchors() )->extract( $post );
+
+		$this->assertSame( array( 'Nested', 'Top level' ), wp_list_pluck( $headings, 'text' ) );
+		$this->assertSame( array( false, true ), wp_list_pluck( $headings, 'top_level' ) );
+	}
+
+	/**
 	 * A heading with no visible text (e.g. icon-only) still gets a heading record
 	 * with a fallback id, so add_anchors()'s positional tag-by-tag walk stays
 	 * aligned with this list even when such a heading is skipped from display.

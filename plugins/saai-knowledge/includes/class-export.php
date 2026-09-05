@@ -81,7 +81,7 @@ final class Export {
 	 * The globals WP_Query::setup_postdata() mutates besides $post — same
 	 * list, same reasoning, as Markdown_Output::POSTDATA_GLOBALS. This class
 	 * needs its own copy of the snapshot/restore dance (rather than only
-	 * relying on Markdown_Output::render_cached()'s internal one) because
+	 * relying on Markdown_Output::render()'s internal one) because
 	 * build_record() also runs its own separate `the_content` pass for
 	 * content_plain/sections, which the_content's shortcode/embed handlers
 	 * can just as easily depend on the postdata globals for.
@@ -273,8 +273,22 @@ final class Export {
 			return $served;
 		}
 
-		$data    = $result->get_data();
-		$records = is_array( $data ) && isset( $data['records'] ) && is_array( $data['records'] ) ? $data['records'] : array();
+		$data = $result->get_data();
+
+		// A request rejected by arg validation (e.g. an out-of-range
+		// per_page, or a bad modified_after) never reaches handle_request():
+		// WP_REST_Server::serve_request() converts the resulting WP_Error into
+		// a WP_REST_Response of its own — still an instanceof check above
+		// passes — shaped like `{ code, message, data }`, with no `records`
+		// key at all. Only intercept a response that actually looks like our
+		// own success envelope; anything else (including that error shape)
+		// falls through to core's normal JSON serving, which is the only
+		// place that error's real code/message ever gets sent (Codex review:
+		// this used to unconditionally echo an empty NDJSON body over a 400
+		// response, discarding the actual error).
+		if ( ! is_array( $data ) || ! isset( $data['records'] ) || ! is_array( $data['records'] ) ) {
+			return $served;
+		}
 
 		// headers_sent() is false for every real request at this point in
 		// WP_REST_Server::serve_request() (no body has been echoed yet); the
@@ -284,9 +298,17 @@ final class Export {
 			header( 'Content-Type: application/x-ndjson; charset=utf-8' );
 		}
 
-		foreach ( $records as $record ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- newline-delimited JSON body, not HTML.
-			echo wp_json_encode( $record ) . "\n";
+		// HEAD must never carry a body (core's own equivalent suppression —
+		// `'HEAD' === $request->get_method() ? return null` — lives inside
+		// serve_request()'s `if ( ! $served )` branch, which this callback's
+		// own `return true` below always skips; a HEAD request to this route
+		// would otherwise get the full NDJSON body core would have withheld
+		// for `format=json`, Codex review).
+		if ( 'HEAD' !== $request->get_method() ) {
+			foreach ( $data['records'] as $record ) {
+				// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- newline-delimited JSON body, not HTML.
+				echo wp_json_encode( $record ) . "\n";
+			}
 		}
 
 		return true;
@@ -425,6 +447,17 @@ final class Export {
 			$previous_globals[ $var ] = $GLOBALS[ $var ] ?? null;
 		}
 
+		// setup_postdata() (really WP_Query::setup_postdata()) only sets
+		// $id/$authordata/etc — it never assigns $GLOBALS['post'] itself
+		// (that normally only happens inside WP_Query::the_post()'s own
+		// `$post = $this->next_post();`, which nothing in this REST/admin
+		// context ever runs). Without this assignment, a shortcode or
+		// dynamic block inside the post's content that calls the argument-less
+		// get_post() would see whatever post happened to be the stale global
+		// from a previous request on the same persistent worker (or none at
+		// all), not this one — same fix Faq_List::render_answer() already
+		// applies for the identical reason (Copilot/Codex review).
+		$GLOBALS['post'] = $post; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- deliberately scoping this post as "current" for its own the_content render; restored in the finally block.
 		setup_postdata( $post );
 
 		try {
@@ -436,14 +469,27 @@ final class Export {
 				'id'               => $post->ID,
 				'type'             => $type_key,
 				'title'            => html_entity_decode( wp_strip_all_tags( get_the_title( $post ) ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' ),
-				// Reuses Markdown_Output's own (cached) rendering rather than
-				// converting $content_html a second time — its class
-				// docblock documents this exact reuse. The self-contained
-				// "# Title" heading it includes is a deliberate, harmless
-				// duplication of the `title` field above: many embedding
-				// pipelines expect each chunk of text to carry its own
-				// context rather than relying on a sibling JSON field.
-				'content_markdown' => $this->markdown_output->render_cached( $post ),
+				// Markdown_Output::render() (the *uncached* method), not
+				// render_cached(): the cached variant shares one
+				// site-wide-per-post transient with the public
+				// `?format=markdown` endpoint, but Autolinker::process_content()
+				// unconditionally skips while REST_REQUEST is defined (true
+				// for every request through this class's own REST route) or
+				// is_admin() (true for the admin-post.php download route
+				// too) — so whichever of "a real ?format=markdown visitor" or
+				// "this export" happens to populate that shared cache first
+				// would silently serve its own (autolinked or not) version to
+				// the other for up to a day (Codex review). Calling render()
+				// directly here still produces exactly the same content this
+				// context always would (Autolinker skips either way, so
+				// nothing is lost) without ever writing into the cache the
+				// other, autolink-eligible context depends on. The
+				// self-contained "# Title" heading it includes is a
+				// deliberate, harmless duplication of the `title` field
+				// above: many embedding pipelines expect each chunk of text
+				// to carry its own context rather than relying on a sibling
+				// JSON field.
+				'content_markdown' => $this->markdown_output->render( $post ),
 				'content_plain'    => Markdown_Converter::to_plain_text( $content_html ),
 				'categories'       => $this->term_names( $post, 'saai_category' ),
 				'tags'             => $this->term_names( $post, 'saai_tag' ),
@@ -487,16 +533,19 @@ final class Export {
 	 * Known limitation: only an `<h2>` that renders as a direct child of the
 	 * document body starts a new section — the common case for a flat KB
 	 * article built from top-level core blocks. An h2 nested inside a
-	 * wrapper block (Group, Columns) is not detected, the same class of
-	 * positional limitation Heading_Anchors documents for its own tag walk.
-	 * A section's `anchor` is matched positionally against
-	 * Heading_Anchors::extract()'s level-2 headings (in the same document
-	 * order), so it agrees with the id add_anchors() would inject into that
-	 * same heading on the real front-end page — matching_anchor() only trusts
-	 * that positional match when the two headings' text actually agree
-	 * (guarding against the position drifting once a nested h2, invisible to
-	 * this method's own top-level walk, shifts Heading_Anchors' count),
-	 * falling back to a locally derived slug otherwise.
+	 * wrapper block (Group, Columns) is not detected as a section boundary
+	 * here, the same class of positional limitation Heading_Anchors
+	 * documents for its own tag walk. A section's `anchor` is matched
+	 * positionally against Heading_Anchors::extract()'s *top-level* level-2
+	 * headings only (in the same document order), so it agrees with the id
+	 * add_anchors() would inject into that same heading on the real
+	 * front-end page — restricting the candidate list to top_level headings
+	 * is what actually keeps this alignment correct (a nested h2 would
+	 * otherwise still occupy a slot in extract()'s full list and shift every
+	 * later section's position out of sync with it, even one that happens to
+	 * share the same heading text as its neighbor); matching_anchor()'s own
+	 * text-agreement check is a second, defensive layer on top of that,
+	 * falling back to a locally derived slug on any remaining mismatch.
 	 *
 	 * @param \WP_Post $post         The KB post.
 	 * @param string   $content_html Its fully rendered (`the_content`-filtered) HTML.
@@ -552,11 +601,22 @@ final class Export {
 			$chunks[] = $current;
 		}
 
+		// Restricted to top_level headings (Heading_Anchors::extract()'s own
+		// contract, added specifically for this filter) so a heading nested
+		// inside a wrapper block (Group/Columns) — invisible to this
+		// method's own $body->childNodes-only walk above — can never occupy
+		// a slot in this list and shift every later top-level section's
+		// position out of alignment with it. Without this, two identically
+		// worded headings (one nested, one top-level, right after it) would
+		// still defeat matching_anchor()'s text-only check below: both
+		// texts agree, so it would accept the nested heading's id even
+		// though it isn't the one this section's own heading resolved to
+		// (Codex review — a real gap in that check on its own).
 		$level_2_headings = array_values(
 			array_filter(
 				( new Heading_Anchors() )->extract( $post ),
 				static function ( array $heading ): bool {
-					return 2 === $heading['level'];
+					return 2 === $heading['level'] && ! empty( $heading['top_level'] );
 				}
 			)
 		);
@@ -817,11 +877,25 @@ final class Export {
 	}
 
 	/**
-	 * Streams records as CSV to the current output buffer. Nested fields
-	 * (categories/tags) are flattened to a "; "-joined string; `sections`
-	 * (KB only) is omitted entirely — a flat spreadsheet row has no natural
-	 * place for a nested chunk list, which is exactly what the JSONL/JSON
-	 * formats are for.
+	 * The CSV column names built directly from every record, in a fixed
+	 * order — every other key present on any record becomes an extra
+	 * trailing column (see extra_csv_columns()).
+	 *
+	 * @var string[]
+	 */
+	private const CSV_BASE_COLUMNS = array( 'id', 'type', 'title', 'content_markdown', 'content_plain', 'categories', 'tags', 'url', 'updated_at' );
+
+	/**
+	 * Streams records as CSV to the current output buffer. Nested base
+	 * fields (categories/tags) are flattened to a "; "-joined string;
+	 * `sections` (KB only) is omitted entirely — a flat spreadsheet row has
+	 * no natural place for a nested chunk list, which is exactly what the
+	 * JSONL/JSON formats are for. Any *other* key a `saai_export_record`
+	 * callback added (the paid add-on's product ID/SKU/category metadata,
+	 * per docs/DESIGN-HOOKS-API.md section 3.4) becomes its own trailing
+	 * column instead of being silently dropped — the admin CSV download is
+	 * documented as carrying "the same content" as JSON/JSONL, which would
+	 * otherwise not hold for that metadata (Codex review).
 	 *
 	 * @param array<int, array<string, mixed>> $records Records, see build_record().
 	 */
@@ -846,35 +920,95 @@ final class Export {
 			return;
 		}
 
+		$extra_columns = self::extra_csv_columns( $records );
+
 		// PHP 8.4 deprecates omitting $escape (a future version changes its
 		// default from "\" to ""); passing "" explicitly here opts in early
 		// to that future default, which also happens to be the behavior
 		// most other CSV consumers (Excel, Python's csv module) already
 		// assume: a field is escaped solely by doubling its enclosure
 		// character (RFC 4180), not by a preceding backslash.
-		fputcsv( $handle, array( 'id', 'type', 'title', 'content_markdown', 'content_plain', 'categories', 'tags', 'url', 'updated_at' ), ',', '"', '' );
+		fputcsv( $handle, array_merge( self::CSV_BASE_COLUMNS, $extra_columns ), ',', '"', '' );
 
 		foreach ( $records as $record ) {
-			fputcsv(
-				$handle,
-				array(
-					$record['id'] ?? '',
-					$record['type'] ?? '',
-					self::escape_csv_formula( $record['title'] ?? '' ),
-					self::escape_csv_formula( $record['content_markdown'] ?? '' ),
-					self::escape_csv_formula( $record['content_plain'] ?? '' ),
-					self::escape_csv_formula( implode( '; ', is_array( $record['categories'] ?? null ) ? $record['categories'] : array() ) ),
-					self::escape_csv_formula( implode( '; ', is_array( $record['tags'] ?? null ) ? $record['tags'] : array() ) ),
-					$record['url'] ?? '',
-					$record['updated_at'] ?? '',
-				),
-				',',
-				'"',
-				''
+			$row = array(
+				$record['id'] ?? '',
+				$record['type'] ?? '',
+				self::escape_csv_formula( $record['title'] ?? '' ),
+				self::escape_csv_formula( $record['content_markdown'] ?? '' ),
+				self::escape_csv_formula( $record['content_plain'] ?? '' ),
+				self::escape_csv_formula( implode( '; ', is_array( $record['categories'] ?? null ) ? $record['categories'] : array() ) ),
+				self::escape_csv_formula( implode( '; ', is_array( $record['tags'] ?? null ) ? $record['tags'] : array() ) ),
+				$record['url'] ?? '',
+				$record['updated_at'] ?? '',
 			);
+
+			foreach ( $extra_columns as $column ) {
+				$row[] = self::escape_csv_formula( self::csv_cell_value( $record[ $column ] ?? '' ) );
+			}
+
+			fputcsv( $handle, $row, ',', '"', '' );
 		}
 
 		fclose( $handle ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- closing the php://output stream opened above, not a filesystem handle.
+	}
+
+	/**
+	 * Every key present on any record beyond CSV_BASE_COLUMNS and `sections`
+	 * (KB's own nested field, always excluded — see stream_csv()'s
+	 * docblock), sorted for a stable, deterministic column order regardless
+	 * of which record a given extra key first appears on. Not every record
+	 * necessarily carries every extra key (e.g. only product-linked FAQs
+	 * might get a `product_id`); stream_csv() fills a row's missing extra
+	 * columns with an empty cell.
+	 *
+	 * @param array<int, array<string, mixed>> $records Records, see build_record().
+	 * @return string[]
+	 */
+	private static function extra_csv_columns( array $records ): array {
+		$extra = array();
+
+		foreach ( $records as $record ) {
+			foreach ( array_keys( $record ) as $key ) {
+				if ( ! in_array( $key, self::CSV_BASE_COLUMNS, true ) && 'sections' !== $key ) {
+					$extra[ $key ] = true;
+				}
+			}
+		}
+
+		$columns = array_keys( $extra );
+		sort( $columns );
+
+		return $columns;
+	}
+
+	/**
+	 * Renders one extra (filter-added) field's value as a single CSV cell.
+	 * A scalar is used as-is; a flat array of scalars is "; "-joined (same
+	 * convention as the built-in categories/tags columns); anything else
+	 * (a nested/mixed array, an object) falls back to a JSON-encoded string
+	 * rather than risking a PHP "Array to string conversion" or losing the
+	 * value's shape entirely.
+	 *
+	 * @param mixed $value Raw field value.
+	 * @return string
+	 */
+	private static function csv_cell_value( $value ): string {
+		if ( is_scalar( $value ) ) {
+			return (string) $value;
+		}
+
+		if ( is_array( $value ) && array_filter( $value, 'is_scalar' ) === $value ) {
+			return implode( '; ', array_map( 'strval', $value ) );
+		}
+
+		if ( is_array( $value ) ) {
+			$json = wp_json_encode( $value );
+
+			return is_string( $json ) ? $json : '';
+		}
+
+		return '';
 	}
 
 	/**

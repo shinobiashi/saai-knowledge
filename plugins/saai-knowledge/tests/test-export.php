@@ -307,6 +307,68 @@ class Test_Export extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A shortcode inside the exported post's own content that calls the
+	 * argument-less get_post() must see *that* post, not whatever post
+	 * happened to already be the global $post (a stale value from another
+	 * post on a persistent worker, say) — setup_postdata() alone never
+	 * assigns $GLOBALS['post'] itself (only WP_Query::the_post(), which
+	 * nothing in this REST context ever runs, does that).
+	 */
+	public function test_build_record_sets_global_post_for_the_content() {
+		add_shortcode(
+			'saai_test_current_post_id',
+			static function () {
+				$post = get_post();
+
+				return $post instanceof \WP_Post ? (string) $post->ID : 'none';
+			}
+		);
+
+		$post_id  = $this->create_post( 'saai_faq', 'Refund policy', array( 'post_content' => '[saai_test_current_post_id]' ) );
+		$other_id = $this->create_post( 'saai_faq', 'Unrelated post' );
+
+		// Simulates the exact failure condition: some other post is already
+		// "current" when this record starts rendering.
+		$GLOBALS['post'] = get_post( $other_id ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- deliberately seeding the bug scenario under test.
+
+		try {
+			$request = new WP_REST_Request( 'GET', '/saai-knowledge/v1/export' );
+			$request->set_param( 'types', 'faq' );
+			$response = $this->server->dispatch( $request );
+		} finally {
+			remove_shortcode( 'saai_test_current_post_id' );
+		}
+
+		$by_id = array();
+		foreach ( $response->get_data()['records'] as $record ) {
+			$by_id[ $record['id'] ] = $record;
+		}
+
+		$this->assertStringContainsString( (string) $post_id, $by_id[ $post_id ]['content_plain'] );
+		$this->assertStringNotContainsString( (string) $other_id, $by_id[ $post_id ]['content_plain'] );
+	}
+
+	/**
+	 * The content_markdown field must not be produced via Markdown_Output::render_cached():
+	 * that method shares one site-wide transient with the public
+	 * `?format=markdown` endpoint, but Autolinker::process_content() always
+	 * skips while REST_REQUEST is defined — so writing this REST context's
+	 * (never-autolinked) rendering into that cache would silently serve it
+	 * to a real ?format=markdown visitor (who should get autolinked content)
+	 * for up to a day, purely because the export happened to run first.
+	 */
+	public function test_build_record_does_not_populate_the_shared_markdown_cache() {
+		$post_id = $this->create_post( 'saai_faq', 'Refund policy' );
+
+		$request = new WP_REST_Request( 'GET', '/saai-knowledge/v1/export' );
+		$this->server->dispatch( $request );
+
+		$generation = (int) get_option( 'saai_dict_generation', 1 );
+
+		$this->assertFalse( get_transient( 'saai_markdown_' . $post_id . '_' . $generation ) );
+	}
+
+	/**
 	 * Category/tag names should be included for FAQ/KB but always
 	 * empty for glossary, which neither taxonomy applies to.
 	 */
@@ -421,6 +483,37 @@ class Test_Export extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A text-agreement check alone cannot catch a nested heading and its
+	 * immediately following top-level heading sharing the exact same
+	 * wording (e.g. both "Overview") — build_sections() must exclude the
+	 * nested candidate from consideration entirely (via
+	 * Heading_Anchors::extract()'s `top_level` flag), not just compare text,
+	 * or it would still accept the nested heading's id.
+	 */
+	public function test_sections_anchor_correct_when_nested_and_top_level_headings_share_text() {
+		$content  = '<!-- wp:group --><div class="wp-block-group">';
+		$content .= '<!-- wp:heading --><h2>Overview</h2><!-- /wp:heading -->';
+		$content .= '<!-- wp:paragraph --><p>Nested overview text.</p><!-- /wp:paragraph -->';
+		$content .= '</div><!-- /wp:group -->';
+		$content .= '<!-- wp:heading --><h2>Overview</h2><!-- /wp:heading -->';
+		$content .= '<!-- wp:paragraph --><p>Real overview text.</p><!-- /wp:paragraph -->';
+
+		$this->create_post( 'saai_kb', 'Setup guide', array( 'post_content' => $content ) );
+
+		$request  = new WP_REST_Request( 'GET', '/saai-knowledge/v1/export' );
+		$response = $this->server->dispatch( $request );
+		$sections = $response->get_data()['records'][0]['sections'];
+
+		$this->assertCount( 1, $sections );
+		$this->assertSame( 'Overview', $sections[0]['heading'] );
+		// Heading_Anchors::extract() assigns 'overview' to the nested
+		// occurrence and 'overview-2' to the top-level one (document order,
+		// deduped) — the top-level-only section must resolve to its own id.
+		$this->assertSame( 'overview-2', $sections[0]['anchor'] );
+		$this->assertStringContainsString( 'Real overview text.', $sections[0]['content_markdown'] );
+	}
+
+	/**
 	 * The saai_export_record filter should be able to annotate a record
 	 * (the paid add-on's product ID/SKU use case) and should receive the
 	 * requested format.
@@ -518,6 +611,55 @@ class Test_Export extends WP_UnitTestCase {
 		$this->assertFalse( $this->export->maybe_serve_jsonl( false, $response, $other_request, $this->server ) );
 		$this->assertFalse( $this->export->maybe_serve_jsonl( false, $response, $export_request, $this->server ) );
 		$this->assertTrue( $this->export->maybe_serve_jsonl( true, $response, $export_request, $this->server ) );
+	}
+
+	/**
+	 * A request rejected by arg validation (e.g. an out-of-range per_page)
+	 * never reaches handle_request() — WP_REST_Server converts the resulting
+	 * WP_Error into a `{ code, message, data }`-shaped WP_REST_Response
+	 * instead, which has no `records` key. maybe_serve_jsonl() must leave
+	 * that alone (returning $served unchanged) so core's normal JSON
+	 * serving still delivers the real error, rather than swallowing it into
+	 * an empty NDJSON body.
+	 */
+	public function test_maybe_serve_jsonl_does_not_intercept_error_responses() {
+		$request = new WP_REST_Request( 'GET', '/saai-knowledge/v1/export' );
+		$request->set_param( 'format', 'jsonl' );
+		$request->set_param( 'per_page', 1000 );
+
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
+
+		ob_start();
+		$served = $this->export->maybe_serve_jsonl( false, $response, $request, $this->server );
+		$body   = ob_get_clean();
+
+		$this->assertFalse( $served );
+		$this->assertSame( '', $body );
+	}
+
+	/**
+	 * A HEAD request must never carry a body. Core's own HEAD-body
+	 * suppression in WP_REST_Server::serve_request() only runs inside the
+	 * `if ( ! $served )` branch, which this callback's own `return true`
+	 * always skips — so it must suppress the body itself instead of relying
+	 * on that.
+	 */
+	public function test_maybe_serve_jsonl_omits_body_for_head_requests() {
+		$this->create_post( 'saai_faq', 'Refund policy' );
+
+		$request = new WP_REST_Request( 'HEAD', '/saai-knowledge/v1/export' );
+		$request->set_param( 'format', 'jsonl' );
+
+		$response = $this->server->dispatch( $request );
+
+		ob_start();
+		$served = $this->export->maybe_serve_jsonl( false, $response, $request, $this->server );
+		$body   = ob_get_clean();
+
+		$this->assertTrue( $served );
+		$this->assertSame( '', $body );
 	}
 
 	/**
@@ -666,5 +808,91 @@ class Test_Export extends WP_UnitTestCase {
 		$csv = ob_get_clean();
 
 		$this->assertStringContainsString( 'fine', $csv );
+	}
+
+	/**
+	 * A field a saai_export_record callback adds beyond the base columns
+	 * (the paid add-on's product ID/category metadata, per
+	 * docs/DESIGN-HOOKS-API.md section 3.4) must appear as its own CSV
+	 * column — the admin CSV download is documented as carrying the same
+	 * content as JSON/JSONL, which wouldn't hold if this metadata were
+	 * silently dropped. A record the filter never touched gets an empty
+	 * cell for that column, not a missing/misaligned row.
+	 */
+	public function test_stream_csv_includes_extra_filter_added_columns() {
+		$annotate = static function ( array $record ): array {
+			if ( 'faq' === $record['type'] ) {
+				$record['product_id']         = 42;
+				$record['product_categories'] = array( 'Widgets', 'Gadgets' );
+			}
+
+			return $record;
+		};
+
+		add_filter( 'saai_export_record', $annotate );
+
+		$this->create_post( 'saai_faq', 'Refund policy' );
+		$this->create_post( 'saai_kb', 'Setup guide' );
+
+		$request  = new WP_REST_Request( 'GET', '/saai-knowledge/v1/export' );
+		$response = $this->server->dispatch( $request );
+
+		remove_filter( 'saai_export_record', $annotate );
+
+		$method = new ReflectionMethod( $this->export, 'stream_csv' );
+		$method->setAccessible( true );
+
+		ob_start();
+		$method->invoke( $this->export, $response->get_data()['records'] );
+		$csv = ob_get_clean();
+
+		// Unlike the hand-crafted single-line mock records in the other
+		// stream_csv() tests above, these are real export records — their
+		// content_markdown legitimately contains embedded newlines (a
+		// title heading, blank lines, body text), which fputcsv() quotes
+		// rather than splits. A naive explode( "\n", $csv ) would fragment
+		// that one quoted field's own newlines into extra, column-count-
+		// mismatched "rows" instead of parsing it as CSV; fgetcsv() on an
+		// in-memory stream respects the quoting the same way stream_csv()'s
+		// own writer produced it.
+		$rows   = array();
+		$stream = fopen( 'php://memory', 'r+' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- an in-memory stream for CSV-parsing this test's captured output, not the filesystem.
+
+		fwrite( $stream, substr( $csv, 3 ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite -- writing to the in-memory stream above; strips the leading UTF-8 BOM.
+		rewind( $stream );
+
+		while ( false !== ( $row = fgetcsv( $stream, 0, ',', '"', '' ) ) ) { // phpcs:ignore Generic.CodeAnalysis.AssignmentInCondition.FoundInWhileCondition -- the standard fgetcsv() read-until-EOF idiom.
+			$rows[] = $row;
+		}
+
+		fclose( $stream ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- closing the in-memory stream opened above, not a filesystem handle.
+
+		$header = $rows[0];
+
+		$this->assertContains( 'product_id', $header );
+		$this->assertContains( 'product_categories', $header );
+
+		$product_id_index         = array_search( 'product_id', $header, true );
+		$product_categories_index = array_search( 'product_categories', $header, true );
+
+		$faq_row = null;
+		$kb_row  = null;
+
+		foreach ( array_slice( $rows, 1 ) as $row ) {
+			if ( 'faq' === $row[1] ) {
+				$faq_row = $row;
+			} elseif ( 'kb' === $row[1] ) {
+				$kb_row = $row;
+			}
+		}
+
+		$this->assertNotNull( $faq_row );
+		$this->assertNotNull( $kb_row );
+		$this->assertSame( '42', $faq_row[ $product_id_index ] );
+		$this->assertSame( 'Widgets; Gadgets', $faq_row[ $product_categories_index ] );
+		// The KB record was never annotated by the filter — its extra
+		// columns must still exist, just empty.
+		$this->assertSame( '', $kb_row[ $product_id_index ] );
+		$this->assertSame( '', $kb_row[ $product_categories_index ] );
 	}
 }
