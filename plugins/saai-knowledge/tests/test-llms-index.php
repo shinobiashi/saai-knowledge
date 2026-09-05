@@ -114,6 +114,42 @@ class Test_Llms_Index extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A `saai_llms_index_items` callback that honors the required keys but
+	 * violates their documented string type (or hands back an empty
+	 * string) is dropped rather than reaching the concatenation that builds
+	 * each line — an unchecked non-string `url` there would trigger a PHP
+	 * "Array to string conversion" notice, or an empty one would produce a
+	 * broken `[title]()` link (Copilot review).
+	 */
+	public function test_saai_llms_index_items_filter_drops_items_with_non_string_or_empty_values() {
+		$add_items = static function ( array $items ) {
+			$items[] = array(
+				'type'         => 'faq',
+				'title'        => 'Array URL Item',
+				'url'          => array( 'not', 'a', 'string' ),
+				'markdown_url' => 'https://example.com/array-url/?format=markdown',
+			);
+			$items[] = array(
+				'type'         => 'faq',
+				'title'        => 'Empty URL Item',
+				'url'          => '',
+				'markdown_url' => 'https://example.com/empty-url/?format=markdown',
+			);
+			return $items;
+		};
+
+		add_filter( 'saai_llms_index_items', $add_items );
+
+		try {
+			$markdown = $this->index->build_index();
+			$this->assertStringNotContainsString( 'Array URL Item', $markdown );
+			$this->assertStringNotContainsString( 'Empty URL Item', $markdown );
+		} finally {
+			remove_filter( 'saai_llms_index_items', $add_items );
+		}
+	}
+
+	/**
 	 * The build_index_cached() method returns the same string on a second
 	 * call (i.e. it actually served the transient rather than rebuilding).
 	 */

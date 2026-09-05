@@ -224,11 +224,11 @@ final class Llms_Index {
 		$grouped = array();
 
 		foreach ( $items as $item ) {
-			if ( ! is_array( $item ) || ! isset( $item['type'], $item['title'], $item['url'], $item['markdown_url'] ) ) {
+			if ( ! is_array( $item ) || ! self::is_valid_index_item( $item ) ) {
 				continue;
 			}
 
-			$grouped[ (string) $item['type'] ][] = $item;
+			$grouped[ $item['type'] ][] = $item;
 		}
 
 		// The site name is as editable/arbitrary as a post title — escape it
@@ -258,6 +258,29 @@ final class Llms_Index {
 		}
 
 		return trim( implode( "\n", $lines ) ) . "\n";
+	}
+
+	/**
+	 * Whether an item from `saai_llms_index_items` actually satisfies the
+	 * documented item shape (docs/DESIGN-HOOKS-API.md section 3.4): all
+	 * four keys present *and* non-empty strings. `saai_llms_index_items` is
+	 * a public filter (Copilot review), so an isset()-only check (allowing
+	 * e.g. an array or an int through as `url`) risks a PHP "Array to
+	 * string conversion" notice or a broken `[]()` link once concatenated
+	 * into the output — a third-party callback can't be trusted to honor
+	 * the contract just because the keys exist.
+	 *
+	 * @param array<string, mixed> $item Candidate item.
+	 * @return bool
+	 */
+	private static function is_valid_index_item( array $item ): bool {
+		foreach ( array( 'type', 'title', 'url', 'markdown_url' ) as $key ) {
+			if ( ! isset( $item[ $key ] ) || ! is_string( $item[ $key ] ) || '' === $item[ $key ] ) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	/**
