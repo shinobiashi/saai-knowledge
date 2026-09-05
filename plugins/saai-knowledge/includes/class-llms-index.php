@@ -120,14 +120,27 @@ final class Llms_Index {
 	 *
 	 * It stays a substring search within that path (not an anchored
 	 * full-path match) so a subdirectory-install prefix still matches.
+	 *
+	 * remove_filter()'s $priority defaults to 10 when omitted — core
+	 * registers redirect_canonical there, but if some other plugin/theme
+	 * re-hooked it at a different priority, an unqualified remove_filter()
+	 * call would silently fail to match it, leaving the redirect in place
+	 * (Copilot review). has_filter() (which returns the actual registered
+	 * priority, or false) removes that assumption.
 	 */
 	public function maybe_remove_canonical_redirect(): void {
 		$request_uri = isset( $_SERVER['REQUEST_URI'] ) ? wp_unslash( (string) $_SERVER['REQUEST_URI'] ) : '';
 		$path        = (string) wp_parse_url( $request_uri, PHP_URL_PATH );
 		$pattern     = '#/' . preg_quote( $this->kb_slug(), '#' ) . '/llms\.txt/?$#';
 
-		if ( 1 === preg_match( $pattern, $path ) ) {
-			remove_filter( 'template_redirect', 'redirect_canonical' );
+		if ( 1 !== preg_match( $pattern, $path ) ) {
+			return;
+		}
+
+		$priority = has_filter( 'template_redirect', 'redirect_canonical' );
+
+		if ( false !== $priority ) {
+			remove_filter( 'template_redirect', 'redirect_canonical', $priority );
 		}
 	}
 

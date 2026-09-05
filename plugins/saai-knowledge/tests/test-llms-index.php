@@ -323,4 +323,30 @@ class Test_Llms_Index extends WP_UnitTestCase {
 			}
 		}
 	}
+
+	/**
+	 * The remove_filter() call's $priority defaults to 10 when omitted; if
+	 * redirect_canonical happens to be registered at a different priority
+	 * in a given environment (another plugin/theme re-hooking it), an
+	 * unqualified remove_filter() call would silently fail to match it.
+	 * maybe_remove_canonical_redirect() must look up the actual registered
+	 * priority via has_filter() first (Copilot review).
+	 */
+	public function test_maybe_remove_canonical_redirect_matches_a_non_default_priority() {
+		remove_filter( 'template_redirect', 'redirect_canonical', 10 );
+		add_action( 'template_redirect', 'redirect_canonical', 20 );
+
+		try {
+			$_SERVER['REQUEST_URI'] = '/kb/llms.txt';
+			$this->index->maybe_remove_canonical_redirect();
+
+			$this->assertFalse( has_filter( 'template_redirect', 'redirect_canonical' ) );
+		} finally {
+			unset( $_SERVER['REQUEST_URI'] );
+
+			if ( false === has_filter( 'template_redirect', 'redirect_canonical' ) ) {
+				add_action( 'template_redirect', 'redirect_canonical', 10 );
+			}
+		}
+	}
 }
