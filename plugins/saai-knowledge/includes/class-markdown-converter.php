@@ -166,7 +166,7 @@ final class Markdown_Converter {
 				if ( $node->parentNode instanceof \DOMElement && 'pre' === strtolower( $node->parentNode->tagName ) ) {
 					return self::convert_children( $node, $indent );
 				}
-				return '`' . trim( $node->textContent ) . '`';
+				return self::render_inline_code( $node->textContent );
 
 			case 'pre':
 				return self::render_code_fence( $node->textContent ) . "\n\n";
@@ -196,7 +196,11 @@ final class Markdown_Converter {
 					return '';
 				}
 
-				$alt = trim( (string) $node->getAttribute( 'alt' ) );
+				// alt is an arbitrary editable string, same as any DOMText
+				// run — without escaping, an alt like "x](/other) [y" would
+				// close this image's label early and start a second,
+				// unintended image/link (Codex review).
+				$alt = self::escape_text( trim( (string) $node->getAttribute( 'alt' ) ) );
 				return '![' . $alt . '](' . $src . ")\n\n";
 
 			case 'blockquote':
@@ -238,10 +242,16 @@ final class Markdown_Converter {
 	 * (inline `<code>`/`<pre>` content, link/image targets) bypasses this
 	 * text-node branch entirely and is emitted as-is.
 	 *
+	 * Public: Markdown_Output and Llms_Index reuse this same escaping for
+	 * post titles they place inside their own Markdown (an H1 heading and a
+	 * `[title](url)` link label, respectively) — the same class of
+	 * "arbitrary editable string next to syntax this plugin emits" problem,
+	 * just outside an HTML document this class is parsing.
+	 *
 	 * @param string $text Plain text.
 	 * @return string
 	 */
-	private static function escape_text( string $text ): string {
+	public static function escape_text( string $text ): string {
 		return str_replace(
 			array( '\\', '`', '*', '_', '[', ']' ),
 			array( '\\\\', '\\`', '\\*', '\\_', '\\[', '\\]' ),
@@ -287,17 +297,49 @@ final class Markdown_Converter {
 	private static function render_code_fence( string $code ): string {
 		$code = trim( $code, "\n" );
 
+		$fence = str_repeat( '`', max( 3, self::longest_backtick_run( $code ) + 1 ) );
+
+		return $fence . "\n" . $code . "\n" . $fence;
+	}
+
+	/**
+	 * Wraps inline code in a backtick delimiter longer than the longest run
+	 * of backticks already present in it — a fixed single backtick would
+	 * otherwise be closed early by code containing its own backtick (e.g.
+	 * `<code>a`b</code>`, which a fixed `` `a`b` `` delimiter would split at
+	 * the first one), the same class of problem render_code_fence() solves
+	 * for fenced blocks. Per CommonMark, code that starts or ends with a
+	 * backtick additionally needs a padding space on that side so the
+	 * delimiter itself isn't misread as touching the code's own backtick.
+	 *
+	 * @param string $code Raw inline <code> text content.
+	 * @return string
+	 */
+	private static function render_inline_code( string $code ): string {
+		$code = trim( $code );
+
+		$delimiter = str_repeat( '`', max( 1, self::longest_backtick_run( $code ) + 1 ) );
+		$padding   = ( '' !== $code && ( '`' === $code[0] || '`' === substr( $code, -1 ) ) ) ? ' ' : '';
+
+		return $delimiter . $padding . $code . $padding . $delimiter;
+	}
+
+	/**
+	 * The length of the longest run of consecutive backticks in a string.
+	 *
+	 * @param string $text Text to scan.
+	 * @return int
+	 */
+	private static function longest_backtick_run( string $text ): int {
 		$longest_run = 0;
 
-		if ( preg_match_all( '/`+/', $code, $matches ) ) {
+		if ( preg_match_all( '/`+/', $text, $matches ) ) {
 			foreach ( $matches[0] as $run ) {
 				$longest_run = max( $longest_run, strlen( $run ) );
 			}
 		}
 
-		$fence = str_repeat( '`', max( 3, $longest_run + 1 ) );
-
-		return $fence . "\n" . $code . "\n" . $fence;
+		return $longest_run;
 	}
 
 	/**

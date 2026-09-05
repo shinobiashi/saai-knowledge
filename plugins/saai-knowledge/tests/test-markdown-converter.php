@@ -103,6 +103,18 @@ class Test_Markdown_Converter extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Inline code containing its own backtick uses a longer delimiter (with
+	 * padding spaces, per CommonMark, since the code starts/ends with a
+	 * backtick) instead of a fixed single backtick that would close the
+	 * span early (Codex review).
+	 */
+	public function test_inline_code_with_backtick_uses_longer_padded_delimiter() {
+		$markdown = Markdown_Converter::convert( '<p><code>a`b</code></p>' );
+
+		$this->assertStringContainsString( '``a`b``', $markdown );
+	}
+
+	/**
 	 * A table becomes a pipe table with a header separator row, and a pipe
 	 * character inside a cell is escaped so it can't be mistaken for a
 	 * column boundary.
@@ -122,6 +134,16 @@ class Test_Markdown_Converter extends WP_UnitTestCase {
 		$markdown = Markdown_Converter::convert( '<img src="https://example.com/a.png" alt="A description">' );
 
 		$this->assertStringContainsString( '![A description](https://example.com/a.png)', $markdown );
+	}
+
+	/**
+	 * An unescaped ']'/'[' in alt text would close the image's label early
+	 * and start a second, unintended image/link (Codex review).
+	 */
+	public function test_image_alt_text_is_escaped() {
+		$markdown = Markdown_Converter::convert( '<img src="https://example.com/a.png" alt="x](/other) [y">' );
+
+		$this->assertStringContainsString( '![x\\](/other) \\[y](https://example.com/a.png)', $markdown );
 	}
 
 	/**
