@@ -69,12 +69,20 @@ final class Markdown_Output {
 		add_action( 'save_post_saai_kb', array( $this, 'flush_cache' ) );
 		add_action( 'save_post_saai_glossary', array( $this, 'flush_cache' ) );
 		add_action( 'trashed_post', array( $this, 'flush_cache' ) );
+		// wp_delete_post( $id, true ) (REST's force=true, `wp post delete
+		// --force`) skips wp_trash_post() entirely, so trashed_post never
+		// fires — only deleted_post does (Copilot review; Llms_Index and
+		// Autolinker::handle_post_deleted() already need the same second
+		// hook for the same reason). Without it, a force-deleted post's
+		// Markdown transient would sit unreachable but uncollected for up
+		// to DAY_IN_SECONDS.
+		add_action( 'deleted_post', array( $this, 'flush_cache' ) );
 	}
 
 	/**
-	 * Deletes one post's cached Markdown. Hooked to save/trash of the three
-	 * content post types (see register()); a stale cache otherwise only
-	 * self-heals when some other post edit happens to touch the same
+	 * Deletes one post's cached Markdown. Hooked to save/trash/delete of the
+	 * three content post types (see register()); a stale cache otherwise
+	 * only self-heals when some other post edit happens to touch the same
 	 * transient (it never will, since the key is now per-post).
 	 *
 	 * @param int $post_id The post whose cache entry to clear.

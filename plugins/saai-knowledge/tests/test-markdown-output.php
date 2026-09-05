@@ -292,6 +292,37 @@ class Test_Markdown_Output extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A force-delete (wp_delete_post( $id, true ) — REST's force=true,
+	 * `wp post delete --force`) skips wp_trash_post() entirely, so
+	 * trashed_post never fires; deleted_post must invalidate the cache too,
+	 * or the transient sits unreachable but uncollected for up to
+	 * DAY_IN_SECONDS (Copilot review).
+	 */
+	public function test_deleted_post_hook_invalidates_cache() {
+		$this->service->register();
+
+		$post_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_content' => 'Original body.',
+				'post_status'  => 'publish',
+			)
+		);
+
+		$this->service->render_cached( get_post( $post_id ) );
+
+		$cache_key = new \ReflectionMethod( Markdown_Output::class, 'cache_key' );
+		$cache_key->setAccessible( true );
+		$key = $cache_key->invoke( null, $post_id );
+
+		$this->assertIsString( get_transient( $key ) );
+
+		wp_delete_post( $post_id, true );
+
+		$this->assertFalse( get_transient( $key ) );
+	}
+
+	/**
 	 * A bump of saai_dict_generation (Autolinker's own dictionary-cache
 	 * invalidation counter, bumped e.g. on a glossary term rename/delete)
 	 * also invalidates this cache, since a KB/FAQ page's rendered Markdown
