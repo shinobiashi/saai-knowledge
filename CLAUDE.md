@@ -86,6 +86,11 @@ FAQ / Knowledge Base / 用語集を提供する WordPress プラグインのモ�
 - `register_setting()` の `sanitize_callback` は `sanitize_option_{$option}` フィルターとして登録され、対象オプションへのあらゆる `update_option()` 呼び出し（設定画面からの保存に限らない。既存テストの部分的な `update_option()` 呼び出しも含む）に適用される。フロントエンドでも `saai_default_settings` のようなフィルター済みデフォルトを `get_option()` に反映させたいだけなら、`register_setting()` 自体を無条件実行にするのではなく、`default_option_{$option}` フィルターだけを（`sanitize_callback` を伴わずに）無条件登録する方が安全（`Settings::filter_default_option()` で実例。前者を試して既存テストが壊れた実績あり）。
 - PHP 8 は内部関数（`boolval` 等の組み込み関数）に宣言以上の引数を渡すと `ArgumentCountError` で即死する一方、ユーザー定義関数・クロージャは超過引数を黙って無視する。プラグインの拡張フックが外部提供のコールバック（`'sanitize' => 'boolval'` 等）を受け取り得る設計では、固定個数の引数で無条件に `call_user_func()` せず、`ReflectionFunction`/`ReflectionMethod::getNumberOfParameters()` でコールバックの実引数個数を確認してから渡す（`Settings::call_field_sanitizer()` で実例）。
 - `uninstall.php` はプラグイン本体のオートローダーを経由しないため、直接 `require` したクラスがさらに参照する別クラス（例: `Post_Types::shared_args()` が `Settings::PAGE_SLUG` を参照）も個別に `require` する必要がある。この種の欠落はPHPUnitテストでは検知できない（テストプロセスは既にプラグイン本体のオートローダー経由で全クラスが読み込まれた状態で走るため）。検証するには実際にプラグインを deactivate した状態で `define('WP_UNINSTALL_PLUGIN', true); require 'uninstall.php';` を別プロセスで実行する。
+- 投稿の削除に連動して transient/キャッシュを無効化するフックは `save_post_{type}` / `trashed_post` だけでは不十分。`wp_delete_post( $id, true )`（REST APIの `force=true`、`wp post delete --force`）は `wp_trash_post()` を経由しないため `trashed_post` が発火せず、`deleted_post` も必ず併用する（`Autolinker::handle_post_deleted()` が確立パターン）。
+- 自プラグインが一時的に他のフック（`redirect_canonical` 等、自分が登録していないもの）を `remove_filter()` する場合、優先度を省略すると既定値10でしかマッチしない。core/他プラグインがそのフックを異なる優先度で登録している可能性を考慮し、`has_filter()` で実際の登録優先度（`false` の場合は未登録）を取得してから明示的に指定して `remove_filter()` する。
+- `Plugin_Upgrader::upgrade()`/`bulk_upgrade()` によるWordPress.org自動更新は `register_activation_hook()` のコールバックを発火しない。新バージョンで rewrite rule や新規 option を追加する場合、`activate()` だけに頼ると既存インストールでは反映されないままになるため、`init` でプラグインのバージョン文字列を保存済みオプションと比較し、不一致なら一度だけ `flush_rewrite_rules()` 等を実行する経路を別途用意する。
+- `Plugin::activate()` のような、`flush_rewrite_rules()` 等でグローバルオブジェクト（`$wp_rewrite` 等）を広範に変更するメソッドをPHPUnit内で直接呼ぶテストは、個別プロパティだけでなく対象オブジェクト全体を `clone` で保存し丸ごと復元しないと、同一プロセス内の他のテストへ副作用が漏れる（実際に `Test_Template_Loader` のテスト10件超が巻き添えで壊れた実績あり）。
+- Markdown を生成するコード（`?format=markdown` 等）では、投稿タイトル・タームの名前・サイト名・alt属性のような任意の編集可能文字列をMarkdown構文の隣に置く箇所を後追いで1つずつ直すのではなく、最初に「Markdown文字列を組み立てる全箇所」を洗い出し、共通のエスケープ関数（`\`, `` ` ``, `*`, `_`, `[`, `]` のバックスラッシュエスケープ）を一律適用する。またリンク/画像のdestination（href/src）を生のURLのまま `(...)` に埋め込むと、URLに `)` が含まれる場合にリンクが途中で途切れる。CommonMarkの `<...>` 山括弧形式（`<`/`>` のみエスケープすればよい）で包む（`Markdown_Converter::escape_text()` / `markdown_link_destination()` が確立パターン）。
 
 ## Git 運用（重要）
 
@@ -113,7 +118,7 @@ composer verify                 # lint + analyze + test を一括実行（bin/ve
 npx wp-env run tests-cli --env-cwd=saai-monorepo bash -c "composer test"
 ```
 
-`wp-env run` はスペース区切りの複数語コマンドを直接渡すと失敗するため `bash -c "..."` で包む。`composer analyze` がメモリ不足で落ちる場合は `composer exec phpstan analyse -- --memory-limit=512M` を使う。
+`wp-env run` はスペース区切りの複数語コマンドを直接渡すと失敗するため `bash -c "..."` で包む。`composer analyze` がメモリ不足で落ちる場合は `composer exec phpstan analyse -- --memory-limit=3G` を使う（ファイル数が増えた現状では512M/1Gでも落ちる実績あり）。
 
 他プロジェクトの wp-env がポート 8888/8889 を使用中で起動が「port is already allocated」で失敗する場合は、`WP_ENV_PORT=8890 WP_ENV_TESTS_PORT=8892 composer verify` のように環境変数でポートをずらして並行起動する（wp-env インスタンスはディレクトリ単位で独立しており、衝突するのはポートのみ。他プロジェクト側を止める必要はない）。
 
