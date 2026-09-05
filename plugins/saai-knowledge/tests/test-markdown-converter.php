@@ -47,7 +47,7 @@ class Test_Markdown_Converter extends WP_UnitTestCase {
 
 		$this->assertStringContainsString( '**bold**', $markdown );
 		$this->assertStringContainsString( '_italic_', $markdown );
-		$this->assertStringContainsString( '[a link](https://example.com)', $markdown );
+		$this->assertStringContainsString( '[a link](<https://example.com>)', $markdown );
 	}
 
 	/**
@@ -133,7 +133,7 @@ class Test_Markdown_Converter extends WP_UnitTestCase {
 	public function test_image_uses_alt_text() {
 		$markdown = Markdown_Converter::convert( '<img src="https://example.com/a.png" alt="A description">' );
 
-		$this->assertStringContainsString( '![A description](https://example.com/a.png)', $markdown );
+		$this->assertStringContainsString( '![A description](<https://example.com/a.png>)', $markdown );
 	}
 
 	/**
@@ -143,7 +143,21 @@ class Test_Markdown_Converter extends WP_UnitTestCase {
 	public function test_image_alt_text_is_escaped() {
 		$markdown = Markdown_Converter::convert( '<img src="https://example.com/a.png" alt="x](/other) [y">' );
 
-		$this->assertStringContainsString( '![x\\](/other) \\[y](https://example.com/a.png)', $markdown );
+		$this->assertStringContainsString( '![x\\](/other) \\[y](<https://example.com/a.png>)', $markdown );
+	}
+
+	/**
+	 * A link/image destination containing an unbalanced ')' would otherwise
+	 * close the Markdown link/image early — CommonMark's `<...>`
+	 * angle-bracket destination form tolerates parentheses freely (Copilot
+	 * review).
+	 */
+	public function test_link_and_image_destinations_with_parentheses_are_wrapped_in_angle_brackets() {
+		$link_markdown = Markdown_Converter::convert( '<a href="https://example.com/wiki/Foo_(bar)">link</a>' );
+		$this->assertStringContainsString( '[link](<https://example.com/wiki/Foo_(bar)>)', $link_markdown );
+
+		$image_markdown = Markdown_Converter::convert( '<img src="https://example.com/a_(1).png" alt="alt">' );
+		$this->assertStringContainsString( '![alt](<https://example.com/a_(1).png>)', $image_markdown );
 	}
 
 	/**

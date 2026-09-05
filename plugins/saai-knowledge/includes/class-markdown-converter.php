@@ -187,7 +187,7 @@ final class Markdown_Converter {
 					return '';
 				}
 
-				return '' === $href ? $text : '[' . $text . '](' . $href . ')';
+				return '' === $href ? $text : '[' . $text . '](' . self::markdown_link_destination( $href ) . ')';
 
 			case 'img':
 				$src = trim( (string) $node->getAttribute( 'src' ) );
@@ -201,7 +201,7 @@ final class Markdown_Converter {
 				// close this image's label early and start a second,
 				// unintended image/link (Codex review).
 				$alt = self::escape_text( trim( (string) $node->getAttribute( 'alt' ) ) );
-				return '![' . $alt . '](' . $src . ")\n\n";
+				return '![' . $alt . '](' . self::markdown_link_destination( $src ) . ")\n\n";
 
 			case 'blockquote':
 				$inner = trim( self::convert_children( $node, $indent ) );
@@ -257,6 +257,21 @@ final class Markdown_Converter {
 			array( '\\\\', '\\`', '\\*', '\\_', '\\[', '\\]' ),
 			$text
 		);
+	}
+
+	/**
+	 * Wraps a link/image destination in CommonMark's `<...>` angle-bracket
+	 * form instead of emitting it bare inside `(...)`. A bare destination
+	 * containing an unbalanced `)` — a real possibility in an arbitrary
+	 * `href`/`src` — closes the Markdown link/image early, corrupting it;
+	 * the angle-bracket form tolerates parentheses freely and only needs
+	 * its own literal `<`/`>` escaped (Copilot review).
+	 *
+	 * @param string $url The href/src attribute value.
+	 * @return string
+	 */
+	private static function markdown_link_destination( string $url ): string {
+		return '<' . str_replace( array( '\\', '<', '>' ), array( '\\\\', '\\<', '\\>' ), $url ) . '>';
 	}
 
 	/**
