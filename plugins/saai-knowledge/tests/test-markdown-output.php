@@ -82,6 +82,25 @@ class Test_Markdown_Output extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A title containing '[...](...)' would otherwise become an actual
+	 * link once placed in the H1 line, since CommonMark headings parse
+	 * inline Markdown (Codex review).
+	 */
+	public function test_render_escapes_markdown_syntax_in_title() {
+		$post_id = self::factory()->post->create(
+			array(
+				'post_type'   => 'saai_kb',
+				'post_title'  => 'Guide [official](https://example.invalid)',
+				'post_status' => 'publish',
+			)
+		);
+
+		$markdown = $this->service->render( get_post( $post_id ) );
+
+		$this->assertStringStartsWith( '# Guide \\[official\\](https://example.invalid)', $markdown );
+	}
+
+	/**
 	 * The render() method lists a saai_kb/saai_faq post's saai_category
 	 * terms as a Category meta line.
 	 */
@@ -211,6 +230,41 @@ class Test_Markdown_Output extends WP_UnitTestCase {
 
 		$second = $this->service->render_cached( get_post( $post_id ) );
 		$this->assertStringContainsString( 'Updated body.', $second );
+	}
+
+	/**
+	 * A bump of saai_dict_generation (Autolinker's own dictionary-cache
+	 * invalidation counter, bumped e.g. on a glossary term rename/delete)
+	 * also invalidates this cache, since a KB/FAQ page's rendered Markdown
+	 * includes whatever glossary tooltip links Autolinker inserted into it
+	 * (Codex review).
+	 */
+	public function test_render_cached_is_invalidated_by_dictionary_generation_change() {
+		update_option( 'saai_dict_generation', 1 );
+
+		$post_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_content' => 'Original body.',
+				'post_status'  => 'publish',
+			)
+		);
+
+		$first = $this->service->render_cached( get_post( $post_id ) );
+		$this->assertSame( $first, $this->service->render_cached( get_post( $post_id ) ) );
+
+		$override = static function ( $markdown, $post ) {
+			return 'REBUILT-AFTER-DICTIONARY-CHANGE:' . $post->ID;
+		};
+		add_filter( 'saai_markdown_output', $override, 10, 2 );
+		update_option( 'saai_dict_generation', 2 );
+
+		try {
+			$second = $this->service->render_cached( get_post( $post_id ) );
+			$this->assertSame( 'REBUILT-AFTER-DICTIONARY-CHANGE:' . $post_id, $second );
+		} finally {
+			remove_filter( 'saai_markdown_output', $override );
+		}
 	}
 
 	/**

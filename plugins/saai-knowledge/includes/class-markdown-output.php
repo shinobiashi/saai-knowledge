@@ -25,12 +25,12 @@ final class Markdown_Output {
 	private const POST_TYPES = array( 'saai_faq', 'saai_kb', 'saai_glossary' );
 
 	/**
-	 * Transient key prefix. The key is a stable saai_markdown_{post ID} —
-	 * see flush_cache() for why it's invalidated explicitly on save/trash
-	 * rather than by folding the post's modified time into the key itself
-	 * (Codex review: that approach missed a second edit within the same
-	 * second, since get_post_modified_time( 'U', ... ) only has
-	 * second-level resolution).
+	 * Transient key prefix — see cache_key() for the full key shape
+	 * (saai_markdown_{post ID}_{dictionary generation}) and flush_cache()
+	 * for why it's invalidated explicitly on save/trash rather than by
+	 * folding the post's modified time into the key itself (Codex review:
+	 * that approach missed a second edit within the same second, since
+	 * get_post_modified_time( 'U', ... ) only has second-level resolution).
 	 *
 	 * @var string
 	 */
@@ -59,7 +59,18 @@ final class Markdown_Output {
 	 * @param int $post_id The post whose cache entry to clear.
 	 */
 	public function flush_cache( int $post_id ): void {
-		delete_transient( self::CACHE_PREFIX . $post_id );
+		delete_transient( self::cache_key( $post_id ) );
+	}
+
+	/**
+	 * The transient key for one post's cached Markdown — shared by
+	 * render_cached() and flush_cache() so they can never drift apart.
+	 *
+	 * @param int $post_id Post ID.
+	 * @return string
+	 */
+	private static function cache_key( int $post_id ): string {
+		return self::CACHE_PREFIX . $post_id . '_' . (int) get_option( 'saai_dict_generation', 1 );
 	}
 
 	/**
@@ -151,7 +162,16 @@ final class Markdown_Output {
 			return $this->render( $post );
 		}
 
-		$key    = self::CACHE_PREFIX . $post->ID;
+		// render()'s the_content pass includes whatever Autolinker::process()
+		// inserted — tooltip links to saai_glossary terms this post's content
+		// happens to mention. cache_key() folds Autolinker's own dictionary
+		// generation counter in, so a glossary term rename/delete (which
+		// bumps that counter, per Settings::finalize_slugs()/
+		// Autolinker::handle_glossary_saved()) naturally busts this cache
+		// too, instead of a post_id-only key serving stale term names/URLs
+		// for up to a day after the dictionary itself already moved on
+		// (Codex review).
+		$key    = self::cache_key( $post->ID );
 		$cached = get_transient( $key );
 
 		if ( is_string( $cached ) ) {
@@ -183,6 +203,7 @@ final class Markdown_Output {
 		setup_postdata( $post );
 
 		$title = html_entity_decode( wp_strip_all_tags( get_the_title( $post ) ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' );
+		$title = Markdown_Converter::escape_text( str_replace( array( "\r", "\n" ), ' ', $title ) );
 
 		$lines = array( '# ' . $title, '' );
 		$meta  = $this->meta_lines( $post );
