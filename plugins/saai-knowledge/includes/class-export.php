@@ -846,7 +846,13 @@ final class Export {
 			return;
 		}
 
-		fputcsv( $handle, array( 'id', 'type', 'title', 'content_markdown', 'content_plain', 'categories', 'tags', 'url', 'updated_at' ) );
+		// PHP 8.4 deprecates omitting $escape (a future version changes its
+		// default from "\" to ""); passing "" explicitly here opts in early
+		// to that future default, which also happens to be the behavior
+		// most other CSV consumers (Excel, Python's csv module) already
+		// assume: a field is escaped solely by doubling its enclosure
+		// character (RFC 4180), not by a preceding backslash.
+		fputcsv( $handle, array( 'id', 'type', 'title', 'content_markdown', 'content_plain', 'categories', 'tags', 'url', 'updated_at' ), ',', '"', '' );
 
 		foreach ( $records as $record ) {
 			fputcsv(
@@ -861,7 +867,10 @@ final class Export {
 					self::escape_csv_formula( implode( '; ', is_array( $record['tags'] ?? null ) ? $record['tags'] : array() ) ),
 					$record['url'] ?? '',
 					$record['updated_at'] ?? '',
-				)
+				),
+				',',
+				'"',
+				''
 			);
 		}
 

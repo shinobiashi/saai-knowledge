@@ -616,8 +616,16 @@ class Test_Export extends WP_UnitTestCase {
 		$csv = ob_get_clean();
 
 		// Strip the leading UTF-8 BOM before parsing so str_getcsv() sees a
-		// clean first field.
-		$rows = array_map( 'str_getcsv', explode( "\n", trim( substr( $csv, 3 ) ) ) );
+		// clean first field. $escape is passed explicitly (matching
+		// stream_csv()'s own fputcsv() calls) to silence PHP 8.4's
+		// deprecation for omitting it and to parse using the same
+		// RFC 4180-only quoting rules the writer side now uses.
+		$rows = array_map(
+			static function ( string $line ): array {
+				return str_getcsv( $line, ',', '"', '' );
+			},
+			explode( "\n", trim( substr( $csv, 3 ) ) )
+		);
 		$row  = $rows[1];
 
 		$this->assertSame( "'=cmd|'/c calc'!A1", $row[2] );
