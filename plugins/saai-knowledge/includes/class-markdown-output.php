@@ -259,7 +259,10 @@ final class Markdown_Output {
 			$terms = get_the_terms( $post, 'saai_category' );
 
 			if ( is_array( $terms ) && $terms ) {
-				$lines[] = '**Category:** ' . implode( ', ', wp_list_pluck( $terms, 'name' ) );
+				// A term name is as editable/arbitrary as a post title —
+				// escape it the same way (Copilot review).
+				$names   = array_map( array( Markdown_Converter::class, 'escape_text' ), wp_list_pluck( $terms, 'name' ) );
+				$lines[] = '**Category:** ' . implode( ', ', $names );
 			}
 		}
 

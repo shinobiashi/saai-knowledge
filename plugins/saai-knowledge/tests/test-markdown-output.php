@@ -126,6 +126,32 @@ class Test_Markdown_Output extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A term name containing Markdown syntax characters is escaped the same
+	 * way a post title is, so it can't break or be misread as formatting
+	 * once placed in the Category meta line (Copilot review).
+	 */
+	public function test_render_escapes_markdown_syntax_in_category_name() {
+		$term    = self::factory()->term->create_and_get(
+			array(
+				'taxonomy' => 'saai_category',
+				'name'     => '[Legacy] *Billing*',
+			)
+		);
+		$post_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_faq',
+				'post_content' => 'Answer text.',
+				'post_status'  => 'publish',
+			)
+		);
+		wp_set_object_terms( $post_id, array( $term->term_id ), 'saai_category' );
+
+		$markdown = $this->service->render( get_post( $post_id ) );
+
+		$this->assertStringContainsString( '**Category:** \\[Legacy\\] \\*Billing\\*', $markdown );
+	}
+
+	/**
 	 * The render() method does not add a Category line for saai_glossary,
 	 * which doesn't use saai_category (docs/DESIGN.md section 3.2).
 	 */
