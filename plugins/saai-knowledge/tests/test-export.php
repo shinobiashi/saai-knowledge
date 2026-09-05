@@ -210,6 +210,30 @@ class Test_Export extends WP_UnitTestCase {
 	}
 
 	/**
+	 * `modified_after` must be inclusive (>=), not strict (>): the common
+	 * incremental-sync pattern of passing back the last received updated_at
+	 * as the next request's modified_after would otherwise permanently miss
+	 * any other post saved within that exact same second — post_modified_gmt
+	 * is only second-precision, and a bulk update easily produces this.
+	 */
+	public function test_rest_request_modified_after_is_inclusive_for_same_second_updates() {
+		$timestamp = time() - HOUR_IN_SECONDS;
+		$boundary  = gmdate( 'Y-m-d H:i:s', $timestamp );
+
+		$post_id = $this->create_post( 'saai_faq', 'Same second update' );
+		$this->set_modified( $post_id, $boundary );
+
+		$request = new WP_REST_Request( 'GET', '/saai-knowledge/v1/export' );
+		$request->set_param( 'modified_after', gmdate( 'Y-m-d\TH:i:s\Z', $timestamp ) );
+
+		$response = $this->server->dispatch( $request );
+		$records  = $response->get_data()['records'];
+
+		$this->assertCount( 1, $records );
+		$this->assertSame( $post_id, $records[0]['id'] );
+	}
+
+	/**
 	 * An explicit but empty `modified_after` must not be rejected by the
 	 * date-time format validation — see register_routes()'s validate_callback.
 	 */
@@ -776,6 +800,23 @@ class Test_Export extends WP_UnitTestCase {
 		$this->assertSame( "'@mention", $row[5] );
 		// A value that doesn't start with a trigger character is untouched.
 		$this->assertSame( 'safe-tag', $row[6] );
+	}
+
+	/**
+	 * A leading LF must be escaped exactly like the other trigger
+	 * characters: nothing in core strips a newline from a title/content
+	 * field saved via the REST API, and a spreadsheet app can still read a
+	 * formula starting right after a leading LF as a trigger. Tested
+	 * directly against escape_csv_formula() (rather than round-tripped
+	 * through stream_csv()+CSV parsing) since a raw embedded LF inside a
+	 * field is exactly the multi-line-field parsing complexity the other
+	 * tests here already avoid via fgetcsv()-based parsing.
+	 */
+	public function test_escape_csv_formula_escapes_leading_lf() {
+		$method = new ReflectionMethod( \SAAI\Knowledge\Export::class, 'escape_csv_formula' );
+		$method->setAccessible( true );
+
+		$this->assertSame( "'\n=HYPERLINK(\"http://evil.test\")", $method->invoke( null, "\n=HYPERLINK(\"http://evil.test\")" ) );
 	}
 
 	/**

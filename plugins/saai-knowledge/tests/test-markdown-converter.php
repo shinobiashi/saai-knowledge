@@ -223,6 +223,25 @@ class Test_Markdown_Converter extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Adjacent table cells must not collapse into one run-on word:
+	 * `<td>`/`<th>` are not block-level breaks on their own (only their
+	 * containing `<tr>` is), so without inserting *some* separator at each
+	 * cell boundary, "Name"/"$9.99" in separate cells would strip down to
+	 * the single word "Name$9.99" — corrupting two distinct values into one
+	 * for the RAG export's content_plain field (Codex review).
+	 */
+	public function test_to_plain_text_separates_adjacent_table_cells() {
+		$result = Markdown_Converter::to_plain_text( '<table><tr><th>Name</th><th>Price</th></tr><tr><td>Widget</td><td>$9.99</td></tr></table>' );
+
+		$this->assertStringNotContainsString( 'NamePrice', $result );
+		$this->assertStringNotContainsString( 'Widget$9.99', $result );
+		$this->assertStringContainsString( 'Name', $result );
+		$this->assertStringContainsString( 'Price', $result );
+		$this->assertStringContainsString( 'Widget', $result );
+		$this->assertStringContainsString( '$9.99', $result );
+	}
+
+	/**
 	 * A code sample that itself contains a triple-backtick line (e.g. an
 	 * article demonstrating Markdown syntax) gets a fence longer than any
 	 * backtick run inside it, so that run can't close the block early

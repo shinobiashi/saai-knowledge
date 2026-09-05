@@ -160,7 +160,7 @@ final class Export {
 							'validate_callback' => 'rest_validate_request_arg',
 						),
 						'modified_after' => array(
-							'description'       => __( 'Only include content modified after this ISO 8601 date-time, for incremental sync.', 'saai-knowledge' ),
+							'description'       => __( 'Only include content modified at or after this ISO 8601 date-time, for incremental sync. Inclusive: pass back the last updated_at you received to avoid missing a same-second update, and de-duplicate by id.', 'saai-knowledge' ),
 							'type'              => 'string',
 							'format'            => 'date-time',
 							'default'           => '',
@@ -398,11 +398,23 @@ final class Export {
 		);
 
 		if ( '' !== $modified_after ) {
+			// Deliberately inclusive ("modified_after" reads as ">=", not the
+			// stricter ">" a caller might expect from the name): post_modified_gmt
+			// is only second-precision, and the common incremental-sync
+			// pattern of "pass back the last updated_at you received as the
+			// next modified_after" would otherwise permanently drop any
+			// other post saved within that exact same second (a routine
+			// bulk-update scenario, not a rare race) — inclusive=false makes
+			// that comparison strict '>', which excludes it forever. The
+			// tradeoff this accepts is a client occasionally re-receiving a
+			// boundary-second record it already has, which any reasonable
+			// upsert-by-id sync consumer already handles idempotently
+			// (Codex review).
 			$query_args['date_query'] = array(
 				array(
 					'column'    => 'post_modified_gmt',
 					'after'     => $modified_after,
-					'inclusive' => false,
+					'inclusive' => true,
 				),
 			);
 		}
@@ -1035,7 +1047,12 @@ final class Export {
 	private static function escape_csv_formula( $value ): string {
 		$value = is_scalar( $value ) ? (string) $value : '';
 
-		if ( '' !== $value && in_array( $value[0], array( '=', '+', '-', '@', "\t", "\r" ), true ) ) {
+		// A leading LF ("\n") needs the same guard as tab/CR: nothing in
+		// core (sanitize_post_field(), title_save_pre, etc.) strips a
+		// newline from a title/content field saved via the REST API, and a
+		// spreadsheet app can still read a formula starting after a leading
+		// LF as a trigger (Codex review).
+		if ( '' !== $value && in_array( $value[0], array( '=', '+', '-', '@', "\t", "\r", "\n" ), true ) ) {
 			return "'" . $value;
 		}
 

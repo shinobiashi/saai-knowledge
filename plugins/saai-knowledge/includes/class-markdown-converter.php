@@ -111,13 +111,20 @@ final class Markdown_Converter {
 	 * wp_strip_all_tags() call concatenates adjacent block elements with
 	 * nothing between them (e.g. `<p>First</p><p>Second</p>` becomes
 	 * "FirstSecond"), so a newline is inserted after each common block-level
-	 * closing tag (and for `<br>`) before stripping.
+	 * closing tag (and for `<br>`) before stripping. `<td>`/`<th>` get a
+	 * space rather than a newline: they are not block-level breaks on their
+	 * own (only their containing `<tr>` is), but without *some* separator a
+	 * core/table row like `<tr><td>Name</td><td>$9.99</td></tr>` would still
+	 * collapse into the single run-on word "Name$9.99" once stripped — two
+	 * genuinely distinct cell values corrupted into one for full-text
+	 * search/embedding purposes (Codex review).
 	 *
 	 * @param string $html Rendered HTML.
 	 * @return string
 	 */
 	private static function strip_with_block_breaks( string $html ): string {
 		$with_breaks = (string) preg_replace( '#</(?:p|div|h[1-6]|li|blockquote|pre|tr|table|ul|ol)>#i', "$0\n\n", $html );
+		$with_breaks = (string) preg_replace( '#</(?:td|th)>#i', '$0 ', $with_breaks );
 		$with_breaks = (string) preg_replace( '#<br\s*/?>#i', "\n", $with_breaks );
 
 		$plain = wp_strip_all_tags( $with_breaks );
