@@ -86,6 +86,7 @@ final class Plugin {
 		( new Markdown_Output() )->register();
 		( new Llms_Index() )->register();
 		( new Llms_Txt_Adapter() )->register();
+		( new Export() )->register();
 
 		$this->autolinker = new Autolinker();
 		$this->autolinker->register();

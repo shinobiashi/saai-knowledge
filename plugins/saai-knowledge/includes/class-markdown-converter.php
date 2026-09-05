@@ -81,6 +81,42 @@ final class Markdown_Converter {
 	 * @return string
 	 */
 	private static function fallback_plain_text( string $html ): string {
+		return self::strip_with_block_breaks( $html );
+	}
+
+	/**
+	 * Converts an HTML fragment (as produced by `the_content`) to
+	 * block-separated plain text — no Markdown syntax at all, unlike
+	 * convert(). Used for the RAG export's `content_plain` field
+	 * (docs/DESIGN.md section 7.4), which is meant for full-text
+	 * search/embedding rather than display, so Markdown's own punctuation
+	 * would just be noise there.
+	 *
+	 * Reuses the exact same block-boundary/`<br>` handling as
+	 * fallback_plain_text() (the DOMDocument-based convert() path has no
+	 * equivalent need for it, since it walks the tree structurally instead
+	 * of relying on regexing tag boundaries in a flat string) — both wrap
+	 * strip_with_block_breaks().
+	 *
+	 * @param string $html Rendered HTML.
+	 * @return string
+	 */
+	public static function to_plain_text( string $html ): string {
+		return self::strip_with_block_breaks( $html );
+	}
+
+	/**
+	 * Shared implementation for fallback_plain_text() and to_plain_text():
+	 * strips tags without losing block-boundary separation. A bare
+	 * wp_strip_all_tags() call concatenates adjacent block elements with
+	 * nothing between them (e.g. `<p>First</p><p>Second</p>` becomes
+	 * "FirstSecond"), so a newline is inserted after each common block-level
+	 * closing tag (and for `<br>`) before stripping.
+	 *
+	 * @param string $html Rendered HTML.
+	 * @return string
+	 */
+	private static function strip_with_block_breaks( string $html ): string {
 		$with_breaks = (string) preg_replace( '#</(?:p|div|h[1-6]|li|blockquote|pre|tr|table|ul|ol)>#i', "$0\n\n", $html );
 		$with_breaks = (string) preg_replace( '#<br\s*/?>#i', "\n", $with_breaks );
 
