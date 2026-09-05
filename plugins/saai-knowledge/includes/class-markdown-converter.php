@@ -267,10 +267,15 @@ final class Markdown_Converter {
 	 * the angle-bracket form tolerates parentheses freely and only needs
 	 * its own literal `<`/`>` escaped (Copilot review).
 	 *
+	 * Public: Llms_Index reuses this for the `url`/`markdown_url` values a
+	 * `saai_llms_index_items` callback supplies — a public filter can't be
+	 * trusted to hand back a value free of the same characters (Copilot
+	 * review).
+	 *
 	 * @param string $url The href/src attribute value.
 	 * @return string
 	 */
-	private static function markdown_link_destination( string $url ): string {
+	public static function markdown_link_destination( string $url ): string {
 		return '<' . str_replace( array( '\\', '<', '>' ), array( '\\\\', '\\<', '\\>' ), $url ) . '>';
 	}
 

@@ -263,8 +263,16 @@ final class Llms_Index {
 				// this can't just be assumed away. Markdown_Converter::escape_text()
 				// is the same escaping Markdown_Output uses for its own
 				// title-as-heading case.
-				$title   = Markdown_Converter::escape_text( str_replace( array( "\r", "\n" ), ' ', (string) $item['title'] ) );
-				$lines[] = '- [' . $title . '](' . $item['url'] . ') ([Markdown](' . $item['markdown_url'] . '))';
+				$title = Markdown_Converter::escape_text( str_replace( array( "\r", "\n" ), ' ', (string) $item['title'] ) );
+
+				// url/markdown_url come from a saai_llms_index_items
+				// callback — a public filter, so a value containing an
+				// unbalanced ')' (or a literal '<'/'>') can't be assumed
+				// away either; wrap both the same way Markdown_Converter
+				// wraps an href/src (Copilot review).
+				$url          = Markdown_Converter::markdown_link_destination( $item['url'] );
+				$markdown_url = Markdown_Converter::markdown_link_destination( $item['markdown_url'] );
+				$lines[]      = '- [' . $title . '](' . $url . ') ([Markdown](' . $markdown_url . '))';
 			}
 
 			$lines[] = '';

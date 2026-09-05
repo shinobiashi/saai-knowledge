@@ -62,11 +62,11 @@ class Test_Llms_Index extends WP_UnitTestCase {
 		$this->assertStringContainsString( '## Knowledge Base', $markdown );
 		$this->assertStringContainsString( '## Glossary', $markdown );
 
-		$this->assertStringContainsString( '[Is this covered?](' . get_permalink( $faq_id ) . ')', $markdown );
-		$this->assertStringContainsString( '[Getting Started](' . get_permalink( $kb_id ) . ')', $markdown );
-		$this->assertStringContainsString( '[API](' . get_permalink( $glossary_id ) . ')', $markdown );
+		$this->assertStringContainsString( '[Is this covered?](<' . get_permalink( $faq_id ) . '>)', $markdown );
+		$this->assertStringContainsString( '[Getting Started](<' . get_permalink( $kb_id ) . '>)', $markdown );
+		$this->assertStringContainsString( '[API](<' . get_permalink( $glossary_id ) . '>)', $markdown );
 
-		$this->assertStringContainsString( add_query_arg( 'format', 'markdown', get_permalink( $faq_id ) ), $markdown );
+		$this->assertStringContainsString( '<' . add_query_arg( 'format', 'markdown', get_permalink( $faq_id ) ) . '>', $markdown );
 	}
 
 	/**
@@ -144,6 +144,37 @@ class Test_Llms_Index extends WP_UnitTestCase {
 			$markdown = $this->index->build_index();
 			$this->assertStringNotContainsString( 'Array URL Item', $markdown );
 			$this->assertStringNotContainsString( 'Empty URL Item', $markdown );
+		} finally {
+			remove_filter( 'saai_llms_index_items', $add_items );
+		}
+	}
+
+	/**
+	 * A `saai_llms_index_items` callback's url/markdown_url are wrapped in
+	 * CommonMark's `<...>` angle-bracket form the same way
+	 * Markdown_Converter wraps an href/src — an unbalanced ')' in a
+	 * third-party-supplied URL would otherwise close the link early
+	 * (Copilot review).
+	 */
+	public function test_saai_llms_index_items_filter_urls_with_parentheses_are_wrapped_in_angle_brackets() {
+		$add_items = static function ( array $items ) {
+			$items[] = array(
+				'type'         => 'faq',
+				'title'        => 'Paren URL Item',
+				'url'          => 'https://example.com/wiki/Foo_(bar)',
+				'markdown_url' => 'https://example.com/wiki/Foo_(bar)?format=markdown',
+			);
+			return $items;
+		};
+
+		add_filter( 'saai_llms_index_items', $add_items );
+
+		try {
+			$markdown = $this->index->build_index();
+			$this->assertStringContainsString(
+				'[Paren URL Item](<https://example.com/wiki/Foo_(bar)>) ([Markdown](<https://example.com/wiki/Foo_(bar)?format=markdown>))',
+				$markdown
+			);
 		} finally {
 			remove_filter( 'saai_llms_index_items', $add_items );
 		}
