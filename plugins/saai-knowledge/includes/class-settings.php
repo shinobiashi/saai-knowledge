@@ -443,6 +443,17 @@ final class Settings {
 					),
 				),
 			),
+			'ai'        => array(
+				'title'  => __( 'AI Readability', 'saai-knowledge' ),
+				'fields' => array(
+					'ai_readability_enabled' => array(
+						'type'           => 'checkbox',
+						'label'          => __( 'Markdown & llms.txt', 'saai-knowledge' ),
+						'checkbox_label' => __( 'Serve FAQ/KB/glossary pages as Markdown (?format=markdown) and publish a Markdown index at /{kb slug}/llms.txt for AI crawlers.', 'saai-knowledge' ),
+						'default'        => true,
+					),
+				),
+			),
 			'uninstall' => array(
 				'title'  => __( 'Uninstall', 'saai-knowledge' ),
 				'fields' => array(
@@ -508,6 +519,7 @@ final class Settings {
 			'autolink_post_types'      => array( 'post', 'page', 'saai_kb', 'saai_faq' ),
 			'autolink_max_links'       => 20,
 			'structured_data'          => true,
+			'ai_readability_enabled'   => true,
 			'delete_data_on_uninstall' => false,
 		);
 

@@ -456,6 +456,10 @@ class Test_Settings extends WP_UnitTestCase {
 		$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
 
 		update_option( 'saai_knowledge_settings', array( 'delete_data_on_uninstall' => true ) );
+		// Plugin::maybe_flush_rewrite_rules_on_upgrade() creates this row on
+		// its own, outside of the settings screen — uninstall must not leave
+		// it behind either (Codex review).
+		update_option( 'saai_knowledge_version', SAAI_KNOWLEDGE_VERSION );
 
 		$this->run_uninstall();
 
@@ -470,6 +474,7 @@ class Test_Settings extends WP_UnitTestCase {
 		// unchanged (see test_filter_default_option_respects_an_explicit_caller_default()).
 		$sentinel = 'saai-option-should-not-exist';
 		$this->assertSame( $sentinel, get_option( 'saai_knowledge_settings', $sentinel ) );
+		$this->assertSame( $sentinel, get_option( 'saai_knowledge_version', $sentinel ) );
 	}
 
 	/**

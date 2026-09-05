@@ -217,9 +217,11 @@ FAQ を生成AIクローラーに発見されやすくし、サイト独自の�
 
 | 層 | 内容 | スコープ |
 | --- | --- | --- |
-| 第1層（主軸） | SEOプラグイン連携アダプター: 各プラグインの拡張フィルターを検知し、FAQ/KB/用語集セクションを既存の llms.txt に注入する。アダプターが無いプラグインでも、CPT が `public: true` なので post type ベースの自動掲載には乗る | v1 |
-| 第2層 | 自名前空間の Markdown インデックス: 衝突しない自プラグイン配下の URL（例: `/{kb-base}/llms.txt`）に FAQ/KB/用語集の全項目一覧を Markdown で常時提供。サイトオーナーや他プラグインの llms.txt からリンクしてもらう受け皿 | v1 |
+| 第1層（主軸） | SEOプラグイン連携: 実装時に Yoast SEO・Rank Math のソースコードを直接確認したところ、いずれも「サードパーティが新しいセクションを注入できるフィルター」は持たない。掲載は各プラグイン自身の仕組みで決まる——Yoast は「indexable な post type」判定（`public: true` の CPT は既定で対象）、Rank Math/AIOSEO は各プラグインの llms.txt 設定画面で post type をチェックする方式——ため、無料版は3CPTを `public: true` で登録している以上、追加コード無しでどのプラグインでも「対象に選べる」状態になる。無料版が実装するのは、選ばれた際の**説明文の穴埋め**のみ: Yoast の `wpseo_llmstxt_link_description`、Rank Math の `rank_math/llms_txt/post_description`、AIOSEO の `aioseo_llms_post_description` を（対象プラグインが実際に有効な場合のみ）フックし、プラグイン側が空文字を渡してきた時だけ自プラグインの抜粋で埋める（`Llms_Txt_Adapter`） | v1 |
+| 第2層 | 自名前空間の Markdown インデックス: 衝突しない自プラグイン配下の URL（例: `/{kb-base}/llms.txt`）に FAQ/KB/用語集の全項目一覧を Markdown で常時提供。サイトオーナーや他プラグインの llms.txt からリンクしてもらう受け皿（`Llms_Index`） | v1 |
 | 第3層 | ルート `/llms.txt` の自前生成: デフォルトOFF + 物理ファイル/既知プラグインの競合検知 + Site Health チェック | **バックログ**（v1 では実装しない） |
+
+設定画面の「AI Readability」セクションにある単一トグル（既定 ON）が、Markdown 出力・第1層・第2層の3つ全てをまとめて制御する。
 
 ### 7.3 Markdown 出力
 
