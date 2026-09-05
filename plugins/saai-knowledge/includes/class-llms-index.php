@@ -231,7 +231,11 @@ final class Llms_Index {
 			$grouped[ (string) $item['type'] ][] = $item;
 		}
 
+		// The site name is as editable/arbitrary as a post title — escape it
+		// the same way, or a name containing '[', '*', '`', etc. could break
+		// or be misread as formatting in this H1 (Copilot review).
 		$site_name = html_entity_decode( wp_strip_all_tags( get_bloginfo( 'name' ) ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' );
+		$site_name = Markdown_Converter::escape_text( str_replace( array( "\r", "\n" ), ' ', $site_name ) );
 		$lines     = array( '# ' . $site_name . ' — Knowledge Index', '' );
 		$labels    = $this->type_labels();
 

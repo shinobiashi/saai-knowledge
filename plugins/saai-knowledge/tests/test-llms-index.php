@@ -226,6 +226,20 @@ class Test_Llms_Index extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The site name (get_bloginfo('name')) placed in the index's own H1 is
+	 * escaped the same way an item title is — a name containing '[', '*',
+	 * '`', etc. would otherwise break or be misread as formatting in that
+	 * heading (Copilot review).
+	 */
+	public function test_build_index_escapes_site_name_in_heading() {
+		update_option( 'blogname', '[Legacy] *Docs*' );
+
+		$markdown = $this->index->build_index();
+
+		$this->assertStringStartsWith( '# \\[Legacy\\] \\*Docs\\* — Knowledge Index', $markdown );
+	}
+
+	/**
 	 * The maybe_remove_canonical_redirect() method only strips redirect_canonical for
 	 * the real `/{kb slug}/llms.txt` route, not for an unrelated article
 	 * whose slug merely starts with the same characters (e.g.
