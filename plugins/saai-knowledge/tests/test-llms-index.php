@@ -153,6 +153,32 @@ class Test_Llms_Index extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A force-delete (wp_delete_post( $id, true ) — REST's force=true,
+	 * `wp post delete --force`) skips wp_trash_post() entirely, so
+	 * trashed_post never fires; deleted_post must invalidate the cache too,
+	 * or the deleted item keeps appearing in the index for up to CACHE_TTL
+	 * (Codex review).
+	 */
+	public function test_deleted_post_hook_invalidates_cache() {
+		$this->index->register();
+
+		$post_id = self::factory()->post->create(
+			array(
+				'post_type'   => 'saai_kb',
+				'post_title'  => 'Force Deleted Article',
+				'post_status' => 'publish',
+			)
+		);
+
+		$this->index->build_index_cached();
+
+		wp_delete_post( $post_id, true );
+
+		$fresh = $this->index->build_index_cached();
+		$this->assertStringNotContainsString( 'Force Deleted Article', $fresh );
+	}
+
+	/**
 	 * The maybe_flush_cache_on_slug_change() method flushes the cache when slug_kb (or
 	 * slug_faq/slug_glossary) actually changes — without it, the cached
 	 * index keeps linking to the old, now-404ing URLs for up to CACHE_TTL

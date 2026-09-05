@@ -72,6 +72,12 @@ final class Llms_Index {
 		add_action( 'save_post_saai_kb', array( $this, 'flush_cache' ) );
 		add_action( 'save_post_saai_glossary', array( $this, 'flush_cache' ) );
 		add_action( 'trashed_post', array( $this, 'flush_cache' ) );
+		// wp_delete_post( $id, true ) (REST's force=true, `wp post delete
+		// --force`, WP-CLI's default for CPTs without Trash support) skips
+		// wp_trash_post() entirely, so trashed_post never fires — only
+		// deleted_post does (Codex review; Autolinker::handle_post_deleted()
+		// already needs the same second hook for the same reason).
+		add_action( 'deleted_post', array( $this, 'flush_cache' ) );
 		add_action( 'update_option_saai_knowledge_settings', array( $this, 'maybe_flush_cache_on_slug_change' ), 10, 2 );
 	}
 
@@ -228,8 +234,10 @@ final class Llms_Index {
 				// label early (or open a bogus nested one), corrupting the
 				// URL that follows or getting misread as a separate link
 				// (Codex review) — titles are arbitrary display strings, so
-				// this can't just be assumed away.
-				$title   = str_replace( array( "\r", "\n", '[', ']' ), array( ' ', ' ', '\\[', '\\]' ), (string) $item['title'] );
+				// this can't just be assumed away. Markdown_Converter::escape_text()
+				// is the same escaping Markdown_Output uses for its own
+				// title-as-heading case.
+				$title   = Markdown_Converter::escape_text( str_replace( array( "\r", "\n" ), ' ', (string) $item['title'] ) );
 				$lines[] = '- [' . $title . '](' . $item['url'] . ') ([Markdown](' . $item['markdown_url'] . '))';
 			}
 
