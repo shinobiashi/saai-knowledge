@@ -153,6 +153,34 @@ class Test_Llms_Index extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The maybe_flush_cache_on_slug_change() method flushes the cache when slug_kb (or
+	 * slug_faq/slug_glossary) actually changes — without it, the cached
+	 * index keeps linking to the old, now-404ing URLs for up to CACHE_TTL
+	 * after a slug change (Codex review).
+	 */
+	public function test_maybe_flush_cache_on_slug_change_flushes_only_on_a_real_slug_change() {
+		$this->index->build_index_cached();
+
+		$this->index->maybe_flush_cache_on_slug_change(
+			array(
+				'slug_kb'            => 'kb',
+				'autolink_max_links' => 20,
+			),
+			array(
+				'slug_kb'            => 'kb',
+				'autolink_max_links' => 5,
+			)
+		);
+		$this->assertIsString( get_transient( 'saai_llms_index' ), 'An unrelated field change must not flush the cache.' );
+
+		$this->index->maybe_flush_cache_on_slug_change(
+			array( 'slug_kb' => 'kb' ),
+			array( 'slug_kb' => 'articles' )
+		);
+		$this->assertFalse( get_transient( 'saai_llms_index' ), 'A slug_kb change must flush the cache.' );
+	}
+
+	/**
 	 * A `]` (or `[`) in a post title is escaped before being placed inside
 	 * the index's `[title](url)` link syntax — otherwise it would close the
 	 * link label early and corrupt the URL that follows (Codex review).

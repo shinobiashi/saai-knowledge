@@ -72,6 +72,7 @@ final class Llms_Index {
 		add_action( 'save_post_saai_kb', array( $this, 'flush_cache' ) );
 		add_action( 'save_post_saai_glossary', array( $this, 'flush_cache' ) );
 		add_action( 'trashed_post', array( $this, 'flush_cache' ) );
+		add_action( 'update_option_saai_knowledge_settings', array( $this, 'maybe_flush_cache_on_slug_change' ), 10, 2 );
 	}
 
 	/**
@@ -165,6 +166,34 @@ final class Llms_Index {
 	 */
 	public function flush_cache(): void {
 		delete_transient( self::CACHE_KEY );
+	}
+
+	/**
+	 * Flushes the cached index when a saai_knowledge_settings save changes
+	 * slug_kb, slug_faq, or slug_glossary. build_index_cached() embeds each
+	 * item's get_permalink(), which changes as soon as Post_Types
+	 * re-registers the affected post type with its new slug on the next
+	 * `init` — without this, the cache would keep serving links to the old,
+	 * now-404ing URLs for up to CACHE_TTL (Codex review). Same slug-change
+	 * detection Settings::finalize_slugs() and Autolinker's dictionary
+	 * generation bump already use.
+	 *
+	 * @param mixed $old_value Previous `saai_knowledge_settings` value.
+	 * @param mixed $new_value New `saai_knowledge_settings` value.
+	 */
+	public function maybe_flush_cache_on_slug_change( $old_value, $new_value ): void {
+		$old_value = is_array( $old_value ) ? $old_value : array();
+		$new_value = is_array( $new_value ) ? $new_value : array();
+
+		foreach ( array( 'slug_kb', 'slug_faq', 'slug_glossary' ) as $key ) {
+			$old = $old_value[ $key ] ?? null;
+			$new = $new_value[ $key ] ?? null;
+
+			if ( $old !== $new ) {
+				$this->flush_cache();
+				return;
+			}
+		}
 	}
 
 	/**
