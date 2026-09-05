@@ -88,6 +88,7 @@ foreach (
 		'saai_dict_generation',
 		'saai_autolink_dict_truncated',
 		'saai_flush_rewrite_rules',
+		'saai_knowledge_version',
 	) as $saai_uninstall_option
 ) {
 	delete_option( $saai_uninstall_option );
