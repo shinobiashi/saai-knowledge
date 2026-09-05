@@ -62,7 +62,7 @@ final class Markdown_Converter {
 			return self::fallback_plain_text( $html );
 		}
 
-		$markdown = self::convert_children( $body, 0 );
+		$markdown = self::convert_children( $body, '' );
 
 		// Collapse the blank-line runs that naturally accumulate from
 		// block-level elements each emitting their own trailing "\n\n".
@@ -92,15 +92,15 @@ final class Markdown_Converter {
 	/**
 	 * Converts every child of a node, in document order.
 	 *
-	 * @param \DOMNode $node       Parent node.
-	 * @param int      $list_depth Current nested-list indentation depth.
+	 * @param \DOMNode $node   Parent node.
+	 * @param string   $indent Current nested-list indentation prefix (see convert_list()).
 	 * @return string
 	 */
-	private static function convert_children( \DOMNode $node, int $list_depth ): string {
+	private static function convert_children( \DOMNode $node, string $indent ): string {
 		$out = '';
 
 		foreach ( $node->childNodes as $child ) {
-			$out .= self::convert_node( $child, $list_depth );
+			$out .= self::convert_node( $child, $indent );
 		}
 
 		return $out;
@@ -109,11 +109,11 @@ final class Markdown_Converter {
 	/**
 	 * Converts one node to its Markdown representation.
 	 *
-	 * @param \DOMNode $node       Node to convert.
-	 * @param int      $list_depth Current nested-list indentation depth.
+	 * @param \DOMNode $node   Node to convert.
+	 * @param string   $indent Current nested-list indentation prefix (see convert_list()).
 	 * @return string
 	 */
-	private static function convert_node( \DOMNode $node, int $list_depth ): string {
+	private static function convert_node( \DOMNode $node, string $indent ): string {
 		if ( $node instanceof \DOMText ) {
 			return self::escape_text( (string) preg_replace( '/\s+/', ' ', $node->wholeText ) );
 		}
@@ -137,7 +137,7 @@ final class Markdown_Converter {
 
 			case 'p':
 			case 'figcaption':
-				$text = trim( self::convert_children( $node, $list_depth ) );
+				$text = self::escape_line_start( trim( self::convert_children( $node, $indent ) ) );
 				return '' === $text ? '' : $text . "\n\n";
 
 			case 'h1':
@@ -147,16 +147,16 @@ final class Markdown_Converter {
 			case 'h5':
 			case 'h6':
 				$level = (int) substr( $tag, 1 );
-				return str_repeat( '#', $level ) . ' ' . trim( self::convert_children( $node, $list_depth ) ) . "\n\n";
+				return str_repeat( '#', $level ) . ' ' . trim( self::convert_children( $node, $indent ) ) . "\n\n";
 
 			case 'strong':
 			case 'b':
-				$text = trim( self::convert_children( $node, $list_depth ) );
+				$text = trim( self::convert_children( $node, $indent ) );
 				return '' === $text ? '' : '**' . $text . '**';
 
 			case 'em':
 			case 'i':
-				$text = trim( self::convert_children( $node, $list_depth ) );
+				$text = trim( self::convert_children( $node, $indent ) );
 				return '' === $text ? '' : '_' . $text . '_';
 
 			case 'code':
@@ -164,22 +164,24 @@ final class Markdown_Converter {
 				// below (as a fenced block); only a standalone inline <code>
 				// gets backticks here.
 				if ( $node->parentNode instanceof \DOMElement && 'pre' === strtolower( $node->parentNode->tagName ) ) {
-					return self::convert_children( $node, $list_depth );
+					return self::convert_children( $node, $indent );
 				}
 				return '`' . trim( $node->textContent ) . '`';
 
 			case 'pre':
-				// trim(..., "\n") strips only the wrapping newline(s) a
-				// serializer typically adds around <pre> content, not
-				// leading whitespace on the first content line itself —
-				// a bare trim() would strip that too, corrupting a
-				// snippet whose first line is meaningfully indented
-				// (Python, YAML, etc.).
-				return "```\n" . trim( $node->textContent, "\n" ) . "\n```\n\n";
+				return self::render_code_fence( $node->textContent ) . "\n\n";
+
+			case 'summary':
+				// core/details' <summary> has no separator of its own before
+				// the InnerBlocks content that follows it; without one,
+				// "<summary>What?</summary><p>Answer.</p>" concatenates into
+				// "What?Answer." with the question/answer boundary lost.
+				$text = trim( self::convert_children( $node, $indent ) );
+				return '' === $text ? '' : '**' . $text . '**' . "\n\n";
 
 			case 'a':
 				$href = trim( (string) $node->getAttribute( 'href' ) );
-				$text = trim( self::convert_children( $node, $list_depth ) );
+				$text = trim( self::convert_children( $node, $indent ) );
 
 				if ( '' === $text ) {
 					return '';
@@ -198,7 +200,7 @@ final class Markdown_Converter {
 				return '![' . $alt . '](' . $src . ")\n\n";
 
 			case 'blockquote':
-				$inner = trim( self::convert_children( $node, $list_depth ) );
+				$inner = trim( self::convert_children( $node, $indent ) );
 
 				if ( '' === $inner ) {
 					return '';
@@ -208,7 +210,7 @@ final class Markdown_Converter {
 					"\n",
 					array_map(
 						static function ( $line ) {
-							return '> ' . $line;
+							return '> ' . self::escape_line_start( $line );
 						},
 						explode( "\n", $inner )
 					)
@@ -217,13 +219,13 @@ final class Markdown_Converter {
 
 			case 'ul':
 			case 'ol':
-				return self::convert_list( $node, $tag, $list_depth ) . "\n";
+				return self::convert_list( $node, $tag, $indent ) . "\n";
 
 			case 'table':
 				return self::convert_table( $node ) . "\n";
 
 			default:
-				return self::convert_children( $node, $list_depth );
+				return self::convert_children( $node, $indent );
 		}
 	}
 
@@ -248,37 +250,96 @@ final class Markdown_Converter {
 	}
 
 	/**
+	 * Escapes a leading block-syntax marker at the very start of an
+	 * assembled line — a heading `#`, blockquote `>`, list `-`/`+`, or
+	 * ordered-list `1.`/`1)` — so literal text that happens to start with
+	 * one (e.g. a paragraph that is itself just the sentence "- reminder:
+	 * ...") isn't misread as that construct once emitted. escape_text()
+	 * can't do this itself: it runs per DOMText node, with no notion of
+	 * whether its text ends up at the start of the final rendered line —
+	 * this instead runs once on each fully assembled paragraph/list-item/
+	 * blockquote line, in convert_node()/convert_list().
+	 *
+	 * Asterisk/underscore-based markers aren't handled here because
+	 * escape_text() already escapes every literal `*`/`_`, unconditionally
+	 * and everywhere, which already prevents them from being read as a
+	 * list marker or emphasis.
+	 *
+	 * @param string $line One fully assembled line of output.
+	 * @return string
+	 */
+	private static function escape_line_start( string $line ): string {
+		return (string) preg_replace( '/^(#{1,6}(?=\s|$)|>|[-+](?=\s|$)|\d+[.)](?=\s|$))/', '\\\\$1', $line );
+	}
+
+	/**
+	 * Builds a fenced code block whose fence is longer than the longest run
+	 * of backticks already present in the code — a fixed ` ``` ` fence
+	 * would otherwise be closed early by a code sample that itself contains
+	 * a triple-backtick sequence (e.g. an article about Markdown syntax
+	 * demonstrating a fenced code block), silently turning the remainder of
+	 * that code into ordinary Markdown and starting a stray new block at
+	 * the original closing fence.
+	 *
+	 * @param string $code Raw <pre> text content.
+	 * @return string
+	 */
+	private static function render_code_fence( string $code ): string {
+		$code = trim( $code, "\n" );
+
+		$longest_run = 0;
+
+		if ( preg_match_all( '/`+/', $code, $matches ) ) {
+			foreach ( $matches[0] as $run ) {
+				$longest_run = max( $longest_run, strlen( $run ) );
+			}
+		}
+
+		$fence = str_repeat( '`', max( 3, $longest_run + 1 ) );
+
+		return $fence . "\n" . $code . "\n" . $fence;
+	}
+
+	/**
 	 * Converts a <ul>/<ol>, recursing into nested lists so they render
 	 * indented beneath their parent item.
 	 *
+	 * A nested list is indented to align with the first character *after*
+	 * its parent item's own marker and separating space (`$indent` already
+	 * carries that from the caller) — not a flat 2 spaces per level. Per
+	 * CommonMark, an ordered list's marker width varies ("1. " is 3
+	 * columns, "10. " is 4), so a flat indent under-indents a nested list
+	 * enough that some parsers read it as a new top-level list instead of
+	 * a child of the item above it.
+	 *
 	 * @param \DOMElement $list_node The <ul> or <ol> element.
 	 * @param string      $tag       'ul' or 'ol'.
-	 * @param int         $depth     Current indentation depth.
+	 * @param string      $indent    This list's own indentation prefix (empty at the top level).
 	 * @return string
 	 */
-	private static function convert_list( \DOMElement $list_node, string $tag, int $depth ): string {
-		$out    = '';
-		$index  = self::list_start( $list_node, $tag );
-		$indent = str_repeat( '  ', $depth );
+	private static function convert_list( \DOMElement $list_node, string $tag, string $indent ): string {
+		$out   = '';
+		$index = self::list_start( $list_node, $tag );
 
 		foreach ( $list_node->childNodes as $child ) {
 			if ( ! $child instanceof \DOMElement || 'li' !== strtolower( $child->tagName ) ) {
 				continue;
 			}
 
-			$marker = 'ol' === $tag ? $index . '.' : '-';
-			$nested = '';
-			$text   = '';
+			$marker       = 'ol' === $tag ? $index . '.' : '-';
+			$child_indent = $indent . str_repeat( ' ', strlen( $marker ) + 1 );
+			$nested       = '';
+			$text         = '';
 
 			foreach ( $child->childNodes as $li_child ) {
 				if ( $li_child instanceof \DOMElement && in_array( strtolower( $li_child->tagName ), array( 'ul', 'ol' ), true ) ) {
-					$nested .= self::convert_list( $li_child, strtolower( $li_child->tagName ), $depth + 1 );
+					$nested .= self::convert_list( $li_child, strtolower( $li_child->tagName ), $child_indent );
 				} else {
-					$text .= self::convert_node( $li_child, $depth );
+					$text .= self::convert_node( $li_child, $child_indent );
 				}
 			}
 
-			$line = trim( (string) preg_replace( '/\s+/', ' ', $text ) );
+			$line = self::escape_line_start( trim( (string) preg_replace( '/\s+/', ' ', $text ) ) );
 
 			if ( '' !== $line || '' !== $nested ) {
 				$out .= $indent . $marker . ' ' . $line . "\n";
@@ -326,7 +387,7 @@ final class Markdown_Converter {
 
 			foreach ( $row->childNodes as $cell ) {
 				if ( $cell instanceof \DOMElement && in_array( strtolower( $cell->tagName ), array( 'td', 'th' ), true ) ) {
-					$cells[] = self::escape_table_cell( trim( self::convert_children( $cell, 0 ) ) );
+					$cells[] = self::escape_table_cell( trim( self::convert_children( $cell, '' ) ) );
 				}
 			}
 

@@ -68,7 +68,9 @@ class Test_Markdown_Converter extends WP_UnitTestCase {
 		$markdown = Markdown_Converter::convert( '<ol><li>Parent<ul><li>Child</li></ul></li><li>Second</li></ol>' );
 
 		$this->assertStringContainsString( "1. Parent\n", $markdown );
-		$this->assertStringContainsString( "  - Child\n", $markdown );
+		// 3 spaces: the width of the parent's own "1. " marker, not a flat
+		// 2-space-per-level indent (see test_nested_list_indent_matches_two_digit_marker_width()).
+		$this->assertStringContainsString( "   - Child\n", $markdown );
 		$this->assertStringContainsString( "2. Second\n", $markdown );
 	}
 
@@ -182,5 +184,53 @@ class Test_Markdown_Converter extends WP_UnitTestCase {
 		$result = $method->invoke( null, '<p>First</p><p>Second</p>' );
 
 		$this->assertSame( "First\n\nSecond", $result );
+	}
+
+	/**
+	 * A code sample that itself contains a triple-backtick line (e.g. an
+	 * article demonstrating Markdown syntax) gets a fence longer than any
+	 * backtick run inside it, so that run can't close the block early
+	 * (Codex review).
+	 */
+	public function test_pre_code_with_triple_backtick_content_uses_a_longer_fence() {
+		$markdown = Markdown_Converter::convert( "<pre><code>Example:\n```\ncode\n```</code></pre>" );
+
+		$this->assertStringContainsString( "````\nExample:\n```\ncode\n```\n````", $markdown );
+	}
+
+	/**
+	 * A paragraph whose literal text happens to start with a heading '#',
+	 * blockquote '>', or list '-'/'+'/'1.' marker is escaped so it isn't
+	 * misread as that block construct (Codex review).
+	 */
+	public function test_paragraph_starting_with_block_marker_is_escaped() {
+		$this->assertStringContainsString( '\\# literal', Markdown_Converter::convert( '<p># literal</p>' ) );
+		$this->assertStringContainsString( '\\> literal', Markdown_Converter::convert( '<p>&gt; literal</p>' ) );
+		$this->assertStringContainsString( '\\- literal', Markdown_Converter::convert( '<p>- literal</p>' ) );
+		$this->assertStringContainsString( '\\1. literal', Markdown_Converter::convert( '<p>1. literal</p>' ) );
+	}
+
+	/**
+	 * A `<details><summary>` pair (core/details) separates the summary from
+	 * the content that follows it, instead of concatenating them with no
+	 * boundary (Codex review).
+	 */
+	public function test_details_summary_is_separated_from_content() {
+		$markdown = Markdown_Converter::convert( '<details><summary>What?</summary><p>Answer.</p></details>' );
+
+		$this->assertStringContainsString( "**What?**\n\nAnswer.", $markdown );
+	}
+
+	/**
+	 * A nested list under a two-digit ordered marker (e.g. item 10) is
+	 * indented to that marker's own width ("10. " = 4 columns), not a flat
+	 * 2 spaces — otherwise CommonMark reads the nested list as a new
+	 * top-level list rather than a child of item 10 (Codex review).
+	 */
+	public function test_nested_list_indent_matches_two_digit_marker_width() {
+		$markdown = Markdown_Converter::convert( '<ol start="10"><li>Tenth<ul><li>Child</li></ul></li></ol>' );
+
+		$this->assertStringContainsString( "10. Tenth\n", $markdown );
+		$this->assertStringContainsString( "    - Child\n", $markdown );
 	}
 }
