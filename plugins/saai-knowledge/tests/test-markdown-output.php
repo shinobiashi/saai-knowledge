@@ -82,6 +82,39 @@ class Test_Markdown_Output extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The render() method must not leak the rendered post's global postdata (the
+	 * global $post, and the rest of setup_postdata()'s globals) into
+	 * whatever runs after it — this method is public, and a caller other
+	 * than maybe_serve() (which currently always exit()s right after) would
+	 * otherwise have the last rendered post silently bleed into its own
+	 * global state (Copilot review).
+	 */
+	public function test_render_restores_previous_global_postdata() {
+		$other_post_id = self::factory()->post->create( array( 'post_status' => 'publish' ) );
+		$other_post    = get_post( $other_post_id );
+
+		$GLOBALS['post'] = $other_post; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- establishing the "already-current post" state this test asserts render() must restore.
+		setup_postdata( $other_post );
+
+		$target_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_content' => 'Body.',
+				'post_status'  => 'publish',
+			)
+		);
+
+		try {
+			$this->service->render( get_post( $target_id ) );
+
+			$this->assertSame( $other_post_id, $GLOBALS['post']->ID );
+			$this->assertSame( $other_post_id, $GLOBALS['id'] );
+		} finally {
+			wp_reset_postdata();
+		}
+	}
+
+	/**
 	 * A title containing '[...](...)' would otherwise become an actual
 	 * link once placed in the H1 line, since CommonMark headings parse
 	 * inline Markdown (Codex review).

@@ -37,6 +37,27 @@ final class Markdown_Output {
 	private const CACHE_PREFIX = 'saai_markdown_';
 
 	/**
+	 * The globals WP_Query::setup_postdata() mutates besides $post —
+	 * snapshotted and restored around each render() so that a caller other
+	 * than maybe_serve() (which currently always exit()s right after) can't
+	 * leak this post's postdata into whatever runs afterward. Same list,
+	 * same reasoning, as Faq_List::POSTDATA_GLOBALS.
+	 *
+	 * @var string[]
+	 */
+	private const POSTDATA_GLOBALS = array(
+		'id',
+		'authordata',
+		'currentday',
+		'currentmonth',
+		'page',
+		'pages',
+		'multipage',
+		'more',
+		'numpages',
+	);
+
+	/**
 	 * Hooks the query var, the template_redirect short-circuit, and cache
 	 * invalidation into WordPress.
 	 */
@@ -189,48 +210,71 @@ final class Markdown_Output {
 	 * Builds the Markdown document for a single post: an H1 title, a short
 	 * meta block, and the body content converted from its rendered HTML.
 	 *
-	 * The setup_postdata() call is deliberately never restored — this
-	 * method is only ever reached from maybe_serve(), which exits right
-	 * after — because template_redirect fires before the main Loop's
-	 * the_post() has populated the global $post/$id family that
+	 * The setup_postdata() call is needed because template_redirect fires before the
+	 * main Loop's the_post() has populated the global $post/$id family that
 	 * shortcode/block rendering (do_shortcode(), do_blocks()) can implicitly
-	 * depend on.
+	 * depend on. maybe_serve() (this method's only current caller) exits
+	 * right after calling it, so the leaked globals never actually reach
+	 * anything else in practice today — but render()/render_cached() are
+	 * public, and DESIGN.md section 7.4's planned RAG export is documented
+	 * (see Markdown_Converter's own class docblock) to reuse this same
+	 * rendering for many posts in one request, which would neither exit
+	 * between posts nor want the last one's postdata bleeding into the
+	 * next. The full previous postdata state (POSTDATA_GLOBALS, not just
+	 * $post) is snapshotted and restored in a finally block, the same
+	 * pattern Faq_List::render_answer() already uses for the identical
+	 * reason (Copilot review).
 	 *
 	 * @param \WP_Post $post The post to render.
 	 * @return string
 	 */
 	public function render( \WP_Post $post ): string {
-		setup_postdata( $post );
+		$previous_post    = $GLOBALS['post'] ?? null;
+		$previous_globals = array();
 
-		$title = html_entity_decode( wp_strip_all_tags( get_the_title( $post ) ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' );
-		$title = Markdown_Converter::escape_text( str_replace( array( "\r", "\n" ), ' ', $title ) );
-
-		$lines = array( '# ' . $title, '' );
-		$meta  = $this->meta_lines( $post );
-
-		if ( $meta ) {
-			$lines = array_merge( $lines, $meta, array( '' ) );
+		foreach ( self::POSTDATA_GLOBALS as $var ) {
+			$previous_globals[ $var ] = $GLOBALS[ $var ] ?? null;
 		}
 
-		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- invoking WordPress core's own the_content filter (as WP_REST_Posts_Controller does), not defining a new hook.
-		$content_html = apply_filters( 'the_content', $post->post_content );
-		$lines[]      = Markdown_Converter::convert( is_string( $content_html ) ? $content_html : '' );
+		setup_postdata( $post );
 
-		$markdown = trim( implode( "\n", $lines ) ) . "\n";
+		try {
+			$title = html_entity_decode( wp_strip_all_tags( get_the_title( $post ) ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' );
+			$title = Markdown_Converter::escape_text( str_replace( array( "\r", "\n" ), ' ', $title ) );
 
-		/**
-		 * Filters the `?format=markdown` output for a single FAQ/KB/glossary
-		 * page.
-		 *
-		 * @since 0.5.0
-		 *
-		 * @param string   $markdown The rendered Markdown document.
-		 * @param \WP_Post $post     The post being rendered.
-		 */
-		$filtered = apply_filters( 'saai_markdown_output', $markdown, $post );
+			$lines = array( '# ' . $title, '' );
+			$meta  = $this->meta_lines( $post );
 
-		// @phpstan-ignore ternary.elseUnreachable (PHPStan trusts the docblock @param type above, but a third-party saai_markdown_output callback can violate it at runtime.)
-		return is_string( $filtered ) ? $filtered : $markdown;
+			if ( $meta ) {
+				$lines = array_merge( $lines, $meta, array( '' ) );
+			}
+
+			// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- invoking WordPress core's own the_content filter (as WP_REST_Posts_Controller does), not defining a new hook.
+			$content_html = apply_filters( 'the_content', $post->post_content );
+			$lines[]      = Markdown_Converter::convert( is_string( $content_html ) ? $content_html : '' );
+
+			$markdown = trim( implode( "\n", $lines ) ) . "\n";
+
+			/**
+			 * Filters the `?format=markdown` output for a single FAQ/KB/glossary
+			 * page.
+			 *
+			 * @since 0.5.0
+			 *
+			 * @param string   $markdown The rendered Markdown document.
+			 * @param \WP_Post $post     The post being rendered.
+			 */
+			$filtered = apply_filters( 'saai_markdown_output', $markdown, $post );
+
+			// @phpstan-ignore ternary.elseUnreachable (PHPStan trusts the docblock @param type above, but a third-party saai_markdown_output callback can violate it at runtime.)
+			return is_string( $filtered ) ? $filtered : $markdown;
+		} finally {
+			$GLOBALS['post'] = $previous_post; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- restoring the exact pre-render value saved above.
+
+			foreach ( $previous_globals as $var => $value ) {
+				$GLOBALS[ $var ] = $value; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited, WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- restoring the exact pre-render values of WordPress's own postdata globals saved above.
+			}
+		}
 	}
 
 	/**
