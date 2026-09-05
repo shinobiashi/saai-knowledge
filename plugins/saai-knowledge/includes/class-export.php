@@ -398,25 +398,49 @@ final class Export {
 		);
 
 		if ( '' !== $modified_after ) {
-			// Deliberately inclusive ("modified_after" reads as ">=", not the
-			// stricter ">" a caller might expect from the name): post_modified_gmt
-			// is only second-precision, and the common incremental-sync
-			// pattern of "pass back the last updated_at you received as the
-			// next modified_after" would otherwise permanently drop any
-			// other post saved within that exact same second (a routine
-			// bulk-update scenario, not a rare race) — inclusive=false makes
-			// that comparison strict '>', which excludes it forever. The
-			// tradeoff this accepts is a client occasionally re-receiving a
-			// boundary-second record it already has, which any reasonable
-			// upsert-by-id sync consumer already handles idempotently
-			// (Codex review).
-			$query_args['date_query'] = array(
-				array(
-					'column'    => 'post_modified_gmt',
-					'after'     => $modified_after,
-					'inclusive' => true,
-				),
-			);
+			$modified_after_timestamp = strtotime( $modified_after );
+
+			if ( false !== $modified_after_timestamp ) {
+				// Deliberately inclusive ("modified_after" reads as ">=", not
+				// the stricter ">" a caller might expect from the name):
+				// post_modified_gmt is only second-precision, and the common
+				// incremental-sync pattern of "pass back the last updated_at
+				// you received as the next modified_after" would otherwise
+				// permanently drop any other post saved within that exact
+				// same second (a routine bulk-update scenario, not a rare
+				// race) — inclusive=false makes that comparison strict '>',
+				// which excludes it forever. The tradeoff this accepts is a
+				// client occasionally re-receiving a boundary-second record
+				// it already has, which any reasonable upsert-by-id sync
+				// consumer already handles idempotently (Codex review).
+				//
+				// 'after' is an array of explicit UTC components — not the
+				// raw RFC 8601 string — because WP_Date_Query::build_mysql_datetime()
+				// re-localizes ANY string value (even one with an explicit
+				// 'Z'/offset) into the *site's configured timezone* before
+				// formatting it back to a bare "Y-m-d H:i:s" string with no
+				// timezone marker at all; comparing that re-localized value
+				// against a true-UTC post_modified_gmt column silently shifts
+				// the effective cutoff by the site's UTC offset (e.g. 9 hours
+				// for Asia/Tokyo), permanently missing every post modified in
+				// that gap. Passing an array instead bypasses that string
+				// branch entirely — WP_Date_Query uses the digits as given,
+				// with zero timezone reinterpretation (Codex review).
+				$query_args['date_query'] = array(
+					array(
+						'column'    => 'post_modified_gmt',
+						'after'     => array(
+							'year'   => (int) gmdate( 'Y', $modified_after_timestamp ),
+							'month'  => (int) gmdate( 'n', $modified_after_timestamp ),
+							'day'    => (int) gmdate( 'j', $modified_after_timestamp ),
+							'hour'   => (int) gmdate( 'G', $modified_after_timestamp ),
+							'minute' => (int) gmdate( 'i', $modified_after_timestamp ),
+							'second' => (int) gmdate( 's', $modified_after_timestamp ),
+						),
+						'inclusive' => true,
+					),
+				);
+			}
 		}
 
 		$wp_query = new \WP_Query( $query_args );
@@ -500,8 +524,13 @@ final class Export {
 				// deliberate, harmless duplication of the `title` field
 				// above: many embedding pipelines expect each chunk of text
 				// to carry its own context rather than relying on a sibling
-				// JSON field.
-				'content_markdown' => $this->markdown_output->render( $post ),
+				// JSON field. $content_html (already computed above) is
+				// passed through so render() doesn't apply `the_content` a
+				// second time — a stateful shortcode/dynamic block would
+				// otherwise run twice per record, and its output could
+				// disagree between this field and content_plain/sections
+				// (Codex review).
+				'content_markdown' => $this->markdown_output->render( $post, $content_html ),
 				'content_plain'    => Markdown_Converter::to_plain_text( $content_html ),
 				'categories'       => $this->term_names( $post, 'saai_category' ),
 				'tags'             => $this->term_names( $post, 'saai_tag' ),
@@ -540,9 +569,13 @@ final class Export {
 	 * Splits a KB article's rendered content into per-h2 chunks for the
 	 * export record's `sections` field — deliberately not applied to
 	 * FAQ/glossary, whose single-answer/single-definition content is already
-	 * one coherent chunk (docs/DESIGN.md section 7.4).
+	 * one coherent chunk (docs/DESIGN.md section 7.4). Dispatches to
+	 * build_sections_via_dom() when DOMDocument is available (the common
+	 * case, and the more faithful one — see that method), falling back to
+	 * build_sections_via_blocks() otherwise so this field is never simply
+	 * empty on an environment lacking that extension (Codex review).
 	 *
-	 * Known limitation: only an `<h2>` that renders as a direct child of the
+	 * Known limitation (both implementations): only an `<h2>` that renders as a direct child of the
 	 * document body starts a new section — the common case for a flat KB
 	 * article built from top-level core blocks. An h2 nested inside a
 	 * wrapper block (Group, Columns) is not detected as a section boundary
@@ -564,10 +597,39 @@ final class Export {
 	 * @return array<int, array{heading: string, anchor: string, content_markdown: string}>
 	 */
 	private function build_sections( \WP_Post $post, string $content_html ): array {
-		if ( '' === trim( $content_html ) || ! class_exists( '\DOMDocument' ) ) {
+		if ( '' === trim( $content_html ) ) {
 			return array();
 		}
 
+		if ( class_exists( '\DOMDocument' ) ) {
+			$sections = $this->build_sections_via_dom( $post, $content_html );
+
+			if ( null !== $sections ) {
+				return $sections;
+			}
+		}
+
+		// No DOMDocument (not a guaranteed extension — Markdown_Converter
+		// itself explicitly supports its absence), or it failed to parse
+		// this content: parse_blocks() has no such dependency, so KB
+		// records still get their documented h2-chunked `sections` instead
+		// of silently, indistinguishably losing them on every export from
+		// an environment lacking it (Codex review).
+		return $this->build_sections_via_blocks( $post );
+	}
+
+	/**
+	 * The build_sections() primary implementation: walks the fully rendered
+	 * DOM. Returns null (rather than an empty array) when the DOM path
+	 * itself is inapplicable — content that failed to parse — so the caller
+	 * can fall back to build_sections_via_blocks() instead of reporting
+	 * "no sections" for content that was never actually examined.
+	 *
+	 * @param \WP_Post $post         The KB post.
+	 * @param string   $content_html Its fully rendered (`the_content`-filtered) HTML, already confirmed non-empty.
+	 * @return array<int, array{heading: string, anchor: string, content_markdown: string}>|null
+	 */
+	private function build_sections_via_dom( \WP_Post $post, string $content_html ): ?array {
 		$dom             = new \DOMDocument();
 		$previous_errors = libxml_use_internal_errors( true );
 		$loaded          = $dom->loadHTML(
@@ -579,13 +641,13 @@ final class Export {
 		libxml_use_internal_errors( $previous_errors );
 
 		if ( ! $loaded ) {
-			return array();
+			return null;
 		}
 
 		$body = $dom->getElementsByTagName( 'body' )->item( 0 );
 
 		if ( ! $body instanceof \DOMElement ) {
-			return array();
+			return null;
 		}
 
 		$chunks  = array();
@@ -613,27 +675,8 @@ final class Export {
 			$chunks[] = $current;
 		}
 
-		// Restricted to top_level headings (Heading_Anchors::extract()'s own
-		// contract, added specifically for this filter) so a heading nested
-		// inside a wrapper block (Group/Columns) — invisible to this
-		// method's own $body->childNodes-only walk above — can never occupy
-		// a slot in this list and shift every later top-level section's
-		// position out of alignment with it. Without this, two identically
-		// worded headings (one nested, one top-level, right after it) would
-		// still defeat matching_anchor()'s text-only check below: both
-		// texts agree, so it would accept the nested heading's id even
-		// though it isn't the one this section's own heading resolved to
-		// (Codex review — a real gap in that check on its own).
-		$level_2_headings = array_values(
-			array_filter(
-				( new Heading_Anchors() )->extract( $post ),
-				static function ( array $heading ): bool {
-					return 2 === $heading['level'] && ! empty( $heading['top_level'] );
-				}
-			)
-		);
-
-		$sections = array();
+		$level_2_headings = $this->top_level_level_2_headings( $post );
+		$sections         = array();
 
 		foreach ( $chunks as $index => $chunk ) {
 			if ( '' === $chunk['heading'] ) {
@@ -657,6 +700,101 @@ final class Export {
 		}
 
 		return $sections;
+	}
+
+	/**
+	 * The build_sections() no-DOMDocument fallback: splits the post's own
+	 * *source* blocks (parse_blocks(), never the rendered HTML) into
+	 * per-top-level-h2 chunks and renders each chunk's blocks individually
+	 * via render_block(). A lower-fidelity path than build_sections_via_dom()
+	 * — it renders each block on its own rather than through the full
+	 * `the_content` filter chain (no wptexturize()/wpautop()/shortcode_unautop()
+	 * pass across the chunk as a whole) — but produces real, non-empty
+	 * sections instead of none at all when DOMDocument is unavailable.
+	 *
+	 * @param \WP_Post $post The KB post.
+	 * @return array<int, array{heading: string, anchor: string, content_markdown: string}>
+	 */
+	private function build_sections_via_blocks( \WP_Post $post ): array {
+		$chunks  = array();
+		$current = null;
+
+		foreach ( parse_blocks( $post->post_content ) as $block ) {
+			$is_top_level_h2 = 'core/heading' === ( $block['blockName'] ?? null )
+				&& 2 === (int) ( $block['attrs']['level'] ?? 2 );
+
+			if ( $is_top_level_h2 ) {
+				if ( null !== $current ) {
+					$chunks[] = $current;
+				}
+
+				$current = array(
+					'heading' => html_entity_decode( trim( wp_strip_all_tags( $block['innerHTML'] ) ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' ),
+					'blocks'  => array(),
+				);
+				continue;
+			}
+
+			if ( null !== $current ) {
+				$current['blocks'][] = $block;
+			}
+		}
+
+		if ( null !== $current ) {
+			$chunks[] = $current;
+		}
+
+		$level_2_headings = $this->top_level_level_2_headings( $post );
+		$sections         = array();
+
+		foreach ( $chunks as $index => $chunk ) {
+			if ( '' === $chunk['heading'] ) {
+				continue;
+			}
+
+			$fragment_html = '';
+
+			foreach ( $chunk['blocks'] as $block ) {
+				$fragment_html .= render_block( $block );
+			}
+
+			$body_markdown = Markdown_Converter::convert( $fragment_html );
+			$anchor        = self::matching_anchor( $level_2_headings[ $index ] ?? null, $chunk['heading'] );
+
+			$sections[] = array(
+				'heading'          => $chunk['heading'],
+				'anchor'           => $anchor,
+				'content_markdown' => trim( '## ' . Markdown_Converter::escape_text( $chunk['heading'] ) . "\n\n" . $body_markdown ),
+			);
+		}
+
+		return $sections;
+	}
+
+	/**
+	 * The post's level-2 headings, restricted to ones Heading_Anchors::extract()
+	 * flags as top_level — shared by both build_sections_via_dom() and
+	 * build_sections_via_blocks(), which each independently walk only the
+	 * post's top-level h2 boundaries and therefore need this same candidate
+	 * list to stay positionally aligned with their own chunks. A heading
+	 * nested inside a wrapper block (Group/Columns) is invisible to either
+	 * walk, so leaving it in this list would shift every later top-level
+	 * section's position out of alignment with it — including defeating
+	 * matching_anchor()'s own text-agreement check whenever the nested and
+	 * top-level headings happen to share identical wording (Codex review).
+	 *
+	 * @param \WP_Post $post The KB post.
+	 * @return array<int, array{id: string, text: string, level: int, top_level: bool}>
+	 */
+	private function top_level_level_2_headings( \WP_Post $post ): array {
+		return array_values(
+			array_filter(
+				( new Heading_Anchors() )->extract( $post ),
+				static function ( array $heading ): bool {
+					return 2 === $heading['level'] && ! empty( $heading['top_level'] );
+				}
+			)
+		);
 	}
 
 	/**

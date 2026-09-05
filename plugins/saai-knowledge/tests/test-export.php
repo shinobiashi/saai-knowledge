@@ -234,6 +234,38 @@ class Test_Export extends WP_UnitTestCase {
 	}
 
 	/**
+	 * `modified_after` must compare against true UTC regardless of the
+	 * site's configured timezone. WP_Date_Query::build_mysql_datetime()
+	 * re-localizes a *string* 'after' value (even one with an explicit
+	 * offset/'Z') into the site's timezone before formatting it back to a
+	 * bare "Y-m-d H:i:s" string with no timezone marker — comparing that
+	 * against a true-UTC post_modified_gmt column would silently shift the
+	 * cutoff by the site's UTC offset. A post modified only 3 hours after
+	 * the UTC cutoff must be included even on a site 9 hours ahead of UTC
+	 * (where a wrong +9h shift would incorrectly exclude it).
+	 */
+	public function test_rest_request_modified_after_compares_against_true_utc_regardless_of_site_timezone() {
+		$previous_timezone = get_option( 'timezone_string' );
+		update_option( 'timezone_string', 'Asia/Tokyo' );
+
+		try {
+			$post_id = $this->create_post( 'saai_faq', 'Modified 3h after UTC cutoff' );
+			$this->set_modified( $post_id, '2026-06-01T03:00:00Z' );
+
+			$request = new WP_REST_Request( 'GET', '/saai-knowledge/v1/export' );
+			$request->set_param( 'modified_after', '2026-06-01T00:00:00Z' );
+
+			$response = $this->server->dispatch( $request );
+			$records  = $response->get_data()['records'];
+		} finally {
+			update_option( 'timezone_string', $previous_timezone );
+		}
+
+		$this->assertCount( 1, $records );
+		$this->assertSame( $post_id, $records[0]['id'] );
+	}
+
+	/**
 	 * An explicit but empty `modified_after` must not be rejected by the
 	 * date-time format validation — see register_routes()'s validate_callback.
 	 */
@@ -393,6 +425,46 @@ class Test_Export extends WP_UnitTestCase {
 	}
 
 	/**
+	 * `the_content` must be applied exactly once per record. build_record()
+	 * needs its own pass for content_plain/sections, and content_markdown
+	 * is built from Markdown_Output::render() — without passing the
+	 * already-rendered HTML through, render() would apply `the_content` a
+	 * second time, running do_shortcode()/do_blocks() twice per record. A
+	 * stateful shortcode's second run would both double whatever side
+	 * effect it has and make content_markdown disagree with
+	 * content_plain/sections for the very same record.
+	 */
+	public function test_build_record_applies_the_content_only_once_per_record() {
+		$calls = 0;
+
+		add_shortcode(
+			'saai_test_count_calls',
+			static function () use ( &$calls ) {
+				++$calls;
+
+				return (string) $calls;
+			}
+		);
+
+		$post_id = $this->create_post( 'saai_faq', 'Counting', array( 'post_content' => '[saai_test_count_calls]' ) );
+
+		try {
+			$request = new WP_REST_Request( 'GET', '/saai-knowledge/v1/export' );
+			$request->set_param( 'types', 'faq' );
+			$response = $this->server->dispatch( $request );
+		} finally {
+			remove_shortcode( 'saai_test_count_calls' );
+		}
+
+		$record = $response->get_data()['records'][0];
+
+		$this->assertSame( $post_id, $record['id'] );
+		$this->assertSame( 1, $calls );
+		$this->assertStringContainsString( '1', $record['content_markdown'] );
+		$this->assertStringContainsString( '1', $record['content_plain'] );
+	}
+
+	/**
 	 * Category/tag names should be included for FAQ/KB but always
 	 * empty for glossary, which neither taxonomy applies to.
 	 */
@@ -469,6 +541,38 @@ class Test_Export extends WP_UnitTestCase {
 
 		$this->assertSame( $kb_id, $record['id'] );
 		$this->assertSame( array(), $record['sections'] );
+	}
+
+	/**
+	 * The build_sections_via_blocks() fallback — used when DOMDocument is
+	 * unavailable (not a guaranteed PHP extension) or fails to parse the
+	 * rendered HTML — must still produce real, non-empty sections from the
+	 * post's own source blocks, rather than the h2-chunked `sections` field
+	 * silently disappearing on such an environment (Codex review).
+	 */
+	public function test_build_sections_via_blocks_produces_sections_without_dom() {
+		$content  = '<!-- wp:heading --><h2>Getting started</h2><!-- /wp:heading -->';
+		$content .= '<!-- wp:paragraph --><p>Install the plugin first.</p><!-- /wp:paragraph -->';
+		$content .= '<!-- wp:heading --><h2>Troubleshooting</h2><!-- /wp:heading -->';
+		$content .= '<!-- wp:paragraph --><p>Check the logs.</p><!-- /wp:paragraph -->';
+
+		$post_id = $this->create_post( 'saai_kb', 'Setup guide', array( 'post_content' => $content ) );
+		$post    = get_post( $post_id );
+
+		$method = new ReflectionMethod( $this->export, 'build_sections_via_blocks' );
+		$method->setAccessible( true );
+
+		$sections = $method->invoke( $this->export, $post );
+
+		$this->assertCount( 2, $sections );
+
+		$this->assertSame( 'Getting started', $sections[0]['heading'] );
+		$this->assertSame( 'getting-started', $sections[0]['anchor'] );
+		$this->assertStringContainsString( 'Install the plugin first.', $sections[0]['content_markdown'] );
+
+		$this->assertSame( 'Troubleshooting', $sections[1]['heading'] );
+		$this->assertSame( 'troubleshooting', $sections[1]['anchor'] );
+		$this->assertStringContainsString( 'Check the logs.', $sections[1]['content_markdown'] );
 	}
 
 	/**
