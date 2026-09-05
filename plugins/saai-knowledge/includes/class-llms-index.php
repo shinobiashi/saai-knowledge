@@ -105,19 +105,28 @@ final class Llms_Index {
 	 * isn't available yet here; checking the raw request URI is what Rank
 	 * Math's own equivalent does too.
 	 *
-	 * The match requires a `/`, `?`, or end-of-string right after
-	 * "llms.txt" rather than a bare strpos() substring check: a real
-	 * article at e.g. `/{kb slug}/llms.txt-guide/` would otherwise also
-	 * match (its path starts with the exact same characters), incorrectly
-	 * disabling that unrelated page's own trailing-slash canonical redirect
-	 * (Codex review). It stays a substring search (not an anchored
+	 * Matched against the request's *path* only (via wp_parse_url(),
+	 * PHP_URL_PATH) — not the raw $_SERVER['REQUEST_URI'] — and anchored to
+	 * the end of it. Two false-positive classes that a plain substring
+	 * search against the full REQUEST_URI (query string included) would
+	 * hit otherwise:
+	 * - a real article at e.g. `/{kb slug}/llms.txt-guide/` (its path
+	 *   starts with the exact same characters as ours) — the earlier
+	 *   Codex-review fix for this specifically is why the pattern is
+	 *   end-anchored rather than a bare strpos();
+	 * - an unrelated request whose *query string* merely happens to
+	 *   contain the same characters, e.g. `/search/?q=/kb/llms.txt`
+	 *   (Copilot review) — fixed by matching only the path component.
+	 *
+	 * It stays a substring search within that path (not an anchored
 	 * full-path match) so a subdirectory-install prefix still matches.
 	 */
 	public function maybe_remove_canonical_redirect(): void {
 		$request_uri = isset( $_SERVER['REQUEST_URI'] ) ? wp_unslash( (string) $_SERVER['REQUEST_URI'] ) : '';
-		$pattern     = '#/' . preg_quote( $this->kb_slug(), '#' ) . '/llms\.txt(?:[/?]|$)#';
+		$path        = (string) wp_parse_url( $request_uri, PHP_URL_PATH );
+		$pattern     = '#/' . preg_quote( $this->kb_slug(), '#' ) . '/llms\.txt/?$#';
 
-		if ( 1 === preg_match( $pattern, $request_uri ) ) {
+		if ( 1 === preg_match( $pattern, $path ) ) {
 			remove_filter( 'template_redirect', 'redirect_canonical' );
 		}
 	}

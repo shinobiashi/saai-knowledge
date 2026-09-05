@@ -249,6 +249,16 @@ class Test_Llms_Index extends WP_UnitTestCase {
 				'An unrelated article whose slug merely starts with "llms.txt" must not have redirect_canonical removed.'
 			);
 
+			// A request whose *query string* merely contains the same
+			// characters (not its path) must not match either — only the
+			// path component is checked (Copilot review).
+			$_SERVER['REQUEST_URI'] = '/search/?q=/kb/llms.txt';
+			$this->index->maybe_remove_canonical_redirect();
+			$this->assertNotFalse(
+				has_filter( 'template_redirect', 'redirect_canonical' ),
+				'A request whose query string merely contains the llms.txt path must not have redirect_canonical removed.'
+			);
+
 			$_SERVER['REQUEST_URI'] = '/kb/llms.txt';
 			$this->index->maybe_remove_canonical_redirect();
 			$this->assertFalse(
