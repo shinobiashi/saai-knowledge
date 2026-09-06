@@ -37,14 +37,27 @@ jobs:
 
       - run: npm run build
 
+      - name: Build release ZIP
+        working-directory: plugins/saai-knowledge
+        run: npx wp-scripts plugin-zip
+
+      # BUILD_DIR must NOT point at the source directory directly: this
+      # action copies BUILD_DIR's contents to SVN trunk as-is, without any
+      # awareness of package.json's "files" allowlist, so plugins/saai-
+      # knowledge/ itself would also ship src/, tests/, package.json, and
+      # .wordpress-org/ to the public WordPress.org repository (Copilot
+      # review). Deploying the already-verified release ZIP's own contents
+      # instead keeps trunk identical to what ci-js.yml's "Verify release
+      # ZIP contains runtime assets" step already checked.
+      - name: Extract release ZIP for deploy
+        run: unzip -q plugins/saai-knowledge/saai-knowledge.zip -d "$RUNNER_TEMP/wporg-deploy"
+
       - name: WordPress Plugin Deploy
         uses: 10up/action-wordpress-plugin-deploy@stable
-        with:
-          generate-zip: true
         env:
           SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
           SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
           SLUG: saai-knowledge
-          BUILD_DIR: plugins/saai-knowledge
+          BUILD_DIR: ${{ runner.temp }}/wporg-deploy/saai-knowledge
           ASSETS_DIR: plugins/saai-knowledge/.wordpress-org
           VERSION: ${{ github.event.inputs.version }}
