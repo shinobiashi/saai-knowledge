@@ -1093,12 +1093,13 @@ final class Export {
 		// Best-effort: silently no-ops under a hosting restriction
 		// (open_basedir/safe mode-like setups, or when disabled entirely).
 		if ( function_exists( 'set_time_limit' ) ) {
-			set_time_limit( 0 ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.runtime_configuration_set_time_limit
+			set_time_limit( 0 ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.runtime_configuration_set_time_limit, Squiz.PHP.DiscouragedFunctions.Discouraged
 		}
 
 		$result = $this->query_records( array_keys( $this->post_types() ), '', 1, self::MAX_DOWNLOAD_ITEMS, $format );
 
 		nocache_headers();
+		header( 'X-Content-Type-Options: nosniff' );
 		header( 'Content-Disposition: attachment; filename="saai-knowledge-export-' . gmdate( 'Y-m-d' ) . '.' . $format . '"' );
 
 		// found_posts (query_records()'s 'total_items') reflects the *true*

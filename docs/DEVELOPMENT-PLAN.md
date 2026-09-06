@@ -126,7 +126,7 @@ M1〜M5 の全タスクは GitHub Issues #1〜#27（マイルストーン M1〜M
 - [x] スラッグ変更時の deferred rewrite flush
 - [x] `uninstall.php` 実装（設定で有効時のみ CPT・メタ・オプション削除）
 - [ ] i18n: POT 生成、`make-json`、日本語翻訳同梱
-- [ ] セキュリティ監査（`wp-security-check` を実施）
+- [x] セキュリティ監査（`wp-security-check` を実施）
 - [ ] readme.txt（タグ・説明・FAQ・スクリーンショット）、アセット（banner / icon / screenshots）
 - [ ] WordPress.org 申請 → レビュー対応 → SVN 初回デプロイ → GitHub Actions からの自動デプロイ設定
 

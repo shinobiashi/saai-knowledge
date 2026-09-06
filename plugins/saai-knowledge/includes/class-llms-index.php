@@ -129,7 +129,7 @@ final class Llms_Index {
 	 * priority, or false) removes that assumption.
 	 */
 	public function maybe_remove_canonical_redirect(): void {
-		$request_uri = isset( $_SERVER['REQUEST_URI'] ) ? wp_unslash( (string) $_SERVER['REQUEST_URI'] ) : '';
+		$request_uri = isset( $_SERVER['REQUEST_URI'] ) ? sanitize_text_field( wp_unslash( (string) $_SERVER['REQUEST_URI'] ) ) : '';
 		$path        = (string) wp_parse_url( $request_uri, PHP_URL_PATH );
 		$pattern     = '#/' . preg_quote( $this->kb_slug(), '#' ) . '/llms\.txt/?$#';
 
@@ -158,6 +158,7 @@ final class Llms_Index {
 		}
 
 		header( 'Content-Type: text/markdown; charset=utf-8' );
+		header( 'X-Content-Type-Options: nosniff' );
 		// noindex (this listing page itself isn't meant to rank) but
 		// deliberately not nofollow: this index's entire purpose is being a
 		// discovery/link hub crawlers follow into the actual FAQ/KB/glossary
