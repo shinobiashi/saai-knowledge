@@ -233,10 +233,25 @@ final class Markdown_Output {
 	 * pattern Faq_List::render_answer() already uses for the identical
 	 * reason (Copilot review).
 	 *
-	 * @param \WP_Post $post The post to render.
+	 * @param \WP_Post    $post         The post to render.
+	 * @param string|null $content_html Already-rendered (`the_content`-filtered)
+	 *                                  HTML, when a caller (Export::build_record(),
+	 *                                  which needs this same content for its own
+	 *                                  content_plain/sections fields too) has
+	 *                                  already produced it — reused as-is instead
+	 *                                  of applying `the_content` a second time.
+	 *                                  A stateful shortcode/dynamic block (a view
+	 *                                  counter, a "random related post" pick)
+	 *                                  would otherwise run twice per record, and
+	 *                                  any handler whose output depends on call
+	 *                                  count would make content_markdown disagree
+	 *                                  with content_plain/sections for the same
+	 *                                  record (Codex review). Null (the default)
+	 *                                  preserves the original behavior for every
+	 *                                  other existing caller (maybe_serve()).
 	 * @return string
 	 */
-	public function render( \WP_Post $post ): string {
+	public function render( \WP_Post $post, ?string $content_html = null ): string {
 		$previous_post    = $GLOBALS['post'] ?? null;
 		$previous_globals = array();
 
@@ -257,9 +272,13 @@ final class Markdown_Output {
 				$lines = array_merge( $lines, $meta, array( '' ) );
 			}
 
-			// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- invoking WordPress core's own the_content filter (as WP_REST_Posts_Controller does), not defining a new hook.
-			$content_html = apply_filters( 'the_content', $post->post_content );
-			$lines[]      = Markdown_Converter::convert( is_string( $content_html ) ? $content_html : '' );
+			if ( null === $content_html ) {
+				// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- invoking WordPress core's own the_content filter (as WP_REST_Posts_Controller does), not defining a new hook.
+				$content_html = apply_filters( 'the_content', $post->post_content );
+				$content_html = is_string( $content_html ) ? $content_html : '';
+			}
+
+			$lines[] = Markdown_Converter::convert( $content_html );
 
 			$markdown = trim( implode( "\n", $lines ) ) . "\n";
 

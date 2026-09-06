@@ -30,11 +30,12 @@
     <rule ref="PHPCompatibilityWP"/>
     <config name="testVersion" value="8.2-"/>
 
-    <!-- Markdown_Converter walks PHP's built-in DOMNode/DOMElement tree, whose property names
-         (childNodes, tagName, wholeText, parentNode, textContent) are fixed by that extension and
-         cannot be renamed to snake_case. -->
+    <!-- Markdown_Converter and Export both walk PHP's built-in DOMNode/DOMElement tree, whose
+         property names (childNodes, tagName, wholeText, parentNode, textContent) are fixed by
+         that extension and cannot be renamed to snake_case. -->
     <rule ref="WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase">
         <exclude-pattern>*/includes/class-markdown-converter.php</exclude-pattern>
+        <exclude-pattern>*/includes/class-export.php</exclude-pattern>
     </rule>
 
     <rule ref="WordPress.NamingConventions.PrefixAllGlobals">

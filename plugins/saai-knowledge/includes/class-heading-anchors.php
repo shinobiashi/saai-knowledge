@@ -51,7 +51,12 @@ final class Heading_Anchors {
 	 * add_anchors()'s tag-by-tag walk of the same content.
 	 *
 	 * @param \WP_Post $post Post to extract headings from.
-	 * @return array<int, array<string, mixed>> List of [ 'id' => string, 'text' => string, 'level' => int ].
+	 * @return array<int, array<string, mixed>> List of [ 'id' => string, 'text' => string, 'level' => int, 'top_level' => bool ].
+	 *                                          'top_level' is true only for a heading found among the
+	 *                                          post's root-level blocks (not nested inside another
+	 *                                          block's innerBlocks, e.g. a Group/Columns) — added for
+	 *                                          Export::build_sections(), which needs to tell those apart
+	 *                                          (Codex review).
 	 */
 	public function extract( \WP_Post $post ): array {
 		$hash = md5( $post->post_content );
@@ -63,7 +68,7 @@ final class Heading_Anchors {
 		$headings = array();
 		$used_ids = array();
 
-		$this->collect_headings( parse_blocks( $post->post_content ), $headings, $used_ids );
+		$this->collect_headings( parse_blocks( $post->post_content ), $headings, $used_ids, true );
 
 		self::$memo[ $post->ID ] = array(
 			'hash'     => $hash,
@@ -160,11 +165,14 @@ final class Heading_Anchors {
 	/**
 	 * Recursively walks a parsed block tree collecting h2/h3 headings in order.
 	 *
-	 * @param array<int, array<string, mixed>> $blocks   Parsed blocks, see parse_blocks().
-	 * @param array<int, array<string, mixed>> $headings Accumulator, passed by reference.
-	 * @param string[]                         $used_ids Ids already assigned, passed by reference.
+	 * @param array<int, array<string, mixed>> $blocks    Parsed blocks, see parse_blocks().
+	 * @param array<int, array<string, mixed>> $headings  Accumulator, passed by reference.
+	 * @param string[]                         $used_ids  Ids already assigned, passed by reference.
+	 * @param bool                             $top_level Whether $blocks is the post's own root-level
+	 *                                                     block list (true only for the initial call from
+	 *                                                     extract()) rather than some block's innerBlocks.
 	 */
-	private function collect_headings( array $blocks, array &$headings, array &$used_ids ): void {
+	private function collect_headings( array $blocks, array &$headings, array &$used_ids, bool $top_level ): void {
 		foreach ( $blocks as $block ) {
 			if ( 'core/heading' === ( $block['blockName'] ?? null ) ) {
 				$level = (int) ( $block['attrs']['level'] ?? 2 );
@@ -174,15 +182,16 @@ final class Heading_Anchors {
 					$anchor = (string) ( $block['attrs']['anchor'] ?? '' );
 
 					$headings[] = array(
-						'id'    => $this->resolve_id( $anchor, $text, $used_ids ),
-						'text'  => $text,
-						'level' => $level,
+						'id'        => $this->resolve_id( $anchor, $text, $used_ids ),
+						'text'      => $text,
+						'level'     => $level,
+						'top_level' => $top_level,
 					);
 				}
 			}
 
 			if ( ! empty( $block['innerBlocks'] ) ) {
-				$this->collect_headings( $block['innerBlocks'], $headings, $used_ids );
+				$this->collect_headings( $block['innerBlocks'], $headings, $used_ids, false );
 			}
 		}
 	}
