@@ -218,10 +218,15 @@ class Test_Export extends WP_UnitTestCase {
 	 */
 	public function test_rest_request_modified_after_is_inclusive_for_same_second_updates() {
 		$timestamp = time() - HOUR_IN_SECONDS;
-		$boundary  = gmdate( 'Y-m-d H:i:s', $timestamp );
 
 		$post_id = $this->create_post( 'saai_faq', 'Same second update' );
-		$this->set_modified( $post_id, $boundary );
+		// An explicit UTC ISO 8601 string (matching modified_after's own
+		// format below), not a bare "Y-m-d H:i:s" — set_modified()'s
+		// strtotime() call would otherwise depend on PHP's default
+		// timezone (always UTC under WordPress's own bootstrap today, but
+		// an explicit marker keeps this test's intent unambiguous
+		// regardless of that) (Copilot review).
+		$this->set_modified( $post_id, gmdate( 'Y-m-d\TH:i:s\Z', $timestamp ) );
 
 		$request = new WP_REST_Request( 'GET', '/saai-knowledge/v1/export' );
 		$request->set_param( 'modified_after', gmdate( 'Y-m-d\TH:i:s\Z', $timestamp ) );
@@ -288,8 +293,16 @@ class Test_Export extends WP_UnitTestCase {
 		$request->set_param( 'modified_after', 'not-a-date' );
 
 		$response = $this->server->dispatch( $request );
+		$data     = $response->get_data();
 
 		$this->assertSame( 400, $response->get_status() );
+		// The validate_callback must hand back rest_validate_request_arg()'s
+		// own WP_Error (not collapse it to a plain `false`), or
+		// WP_REST_Request::has_valid_params() falls back to a generic
+		// "Invalid parameter." with no indication of which constraint
+		// failed (Copilot review).
+		$this->assertArrayHasKey( 'modified_after', $data['data']['params'] );
+		$this->assertNotSame( 'Invalid parameter.', $data['data']['params']['modified_after'] );
 	}
 
 	/**

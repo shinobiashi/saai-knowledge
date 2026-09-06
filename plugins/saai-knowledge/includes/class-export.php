@@ -171,8 +171,21 @@ final class Export {
 							// `?modified_after=`) — rest_validate_request_arg()
 							// rejects '' against that format, so an explicit
 							// empty value must be allowed through here first.
+							// The non-empty case returns rest_validate_request_arg()'s
+							// result as-is (a WP_Error on failure) rather than
+							// collapsing it to a plain bool: WP_REST_Request::has_valid_params()
+							// only surfaces a validate_callback's specific
+							// WP_Error message/details to the client when it
+							// gets the WP_Error itself — a bare `false` return
+							// (which `true === $wp_error` would produce here)
+							// falls back to a generic "Invalid parameter."
+							// (Copilot review).
 							'validate_callback' => static function ( $value, $request, $param ) {
-								return '' === $value || true === rest_validate_request_arg( $value, $request, $param );
+								if ( '' === $value ) {
+									return true;
+								}
+
+								return rest_validate_request_arg( $value, $request, $param );
 							},
 						),
 						'page'           => array(
