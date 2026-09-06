@@ -1,0 +1,50 @@
+name: Deploy to WordPress.org
+
+# Manual trigger only — this pushes to the live WordPress.org SVN repository
+# and is NOT safe to run before the plugin has been approved there (the SVN
+# credentials won't exist yet, and the deploy would fail/be rejected anyway).
+# Run this from the Actions tab only after:
+#   1. The plugin has been submitted and approved at
+#      https://wordpress.org/plugins/developers/add/
+#   2. SVN_USERNAME / SVN_PASSWORD secrets have been added to this repo
+#   3. plugins/saai-knowledge/readme.txt's Stable tag matches the version
+#      being deployed (and the corresponding vX.Y.Z tag/release exists)
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to deploy (must match an existing vX.Y.Z tag, e.g. 1.0.0)'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: SVN Deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: v${{ github.event.inputs.version }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - name: WordPress Plugin Deploy
+        uses: 10up/action-wordpress-plugin-deploy@stable
+        with:
+          generate-zip: true
+        env:
+          SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
+          SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
+          SLUG: saai-knowledge
+          BUILD_DIR: plugins/saai-knowledge
+          ASSETS_DIR: plugins/saai-knowledge/.wordpress-org
+          VERSION: ${{ github.event.inputs.version }}

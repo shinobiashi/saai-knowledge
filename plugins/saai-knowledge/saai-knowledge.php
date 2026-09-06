@@ -3,7 +3,7 @@
  * Plugin Name:       SAAI Knowledge
  * Plugin URI:        https://github.com/shinobiashi/saai-knowledge
  * Description:       FAQ / Knowledge Base / Glossary content types with a two-column KB layout, term auto-linking, and live search.
- * Version:           0.1.0
+ * Version:           1.0.0
  * Requires at least: 6.9
  * Requires PHP:      8.2
  * Author:            Shinobiashi
@@ -17,7 +17,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'SAAI_KNOWLEDGE_VERSION', '0.1.0' );
+define( 'SAAI_KNOWLEDGE_VERSION', '1.0.0' );
 define( 'SAAI_KNOWLEDGE_DIR', plugin_dir_path( __FILE__ ) );
 define( 'SAAI_KNOWLEDGE_URL', plugin_dir_url( __FILE__ ) );
 
