@@ -42,12 +42,12 @@ SAAI Knowledge adds three purpose-built content types to WordPress — FAQ, Know
 * Every FAQ/KB/Glossary page is available as clean Markdown via `?format=markdown`
 * A Markdown index of your whole knowledge base, published for AI crawlers
 * If you run Yoast SEO, Rank Math, or All in One SEO, SAAI Knowledge fills in their llms.txt descriptions for these pages automatically
-* A REST export endpoint and an admin-side JSONL/CSV download, both supporting incremental sync — ideal for feeding a support chatbot or RAG index
-* All of the above can be turned off with a single setting
+* A REST export endpoint with incremental sync (`modified_after`), plus a full-dump JSONL/CSV download from the admin screen — ideal for feeding a support chatbot or RAG index
+* The Markdown output, llms.txt index, and SEO-plugin integration are controlled by a single setting; the REST export endpoint and admin download aren't affected by it and are always available (the REST endpoint only ever returns already-public content; the admin download requires the same capability as the rest of Settings)
 
 = Extensible =
 
-Every automatic behavior (auto-linking, structured data, AI export) is controlled from Settings, and the plugin exposes `saai_*` actions/filters so other plugins and themes can customize or extend it.
+Every automatic behavior (auto-linking, structured data, and the Markdown/llms.txt output) is controlled from Settings, and the plugin exposes `saai_*` actions/filters so other plugins and themes can customize or extend it.
 
 = Looking for WooCommerce integration? =
 
@@ -70,9 +70,9 @@ Yes. Both block themes and classic themes are supported. Block-theme users get d
 
 Yes. FAQ answers and other collapsible content are always present in the page's initial HTML; JavaScript only controls the open/close interaction. Search engines and AI crawlers that don't execute JavaScript still see the full content.
 
-= Can I turn off the Markdown/RAG export features? =
+= Can I turn off the Markdown/llms.txt output? =
 
-Yes. A single "Markdown & llms.txt" setting controls the `?format=markdown` output, the llms.txt index, and the SEO-plugin description integration together.
+Yes. A single "Markdown & llms.txt" setting controls the `?format=markdown` output, the llms.txt index, and the SEO-plugin description integration together. The REST export endpoint and the admin-side JSONL/CSV download aren't affected by this setting — the REST endpoint only ever returns already-public content, and the admin download requires the same capability as the rest of Settings.
 
 = Does this include a WooCommerce integration? =
 
