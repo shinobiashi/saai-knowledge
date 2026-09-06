@@ -155,6 +155,7 @@ final class Markdown_Output {
 		}
 
 		header( 'Content-Type: text/markdown; charset=utf-8' );
+		header( 'X-Content-Type-Options: nosniff' );
 		header( 'X-Robots-Tag: noindex, nofollow' );
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- render_cached()/render() build a plain-text Markdown document (not HTML) for a text/markdown response; see render()'s docblock.
 		echo $this->render_cached( $post );

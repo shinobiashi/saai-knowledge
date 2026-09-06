@@ -3,6 +3,15 @@
     "private": true,
     "description": "SAAI Knowledge — FAQ / Knowledge Base / Glossary for WordPress.",
     "license": "GPL-2.0-or-later",
+    "files": [
+        "assets",
+        "build",
+        "includes",
+        "languages",
+        "templates",
+        "saai-knowledge.php",
+        "uninstall.php"
+    ],
     "scripts": {
         "start": "cross-env WP_EXPERIMENTAL_MODULES=true wp-scripts start",
         "build": "cross-env WP_EXPERIMENTAL_MODULES=true wp-scripts build",

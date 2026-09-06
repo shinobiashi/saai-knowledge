@@ -129,6 +129,15 @@ final class Llms_Index {
 	 * priority, or false) removes that assumption.
 	 */
 	public function maybe_remove_canonical_redirect(): void {
+		// Not sanitize_text_field(): its percent-encoded-octet stripping
+		// (core's _sanitize_text_fields()) would delete every %XX byte from
+		// a non-ASCII kb_slug() — e.g. sanitize_title( '日本語' ) stores as
+		// literal "%e3%81%..." — breaking the match below for any request
+		// whose path contains one. This value is only ever compared against
+		// $pattern, never output, so wp_unslash() alone is correct (Codex
+		// review; regression from an earlier unsanitized-input hardening
+		// pass caught by review-loop).
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 		$request_uri = isset( $_SERVER['REQUEST_URI'] ) ? wp_unslash( (string) $_SERVER['REQUEST_URI'] ) : '';
 		$path        = (string) wp_parse_url( $request_uri, PHP_URL_PATH );
 		$pattern     = '#/' . preg_quote( $this->kb_slug(), '#' ) . '/llms\.txt/?$#';
@@ -158,6 +167,7 @@ final class Llms_Index {
 		}
 
 		header( 'Content-Type: text/markdown; charset=utf-8' );
+		header( 'X-Content-Type-Options: nosniff' );
 		// noindex (this listing page itself isn't meant to rank) but
 		// deliberately not nofollow: this index's entire purpose is being a
 		// discovery/link hub crawlers follow into the actual FAQ/KB/glossary
