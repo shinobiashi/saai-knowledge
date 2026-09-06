@@ -59,16 +59,16 @@ jobs:
       - name: Verify release ZIP contains runtime assets
         working-directory: plugins/saai-knowledge
         run: |
-          mkdir -p /tmp/saai-knowledge-zip-check
-          unzip -q saai-knowledge.zip -d /tmp/saai-knowledge-zip-check
+          CHECK_DIR="$(mktemp -d "${RUNNER_TEMP:-/tmp}/saai-knowledge-zip-check.XXXXXX")"
+          unzip -q saai-knowledge.zip -d "$CHECK_DIR"
           for dir in assets build includes templates; do
-            if [ ! -d "/tmp/saai-knowledge-zip-check/saai-knowledge/$dir" ]; then
+            if [ ! -d "$CHECK_DIR/saai-knowledge/$dir" ]; then
               echo "::error::Release ZIP is missing plugins/saai-knowledge/$dir/ — check the \"files\" field in package.json (wp-scripts plugin-zip falls back to a hardcoded glob that omits assets/ and templates/ when it's absent or misconfigured)."
               exit 1
             fi
           done
           for file in saai-knowledge.php uninstall.php; do
-            if [ ! -f "/tmp/saai-knowledge-zip-check/saai-knowledge/$file" ]; then
+            if [ ! -f "$CHECK_DIR/saai-knowledge/$file" ]; then
               echo "::error::Release ZIP is missing plugins/saai-knowledge/$file"
               exit 1
             fi
