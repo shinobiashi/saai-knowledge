@@ -382,6 +382,8 @@ class Test_Llms_Index extends WP_UnitTestCase {
 			array( 'slug_kb' => $encoded_slug )
 		);
 
+		$original_request_uri = $_SERVER['REQUEST_URI'] ?? null;
+
 		try {
 			$_SERVER['REQUEST_URI'] = '/' . $encoded_slug . '/llms.txt';
 			$this->index->maybe_remove_canonical_redirect();
@@ -390,7 +392,11 @@ class Test_Llms_Index extends WP_UnitTestCase {
 				'A non-ASCII kb slug must still match its own llms.txt route.'
 			);
 		} finally {
-			unset( $_SERVER['REQUEST_URI'] );
+			if ( null === $original_request_uri ) {
+				unset( $_SERVER['REQUEST_URI'] );
+			} else {
+				$_SERVER['REQUEST_URI'] = $original_request_uri;
+			}
 
 			if ( false === has_filter( 'template_redirect', 'redirect_canonical' ) ) {
 				add_action( 'template_redirect', 'redirect_canonical', $original_priority );
