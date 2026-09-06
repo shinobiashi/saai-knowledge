@@ -320,11 +320,32 @@ final class Export {
 		if ( 'HEAD' !== $request->get_method() ) {
 			foreach ( $data['records'] as $record ) {
 				// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- newline-delimited JSON body, not HTML.
-				echo wp_json_encode( $record ) . "\n";
+				echo self::jsonl_line( $record );
 			}
 		}
 
 		return true;
+	}
+
+	/**
+	 * Encodes one record as an NDJSON line ("<json>\n"), or '' if
+	 * wp_json_encode() fails (e.g. a field containing invalid UTF-8 —
+	 * possible via the public saai_export_record filter, not just this
+	 * class's own fields). A bare `wp_json_encode( $record ) . "\n"` would
+	 * coerce a `false` return into an empty string, silently emitting a
+	 * blank line instead of the record and giving a line-oriented NDJSON
+	 * consumer no way to tell a record was dropped versus intentionally
+	 * absent; skipping it outright at least keeps every emitted line valid
+	 * JSON. Same is_string() guard this plugin already uses for JSON-LD
+	 * output (Faq_List::structured_data_signature(), Glossary_Term) (Copilot review).
+	 *
+	 * @param array<string, mixed> $record One export record.
+	 * @return string
+	 */
+	private static function jsonl_line( array $record ): string {
+		$encoded = wp_json_encode( $record );
+
+		return is_string( $encoded ) ? $encoded . "\n" : '';
 	}
 
 	/**
@@ -1099,7 +1120,7 @@ final class Export {
 
 			foreach ( $result['records'] as $record ) {
 				// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- newline-delimited JSON body, not HTML.
-				echo wp_json_encode( $record ) . "\n";
+				echo self::jsonl_line( $record );
 			}
 		}
 
@@ -1167,8 +1188,15 @@ final class Export {
 				self::escape_csv_formula( $record['title'] ?? '' ),
 				self::escape_csv_formula( $record['content_markdown'] ?? '' ),
 				self::escape_csv_formula( $record['content_plain'] ?? '' ),
-				self::escape_csv_formula( implode( '; ', is_array( $record['categories'] ?? null ) ? $record['categories'] : array() ) ),
-				self::escape_csv_formula( implode( '; ', is_array( $record['tags'] ?? null ) ? $record['tags'] : array() ) ),
+				// csv_cell_value() (not a bare implode()): saai_export_record
+				// is a public filter, so categories/tags aren't guaranteed to
+				// stay an array of plain strings — an implode() over an
+				// array containing a nested array/object emits a PHP
+				// "Array to string conversion" warning, which under
+				// WP_DEBUG + display_errors gets echoed straight into this
+				// CSV response, corrupting the download (Copilot review).
+				self::escape_csv_formula( self::csv_cell_value( $record['categories'] ?? array() ) ),
+				self::escape_csv_formula( self::csv_cell_value( $record['tags'] ?? array() ) ),
 				$record['url'] ?? '',
 				$record['updated_at'] ?? '',
 			);

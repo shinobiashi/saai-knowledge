@@ -852,6 +852,76 @@ class Test_Export extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The jsonl_line() method must return '' (not a literal "false\n"-ish
+	 * coercion) when wp_json_encode() fails. A record deeply nested past
+	 * json_encode()'s depth limit is a reliable way to trigger that (unlike
+	 * invalid UTF-8, which wp_json_encode()'s own sanitize-and-retry logic
+	 * often recovers from transparently) — reachable via the public
+	 * saai_export_record filter even if this plugin's own fields never
+	 * produce it. Skipping the record entirely keeps every emitted NDJSON
+	 * line valid JSON, rather than emitting a blank line a line-oriented
+	 * consumer can't distinguish from a dropped record.
+	 */
+	public function test_jsonl_line_returns_empty_string_when_encoding_fails() {
+		$method = new ReflectionMethod( \SAAI\Knowledge\Export::class, 'jsonl_line' );
+		$method->setAccessible( true );
+
+		$deeply_nested = array();
+		$cursor        = &$deeply_nested;
+
+		for ( $i = 0; $i < 600; $i++ ) {
+			$cursor['nested'] = array();
+			$cursor           = &$cursor['nested'];
+		}
+
+		$this->assertSame( '', $method->invoke( null, array( 'data' => $deeply_nested ) ) );
+	}
+
+	/**
+	 * The normal, successful case: one JSON object per line, newline-terminated.
+	 */
+	public function test_jsonl_line_encodes_a_valid_record() {
+		$method = new ReflectionMethod( \SAAI\Knowledge\Export::class, 'jsonl_line' );
+		$method->setAccessible( true );
+
+		$this->assertSame( "{\"id\":1}\n", $method->invoke( null, array( 'id' => 1 ) ) );
+	}
+
+	/**
+	 * CSV categories/tags must not trigger a PHP "Array to string
+	 * conversion" warning when a saai_export_record callback replaces them
+	 * with something other than a flat array of strings — under
+	 * WP_DEBUG + display_errors, such a warning is echoed straight into
+	 * this same response body, corrupting the downloaded file.
+	 */
+	public function test_stream_csv_handles_non_scalar_categories_and_tags_safely() {
+		$records = array(
+			array(
+				'id'               => 1,
+				'type'             => 'faq',
+				'title'            => 'Safe title',
+				'content_markdown' => 'Body',
+				'content_plain'    => 'Body',
+				'categories'       => array( 'Billing', array( 'nested', 'array' ) ),
+				'tags'             => 'not-an-array',
+				'url'              => 'http://example.test/faq/x/',
+				'updated_at'       => '2026-01-01T00:00:00',
+			),
+		);
+
+		$method = new ReflectionMethod( $this->export, 'stream_csv' );
+		$method->setAccessible( true );
+
+		ob_start();
+		$method->invoke( $this->export, $records );
+		$csv = ob_get_clean();
+
+		$this->assertStringNotContainsString( 'Array to string conversion', $csv );
+		$this->assertStringContainsString( 'Safe title', $csv );
+		$this->assertStringContainsString( 'not-an-array', $csv );
+	}
+
+	/**
 	 * The admin screen should be nested under Settings::PAGE_SLUG, matching
 	 * every other admin screen this plugin registers.
 	 */
