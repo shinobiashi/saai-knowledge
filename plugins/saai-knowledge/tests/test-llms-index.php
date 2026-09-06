@@ -356,6 +356,49 @@ class Test_Llms_Index extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A non-ASCII kb_slug is stored (by Settings::sanitize_slug()) as the
+	 * literal percent-encoded string sanitize_title() produces (e.g.
+	 * "%e3%81%8b%e3%81%aa" for "かな"), and the browser's REQUEST_URI for a
+	 * real request carries the same percent-encoded bytes. Sanitizing that
+	 * REQUEST_URI with sanitize_text_field() would strip every %XX octet
+	 * (core's _sanitize_text_fields()) before it's compared against the
+	 * pattern built from kb_slug(), breaking the match and leaving
+	 * redirect_canonical in place — silently 404/redirecting away every
+	 * non-ASCII-slugged site's llms.txt route (Codex review; regression
+	 * from an earlier unsanitized-input hardening pass).
+	 */
+	public function test_maybe_remove_canonical_redirect_matches_a_non_ascii_slug() {
+		$original_priority = has_filter( 'template_redirect', 'redirect_canonical' );
+
+		if ( false === $original_priority ) {
+			add_action( 'template_redirect', 'redirect_canonical' );
+			$original_priority = 10;
+		}
+
+		$encoded_slug = sanitize_title( 'かな' );
+
+		update_option(
+			'saai_knowledge_settings',
+			array( 'slug_kb' => $encoded_slug )
+		);
+
+		try {
+			$_SERVER['REQUEST_URI'] = '/' . $encoded_slug . '/llms.txt';
+			$this->index->maybe_remove_canonical_redirect();
+			$this->assertFalse(
+				has_filter( 'template_redirect', 'redirect_canonical' ),
+				'A non-ASCII kb slug must still match its own llms.txt route.'
+			);
+		} finally {
+			unset( $_SERVER['REQUEST_URI'] );
+
+			if ( false === has_filter( 'template_redirect', 'redirect_canonical' ) ) {
+				add_action( 'template_redirect', 'redirect_canonical', $original_priority );
+			}
+		}
+	}
+
+	/**
 	 * The remove_filter() call's $priority defaults to 10 when omitted; if
 	 * redirect_canonical happens to be registered at a different priority
 	 * in a given environment (another plugin/theme re-hooking it), an
