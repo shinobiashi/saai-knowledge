@@ -369,10 +369,12 @@ class Test_Llms_Index extends WP_UnitTestCase {
 	 */
 	public function test_maybe_remove_canonical_redirect_matches_a_non_ascii_slug() {
 		$original_priority = has_filter( 'template_redirect', 'redirect_canonical' );
+		$added_canonical   = false;
 
 		if ( false === $original_priority ) {
 			add_action( 'template_redirect', 'redirect_canonical' );
 			$original_priority = 10;
+			$added_canonical   = true;
 		}
 
 		$encoded_slug = sanitize_title( 'かな' );
@@ -398,7 +400,14 @@ class Test_Llms_Index extends WP_UnitTestCase {
 				$_SERVER['REQUEST_URI'] = $original_request_uri;
 			}
 
-			if ( false === has_filter( 'template_redirect', 'redirect_canonical' ) ) {
+			// Restore the exact state this test found, not just "present":
+			// if redirect_canonical was already missing before this test
+			// added it (only to have something for maybe_remove_canonical_redirect()
+			// to remove), leaving it registered afterward would be a state
+			// leak into whichever test runs next (Copilot review).
+			if ( $added_canonical ) {
+				remove_action( 'template_redirect', 'redirect_canonical', $original_priority );
+			} elseif ( false === has_filter( 'template_redirect', 'redirect_canonical' ) ) {
 				add_action( 'template_redirect', 'redirect_canonical', $original_priority );
 			}
 		}
