@@ -399,13 +399,11 @@ final class Export {
 			'has_password'        => false,
 			'posts_per_page'      => max( 1, $per_page ),
 			'paged'               => max( 1, $page ),
-			// A secondary ID tiebreaker keeps pagination stable across pages
-			// when two posts share the same post_modified (a real
-			// possibility — e.g. both untouched since a bulk import).
-			'orderby'             => array(
-				'modified' => 'ASC',
-				'ID'       => 'ASC',
-			),
+			// A marker read by order_by_modified_gmt() below — not a real
+			// WP_Query arg — so that filter only ever touches this specific
+			// query, not some unrelated WP_Query that happens to run while
+			// it's registered.
+			'saai_export_query'   => true,
 			'no_found_rows'       => false,
 			'ignore_sticky_posts' => true,
 		);
@@ -456,8 +454,30 @@ final class Export {
 			}
 		}
 
-		$wp_query = new \WP_Query( $query_args );
-		$records  = array();
+		// WP_Query's own 'orderby' has no built-in option for the
+		// post_modified_gmt column (parse_orderby()'s $allowed_keys only
+		// recognizes 'modified', i.e. the site-local post_modified) — but
+		// modified_after/updated_at both compare against post_modified_gmt,
+		// so sorting by anything else risks disagreeing with them. On a
+		// site observing DST (e.g. Europe/*), post_modified's UTC offset
+		// changes across a transition, so two posts can carry the exact
+		// same local post_modified wall-clock value despite being modified
+		// an hour apart in true UTC terms — sorting by post_modified alone
+		// can't tell them apart in the correct order, which risks page
+		// results not being monotonically increasing by updated_at
+		// (Copilot review). Priority 20 (rather than the default 10) is a
+		// defensive measure in case some other plugin also filters
+		// posts_orderby at the default priority for an unrelated reason —
+		// this needs to be the final word for this one query.
+		add_filter( 'posts_orderby', array( $this, 'order_by_modified_gmt' ), 20, 2 );
+
+		try {
+			$wp_query = new \WP_Query( $query_args );
+		} finally {
+			remove_filter( 'posts_orderby', array( $this, 'order_by_modified_gmt' ), 20 );
+		}
+
+		$records = array();
 
 		foreach ( $wp_query->posts as $post ) {
 			if ( ! $post instanceof \WP_Post ) {
@@ -478,6 +498,28 @@ final class Export {
 			'total_items' => (int) $wp_query->found_posts,
 			'total_pages' => (int) $wp_query->max_num_pages,
 		);
+	}
+
+	/**
+	 * The `posts_orderby` override query_records() registers around its own
+	 * WP_Query call only (see that method) — sorts by post_modified_gmt (the
+	 * column modified_after/updated_at both actually compare against),
+	 * ASC, with ID ASC as a secondary tiebreaker for two posts sharing the
+	 * exact same modified_gmt second (a real possibility — e.g. both
+	 * untouched since a bulk import).
+	 *
+	 * @param string    $orderby The ORDER BY clause core built from the query's own 'orderby' arg.
+	 * @param \WP_Query $query   The query being filtered.
+	 * @return string
+	 */
+	public function order_by_modified_gmt( string $orderby, \WP_Query $query ): string {
+		if ( ! $query->get( 'saai_export_query' ) ) {
+			return $orderby;
+		}
+
+		global $wpdb;
+
+		return "{$wpdb->posts}.post_modified_gmt ASC, {$wpdb->posts}.ID ASC";
 	}
 
 	/**
@@ -955,7 +997,15 @@ final class Export {
 		?>
 		<div class="wrap">
 			<h1><?php esc_html_e( 'RAG Export', 'saai-knowledge' ); ?></h1>
-			<p><?php esc_html_e( 'Download every published FAQ, Knowledge Base, and Glossary entry for use in a custom support AI / RAG pipeline.', 'saai-knowledge' ); ?></p>
+			<p>
+				<?php
+				printf(
+					/* translators: %s: MAX_DOWNLOAD_ITEMS, formatted with thousands separators. */
+					esc_html__( 'Download every published FAQ, Knowledge Base, and Glossary entry (up to %s per file) for use in a custom support AI / RAG pipeline.', 'saai-knowledge' ),
+					esc_html( number_format_i18n( self::MAX_DOWNLOAD_ITEMS ) )
+				);
+				?>
+			</p>
 			<p>
 				<a class="button button-primary" href="<?php echo esc_url( $this->download_url( 'jsonl' ) ); ?>"><?php esc_html_e( 'Download JSONL', 'saai-knowledge' ); ?></a>
 				<a class="button" href="<?php echo esc_url( $this->download_url( 'csv' ) ); ?>"><?php esc_html_e( 'Download CSV', 'saai-knowledge' ); ?></a>
@@ -964,7 +1014,7 @@ final class Export {
 				<?php
 				printf(
 					/* translators: %s: REST endpoint path. */
-					esc_html__( 'For incremental sync, use the REST endpoint (%s) with the modified_after parameter instead of re-downloading everything.', 'saai-knowledge' ),
+					esc_html__( 'For incremental sync, or a site with more items than this download covers, use the REST endpoint (%s) with the page/per_page and modified_after parameters instead.', 'saai-knowledge' ),
 					'<code>/wp-json/' . esc_html( self::NAMESPACE_ROUTE . self::ROUTE ) . '</code>'
 				);
 				?>
@@ -993,8 +1043,13 @@ final class Export {
 	}
 
 	/**
-	 * The admin-post.php handler: streams every published FAQ/KB/glossary
-	 * record as a JSONL or CSV file attachment.
+	 * The admin-post.php handler: streams up to MAX_DOWNLOAD_ITEMS published
+	 * FAQ/KB/glossary records as a JSONL or CSV file attachment — a site
+	 * with more published items than that gets a silently truncated file
+	 * unless it notices the `X-SAAI-Export-Truncated` response header (see
+	 * below); render_page()'s own copy points such a site at the REST
+	 * endpoint's page/per_page pagination instead (Copilot review: the
+	 * docblock previously claimed "every" record unconditionally).
 	 */
 	public function handle_download(): void {
 		if ( ! current_user_can( 'manage_options' ) ) {
@@ -1024,6 +1079,18 @@ final class Export {
 
 		nocache_headers();
 		header( 'Content-Disposition: attachment; filename="saai-knowledge-export-' . gmdate( 'Y-m-d' ) . '.' . $format . '"' );
+
+		// found_posts (query_records()'s 'total_items') reflects the *true*
+		// matching count regardless of the MAX_DOWNLOAD_ITEMS cap applied
+		// above — comparing the two here is how a caller that only looks at
+		// the downloaded file's own content (with no visibility into how
+		// many records actually matched) can detect that it was silently
+		// truncated, rather than assuming it received everything (Copilot
+		// review).
+		if ( $result['total_items'] > self::MAX_DOWNLOAD_ITEMS ) {
+			header( 'X-SAAI-Export-Truncated: 1' );
+			header( 'X-SAAI-Export-Total-Items: ' . $result['total_items'] );
+		}
 
 		if ( 'csv' === $format ) {
 			$this->stream_csv( $result['records'] );

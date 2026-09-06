@@ -350,6 +350,54 @@ class Test_Export extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Results must be ordered by post_modified_gmt, not the site-local
+	 * post_modified — modified_after/updated_at both compare against the
+	 * GMT column, so sorting by anything else risks disagreeing with them.
+	 * On a site observing DST, two posts can carry the exact same local
+	 * post_modified wall-clock value despite being modified an hour apart
+	 * in true UTC terms; this test reproduces that divergence directly by
+	 * setting the two columns to disagree on which post is "later" (Copilot
+	 * review).
+	 */
+	public function test_rest_request_orders_by_modified_gmt_not_local_modified() {
+		global $wpdb;
+
+		$post_a = $this->create_post( 'saai_faq', 'Post A' );
+		$post_b = $this->create_post( 'saai_faq', 'Post B' );
+
+		// Post A: later by local wall-clock time, but earlier in true UTC.
+		$wpdb->update(
+			$wpdb->posts,
+			array(
+				'post_modified'     => '2026-01-01 10:00:00',
+				'post_modified_gmt' => '2026-01-01 05:00:00',
+			),
+			array( 'ID' => $post_a )
+		);
+		// Post B: earlier by local wall-clock time, but later in true UTC.
+		$wpdb->update(
+			$wpdb->posts,
+			array(
+				'post_modified'     => '2026-01-01 09:00:00',
+				'post_modified_gmt' => '2026-01-01 06:00:00',
+			),
+			array( 'ID' => $post_b )
+		);
+
+		clean_post_cache( $post_a );
+		clean_post_cache( $post_b );
+
+		$request  = new WP_REST_Request( 'GET', '/saai-knowledge/v1/export' );
+		$response = $this->server->dispatch( $request );
+		$records  = $response->get_data()['records'];
+
+		// Ascending by true UTC (post_modified_gmt) puts A (05:00) before B
+		// (06:00) — the opposite of what ascending by local post_modified
+		// (B's 09:00 before A's 10:00) would produce.
+		$this->assertSame( array( $post_a, $post_b ), wp_list_pluck( $records, 'id' ) );
+	}
+
+	/**
 	 * A record's shape must match docs/DESIGN.md section 7.4, with
 	 * content_markdown reusing Markdown_Output's own rendering (recognizable
 	 * by its leading "# Title" heading) and content_plain free of Markdown syntax.
