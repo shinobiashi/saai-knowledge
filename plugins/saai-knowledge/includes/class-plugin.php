@@ -70,6 +70,8 @@ final class Plugin {
 	 * incrementally in later milestones.
 	 */
 	private function register_services(): void {
+		add_action( 'init', array( $this, 'load_textdomain' ), 5 );
+
 		( new Post_Types() )->register();
 		( new Taxonomies() )->register();
 		( new Post_Meta() )->register();
@@ -97,6 +99,18 @@ final class Plugin {
 		}
 
 		add_action( 'init', array( $this, 'maybe_flush_rewrite_rules_on_upgrade' ), 20 );
+	}
+
+	/**
+	 * Loads the bundled Japanese translation (and any translate.wordpress.org
+	 * language pack, which `load_plugin_textdomain()` checks first).
+	 *
+	 * Hooked on `init` at priority 5, ahead of every other service's
+	 * default-priority `init` registration, so labels and block metadata
+	 * translated with `__()`/`_x()` resolve correctly on first use.
+	 */
+	public function load_textdomain(): void {
+		load_plugin_textdomain( 'saai-knowledge', false, basename( SAAI_KNOWLEDGE_DIR ) . '/languages' );
 	}
 
 	/**

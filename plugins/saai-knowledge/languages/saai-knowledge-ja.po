@@ -1,0 +1,630 @@
+# Copyright (C) 2026 Shinobiashi
+# This file is distributed under the GPL v2 or later.
+msgid ""
+msgstr ""
+"Project-Id-Version: SAAI Knowledge 0.1.0\n"
+"Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/saai-knowledge\n"
+"Last-Translator: Shinobiashi\n"
+"Language-Team: Japanese\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"POT-Creation-Date: 2026-09-06T01:42:52+00:00\n"
+"PO-Revision-Date: 2026-09-06T00:00:00+00:00\n"
+"Language: ja\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"X-Generator: WP-CLI 2.12.0\n"
+"X-Domain: saai-knowledge\n"
+
+#. Plugin Name of the plugin
+#: saai-knowledge.php
+#: includes/class-settings.php:106
+#: includes/class-settings.php:225
+msgid "SAAI Knowledge"
+msgstr "SAAI Knowledge"
+
+#. Plugin URI of the plugin
+#: saai-knowledge.php
+msgid "https://github.com/shinobiashi/saai-knowledge"
+msgstr "https://github.com/shinobiashi/saai-knowledge"
+
+#. Description of the plugin
+#: saai-knowledge.php
+msgid "FAQ / Knowledge Base / Glossary content types with a two-column KB layout, term auto-linking, and live search."
+msgstr "2カラムレイアウトのナレッジベース、用語の自動リンク、ライブ検索を備えたFAQ・ナレッジベース・用語集の投稿タイプを提供します。"
+
+#. Author of the plugin
+#: saai-knowledge.php
+msgid "Shinobiashi"
+msgstr "Shinobiashi"
+
+#. translators: %d: maximum auto-link dictionary pattern count.
+#: includes/class-autolinker.php:468
+#, php-format
+msgid "The auto-link dictionary has more than %d term/synonym patterns; the shortest patterns were dropped from auto-linking. Consider trimming synonyms or splitting terms."
+msgstr "自動リンク辞書のパターン数が%d件を超えています。最も短いパターンは自動リンクの対象から除外されました。別表記を減らすか、用語を分割することを検討してください。"
+
+#: includes/class-breadcrumbs.php:194
+#: includes/class-llms-index.php:379
+#: includes/class-post-types.php:86
+#: includes/class-post-types.php:87
+#: includes/class-search.php:162
+msgid "Knowledge Base"
+msgstr "ナレッジベース"
+
+#: includes/class-export.php:148
+msgid "Comma-separated content types to export (faq,kb,glossary). Defaults to all."
+msgstr "エクスポート対象のコンテンツタイプをカンマ区切りで指定します（faq,kb,glossary）。省略時はすべて対象になります。"
+
+#: includes/class-export.php:155
+msgid "Response format: json (a paginated envelope) or jsonl (raw newline-delimited records, one JSON object per line)."
+msgstr "レスポンス形式: json（ページング付きのエンベロープ）または jsonl（1行1レコードの改行区切りJSON）。"
+
+#: includes/class-export.php:163
+msgid "Only include content modified at or after this ISO 8601 date-time, for incremental sync. Inclusive: pass back the last updated_at you received to avoid missing a same-second update, and de-duplicate by id."
+msgstr "差分同期用に、このISO 8601形式の日時以降に更新されたコンテンツのみを含めます。この日時自体を含みます（同秒内の更新を取りこぼさないよう、直前に受け取ったupdated_atをそのまま渡し、idで重複排除してください）。"
+
+#: includes/class-export.php:192
+msgid "Page number."
+msgstr "ページ番号。"
+
+#: includes/class-export.php:200
+msgid "Records per page."
+msgstr "1ページあたりの件数。"
+
+#: includes/class-export.php:978
+msgid "KB records only: per-h2 chunks."
+msgstr "KBレコードのみ: h2見出し単位のチャンク。"
+
+#: includes/class-export.php:1002
+#: includes/class-export.php:1003
+#: includes/class-export.php:1020
+msgid "RAG Export"
+msgstr "RAGエクスポート"
+
+#. translators: %s: MAX_DOWNLOAD_ITEMS, formatted with thousands separators.
+#: includes/class-export.php:1025
+#, php-format
+msgid "Download every published FAQ, Knowledge Base, and Glossary entry (up to %s per file) for use in a custom support AI / RAG pipeline."
+msgstr "独自のサポートAI / RAGパイプラインで利用するため、公開済みのFAQ・ナレッジベース・用語集をすべてダウンロードします（1ファイルあたり最大%s件）。"
+
+#: includes/class-export.php:1031
+msgid "Download JSONL"
+msgstr "JSONLをダウンロード"
+
+#: includes/class-export.php:1032
+msgid "Download CSV"
+msgstr "CSVをダウンロード"
+
+#. translators: %s: REST endpoint path.
+#: includes/class-export.php:1038
+#, php-format
+msgid "For incremental sync, or a site with more items than this download covers, use the REST endpoint (%s) with the page/per_page and modified_after parameters instead."
+msgstr "差分同期を行う場合、またはこのダウンロードの上限を超える件数がある場合は、REST エンドポイント（%s）を page/per_page・modified_after パラメーターとともに使用してください。"
+
+#: includes/class-export.php:1077
+msgid "You do not have permission to do this."
+msgstr "この操作を行う権限がありません。"
+
+#: includes/class-export.php:1085
+msgid "Unsupported export format."
+msgstr "サポートされていないエクスポート形式です。"
+
+#: includes/class-faq-list.php:319
+msgid "Other"
+msgstr "その他"
+
+#: includes/class-llms-index.php:378
+#: includes/class-post-types.php:67
+#: includes/class-search.php:158
+msgid "FAQ"
+msgstr "FAQ"
+
+#: includes/class-llms-index.php:380
+#: includes/class-post-types.php:110
+#: includes/class-search.php:166
+msgid "Glossary"
+msgstr "用語集"
+
+#: includes/class-post-types.php:66
+#: includes/class-post-types.php:67
+#: includes/class-settings.php:421
+msgid "FAQs"
+msgstr "FAQ"
+
+#: includes/class-post-types.php:87
+msgid "KB Article"
+msgstr "KB記事"
+
+#: includes/class-post-types.php:111
+msgid "Term"
+msgstr "用語"
+
+#. translators: %s: singular label.
+#: includes/class-post-types.php:153
+#, php-format
+msgid "Add New %s"
+msgstr "新規%sを追加"
+
+#. translators: %s: singular label.
+#: includes/class-post-types.php:155
+#, php-format
+msgid "Edit %s"
+msgstr "%sを編集"
+
+#. translators: %s: singular label.
+#: includes/class-post-types.php:157
+#, php-format
+msgid "New %s"
+msgstr "新規%s"
+
+#. translators: %s: singular label.
+#: includes/class-post-types.php:159
+#, php-format
+msgid "View %s"
+msgstr "%sを表示"
+
+#. translators: %s: plural label.
+#: includes/class-post-types.php:161
+#, php-format
+msgid "Search %s"
+msgstr "%sを検索"
+
+#. translators: %s: plural label.
+#: includes/class-post-types.php:163
+#, php-format
+msgid "No %s found."
+msgstr "%sが見つかりませんでした。"
+
+#. translators: %s: plural label.
+#: includes/class-post-types.php:165
+#, php-format
+msgid "No %s found in Trash."
+msgstr "ゴミ箱に%sが見つかりませんでした。"
+
+#. translators: %s: plural label.
+#: includes/class-post-types.php:167
+#, php-format
+msgid "All %s"
+msgstr "すべての%s"
+
+#: includes/class-search.php:77
+msgid "Search query string."
+msgstr "検索クエリ文字列。"
+
+#: includes/class-search.php:84
+msgid "Comma-separated content types to search (e.g. faq,kb,glossary). Defaults to all registered types."
+msgstr "検索対象のコンテンツタイプをカンマ区切りで指定します（例: faq,kb,glossary）。省略時は登録済みのすべてのタイプが対象になります。"
+
+#: includes/class-search.php:91
+msgid "Maximum number of results to return."
+msgstr "返す結果の最大件数。"
+
+#: includes/class-search.php:333
+msgid "Post ID."
+msgstr "投稿ID。"
+
+#: includes/class-search.php:337
+msgid "Content type key, see the types request param."
+msgstr "コンテンツタイプのキー。types リクエストパラメーターを参照してください。"
+
+#: includes/class-search.php:341
+msgid "Post title."
+msgstr "投稿タイトル。"
+
+#: includes/class-search.php:346
+msgid "Permalink."
+msgstr "パーマリンク。"
+
+#: includes/class-search.php:350
+msgid "Plain-text excerpt."
+msgstr "プレーンテキストの抜粋。"
+
+#: includes/class-settings.php:105
+#: includes/class-settings.php:116
+msgid "SAAI Knowledge Settings"
+msgstr "SAAI Knowledge 設定"
+
+#: includes/class-settings.php:117
+msgid "Settings"
+msgstr "設定"
+
+#: includes/class-settings.php:381
+msgid "URL Slugs"
+msgstr "URLスラッグ"
+
+#: includes/class-settings.php:385
+msgid "Knowledge Base slug"
+msgstr "ナレッジベースのスラッグ"
+
+#: includes/class-settings.php:386
+msgid "Articles are served at /{slug}/article-name/."
+msgstr "記事は /{slug}/article-name/ で表示されます。"
+
+#: includes/class-settings.php:392
+msgid "FAQ slug"
+msgstr "FAQのスラッグ"
+
+#: includes/class-settings.php:393
+msgid "The FAQ archive is served at /{slug}/."
+msgstr "FAQアーカイブは /{slug}/ で表示されます。"
+
+#: includes/class-settings.php:399
+msgid "Glossary slug"
+msgstr "用語集のスラッグ"
+
+#: includes/class-settings.php:400
+msgid "The glossary index is served at /{slug}/."
+msgstr "用語集の索引は /{slug}/ で表示されます。"
+
+#: includes/class-settings.php:407
+msgid "Term Auto-Linking"
+msgstr "用語の自動リンク"
+
+#: includes/class-settings.php:411
+msgid "Auto-link terms in"
+msgstr "自動リンクを有効にする対象"
+
+#: includes/class-settings.php:418
+msgid "Posts"
+msgstr "投稿"
+
+#: includes/class-settings.php:419
+msgid "Pages"
+msgstr "固定ページ"
+
+#: includes/class-settings.php:420
+msgid "Knowledge Base articles"
+msgstr "ナレッジベース記事"
+
+#: includes/class-settings.php:428
+msgid "Maximum links per post"
+msgstr "投稿あたりの最大リンク数"
+
+#: includes/class-settings.php:429
+msgid "A term is only ever linked once per post, regardless of this limit."
+msgstr "この上限に関わらず、1つの用語は1投稿につき1回のみリンクされます。"
+
+#: includes/class-settings.php:435
+msgid "Output"
+msgstr "出力"
+
+#: includes/class-settings.php:439
+msgid "Structured data"
+msgstr "構造化データ"
+
+#: includes/class-settings.php:440
+msgid "Output FAQPage / QAPage / DefinedTerm / BreadcrumbList JSON-LD"
+msgstr "FAQPage / QAPage / DefinedTerm / BreadcrumbList のJSON-LDを出力する"
+
+#: includes/class-settings.php:441
+msgid "Turn this off if an SEO plugin already outputs this structured data."
+msgstr "SEOプラグインが既にこの構造化データを出力している場合はオフにしてください。"
+
+#: includes/class-settings.php:447
+msgid "AI Readability"
+msgstr "AI可読性"
+
+#: includes/class-settings.php:451
+msgid "Markdown & llms.txt"
+msgstr "Markdown と llms.txt"
+
+#: includes/class-settings.php:452
+msgid "Serve FAQ/KB/glossary pages as Markdown (?format=markdown) and publish a Markdown index at /{kb slug}/llms.txt for AI crawlers."
+msgstr "FAQ・KB・用語集のページを Markdown（?format=markdown）としても提供し、AIクローラー向けに /{kb slug}/llms.txt に Markdown 索引を公開します。"
+
+#: includes/class-settings.php:458
+msgid "Uninstall"
+msgstr "アンインストール"
+
+#: includes/class-settings.php:462
+msgid "Delete data on uninstall"
+msgstr "アンインストール時にデータを削除する"
+
+#: includes/class-settings.php:463
+msgid "Permanently delete all FAQs, KB articles, glossary terms, categories, and settings when this plugin is deleted."
+msgstr "このプラグインを削除した際に、すべてのFAQ・KB記事・用語集の用語・カテゴリー・設定を完全に削除します。"
+
+#: includes/class-settings.php:779
+msgid "The Knowledge Base, FAQ, and Glossary slugs must be different from each other; the previous slugs were kept."
+msgstr "ナレッジベース・FAQ・用語集のスラッグはそれぞれ異なる値にする必要があるため、以前のスラッグのまま維持されました。"
+
+#: includes/class-taxonomies.php:44
+#: includes/class-template-loader.php:1590
+#: templates/classic/archive-saai_kb.php:20
+#: templates/classic/single-saai_kb.php:20
+#: templates/classic/taxonomy-saai_category.php:20
+msgid "Categories"
+msgstr "カテゴリー"
+
+#: includes/class-taxonomies.php:45
+#: src/faq-list/index.js:42
+msgid "Category"
+msgstr "カテゴリー"
+
+#: includes/class-taxonomies.php:46
+msgid "Search Categories"
+msgstr "カテゴリーを検索"
+
+#: includes/class-taxonomies.php:47
+msgid "All Categories"
+msgstr "すべてのカテゴリー"
+
+#: includes/class-taxonomies.php:48
+msgid "Edit Category"
+msgstr "カテゴリーを編集"
+
+#: includes/class-taxonomies.php:49
+msgid "Update Category"
+msgstr "カテゴリーを更新"
+
+#: includes/class-taxonomies.php:50
+msgid "Add New Category"
+msgstr "新規カテゴリーを追加"
+
+#: includes/class-taxonomies.php:51
+msgid "New Category Name"
+msgstr "新規カテゴリー名"
+
+#: includes/class-taxonomies.php:69
+msgid "Tags"
+msgstr "タグ"
+
+#: includes/class-taxonomies.php:70
+msgid "Tag"
+msgstr "タグ"
+
+#: includes/class-taxonomies.php:71
+msgid "Search Tags"
+msgstr "タグを検索"
+
+#: includes/class-taxonomies.php:72
+msgid "All Tags"
+msgstr "すべてのタグ"
+
+#: includes/class-taxonomies.php:73
+msgid "Edit Tag"
+msgstr "タグを編集"
+
+#: includes/class-taxonomies.php:74
+msgid "Update Tag"
+msgstr "タグを更新"
+
+#: includes/class-taxonomies.php:75
+msgid "Add New Tag"
+msgstr "新規タグを追加"
+
+#: includes/class-taxonomies.php:76
+msgid "New Tag Name"
+msgstr "新規タグ名"
+
+#: includes/class-template-loader.php:278
+msgid "Template provided by SAAI Knowledge. Customize it from the Site Editor."
+msgstr "SAAI Knowledge が提供するテンプレートです。サイトエディターからカスタマイズできます。"
+
+#: includes/class-template-loader.php:1545
+msgid "Single: Knowledge Base Article"
+msgstr "単一: ナレッジベース記事"
+
+#: includes/class-template-loader.php:1546
+msgid "Single: FAQ"
+msgstr "単一: FAQ"
+
+#: includes/class-template-loader.php:1547
+msgid "Single: Glossary Term"
+msgstr "単一: 用語集の用語"
+
+#: includes/class-template-loader.php:1548
+msgid "Knowledge Base Hub"
+msgstr "ナレッジベースハブ"
+
+#: includes/class-template-loader.php:1549
+msgid "FAQ Archive"
+msgstr "FAQアーカイブ"
+
+#: includes/class-template-loader.php:1550
+msgid "Glossary Archive"
+msgstr "用語集アーカイブ"
+
+#: includes/class-template-loader.php:1551
+msgid "Knowledge Base Category Archive"
+msgstr "ナレッジベースカテゴリーアーカイブ"
+
+#: includes/class-template-loader.php:1591
+#: src/kb-toc/render.php:159
+#: templates/classic/single-saai_kb.php:45
+msgid "Table of contents"
+msgstr "目次"
+
+#: includes/class-template-loader.php:1592
+#: templates/classic/archive-saai_kb.php:44
+msgid "No knowledge base articles found."
+msgstr "ナレッジベース記事が見つかりませんでした。"
+
+#: includes/class-template-loader.php:1593
+#: templates/classic/taxonomy-saai_category.php:45
+msgid "No knowledge base articles found in this category."
+msgstr "このカテゴリーにはナレッジベース記事が見つかりませんでした。"
+
+#: includes/class-term-order.php:135
+#: includes/class-term-order.php:158
+#: includes/class-term-order.php:208
+#: src/faq-list/index.js:83
+msgid "Order"
+msgstr "並び順"
+
+#: includes/class-term-order.php:137
+#: includes/class-term-order.php:161
+msgid "Position among sibling categories. Lower numbers appear first; ties are ordered by name."
+msgstr "同階層のカテゴリー内での表示順です。数値が小さいほど先に表示され、同じ値の場合は名前順になります。"
+
+#: src/breadcrumbs/render.php:206
+msgid "Breadcrumb"
+msgstr "パンくずリスト"
+
+#: src/faq-list/render.php:103
+msgid "No FAQs found."
+msgstr "FAQが見つかりませんでした。"
+
+#: src/glossary-index/render.php:27
+msgctxt "Glossary index catch-all bucket label (terms with no kana/Latin reading)"
+msgid "#"
+msgstr "#"
+
+#: src/glossary-index/render.php:77
+msgid "No glossary terms found."
+msgstr "用語集の用語が見つかりませんでした。"
+
+#. translators: %s: category name.
+#: src/kb-sidebar/render.php:83
+#, php-format
+msgid "Toggle %s"
+msgstr "%sの開閉を切り替え"
+
+#: src/search/render.php:25
+msgid "Search FAQ, Knowledge Base, and glossary…"
+msgstr "FAQ・ナレッジベース・用語集を検索…"
+
+#: src/search/render.php:47
+msgid "Searching…"
+msgstr "検索中…"
+
+#: src/search/render.php:48
+msgid "No results found."
+msgstr "結果が見つかりませんでした。"
+
+#: src/search/render.php:49
+msgid "Something went wrong. Please try again."
+msgstr "問題が発生しました。もう一度お試しください。"
+
+#: src/search/render.php:80
+msgid "Search"
+msgstr "検索"
+
+#: assets/js/glossary-panel.js:35
+msgid "Glossary Details"
+msgstr "用語集の詳細"
+
+#: assets/js/glossary-panel.js:38
+msgid "Reading (kana/index sort key)"
+msgstr "読みがな（かな・索引の並び順キー）"
+
+#: assets/js/glossary-panel.js:43
+msgid "Synonyms (one per line)"
+msgstr "別表記（1行に1つ）"
+
+#: src/faq-list/index.js:30
+msgid "All categories"
+msgstr "すべてのカテゴリー"
+
+#: src/faq-list/index.js:40
+msgid "FAQ settings"
+msgstr "FAQ設定"
+
+#: src/faq-list/index.js:52
+msgid "Number of FAQs"
+msgstr "FAQの件数"
+
+#: src/faq-list/index.js:53
+msgid "0 shows all FAQs."
+msgstr "0を指定するとすべてのFAQを表示します。"
+
+#: src/faq-list/index.js:64
+msgid "Order by"
+msgstr "並び替え基準"
+
+#: src/faq-list/index.js:68
+msgid "Date"
+msgstr "日付"
+
+#: src/faq-list/index.js:72
+msgid "Title"
+msgstr "タイトル"
+
+#: src/faq-list/index.js:87
+msgid "Descending"
+msgstr "降順"
+
+#: src/faq-list/index.js:91
+msgid "Ascending"
+msgstr "昇順"
+
+#: src/faq-list/index.js:102
+msgid "Group by category"
+msgstr "カテゴリーでグループ化"
+
+#: src/faq-list/index.js:103
+msgid "Show a heading per category. Each FAQ appears under its first category in display order."
+msgstr "カテゴリーごとに見出しを表示します。各FAQは表示順で最初に該当するカテゴリーの下に表示されます。"
+
+#: src/search/index.js:17
+msgid "Search settings"
+msgstr "検索設定"
+
+#: src/search/index.js:19
+msgid "Placeholder text"
+msgstr "プレースホルダーテキスト"
+
+#: src/search/index.js:28
+msgid "Maximum results"
+msgstr "最大結果件数"
+
+#: src/breadcrumbs/block.json
+msgctxt "block title"
+msgid "KB Breadcrumbs"
+msgstr "KBパンくずリスト"
+
+#: src/breadcrumbs/block.json
+msgctxt "block description"
+msgid "Hub / category / article breadcrumb trail for Knowledge Base pages, with BreadcrumbList JSON-LD."
+msgstr "ナレッジベースページ向けのハブ・カテゴリー・記事のパンくずリストです。BreadcrumbList のJSON-LDを含みます。"
+
+#: src/faq-list/block.json
+msgctxt "block title"
+msgid "FAQ List"
+msgstr "FAQリスト"
+
+#: src/faq-list/block.json
+msgctxt "block description"
+msgid "FAQ accordion list with FAQPage structured data, built on the core Accordion block."
+msgstr "コアのAccordionブロックを利用した、FAQPage構造化データ付きのFAQアコーディオンリストです。"
+
+#: src/glossary-index/block.json
+msgctxt "block title"
+msgid "Glossary Index"
+msgstr "用語集インデックス"
+
+#: src/glossary-index/block.json
+msgctxt "block description"
+msgid "Tabbed index of published glossary terms, grouped by gojūon row or A–Z."
+msgstr "公開済みの用語集の用語を、五十音行またはA–Zでグループ化してタブ表示する索引です。"
+
+#: src/kb-sidebar/block.json
+msgctxt "block title"
+msgid "KB Sidebar"
+msgstr "KBサイドバー"
+
+#: src/kb-sidebar/block.json
+msgctxt "block description"
+msgid "Category tree and article list sidebar for Knowledge Base pages."
+msgstr "ナレッジベースページ向けの、カテゴリーツリーと記事一覧のサイドバーです。"
+
+#: src/kb-toc/block.json
+msgctxt "block title"
+msgid "KB Table of Contents"
+msgstr "KB目次"
+
+#: src/kb-toc/block.json
+msgctxt "block description"
+msgid "In-page table of contents generated from the article's headings, with scroll-spy highlighting."
+msgstr "記事内の見出しから自動生成されるページ内目次です。スクロール連動でハイライト表示します。"
+
+#: src/search/block.json
+msgctxt "block title"
+msgid "Knowledge Search"
+msgstr "ナレッジ検索"
+
+#: src/search/block.json
+msgctxt "block description"
+msgid "Live search across FAQ, Knowledge Base, and glossary content."
+msgstr "FAQ・ナレッジベース・用語集を横断したライブ検索です。"

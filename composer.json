@@ -30,6 +30,7 @@
         "lint:fix": "phpcbf",
         "analyze": "phpstan analyse",
         "test": "phpunit",
-        "verify": "bash bin/verify.sh"
+        "verify": "bash bin/verify.sh",
+        "i18n": "bash bin/i18n-build.sh"
     }
 }

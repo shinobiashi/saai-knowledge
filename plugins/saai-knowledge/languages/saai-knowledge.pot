@@ -1,0 +1,629 @@
+# Copyright (C) 2026 Shinobiashi
+# This file is distributed under the GPL v2 or later.
+msgid ""
+msgstr ""
+"Project-Id-Version: SAAI Knowledge 0.1.0\n"
+"Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/saai-knowledge\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"POT-Creation-Date: 2026-09-06T01:57:47+00:00\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"X-Generator: WP-CLI 2.12.0\n"
+"X-Domain: saai-knowledge\n"
+
+#. Plugin Name of the plugin
+#: saai-knowledge.php
+#: includes/class-settings.php:106
+#: includes/class-settings.php:225
+msgid "SAAI Knowledge"
+msgstr ""
+
+#. Plugin URI of the plugin
+#: saai-knowledge.php
+msgid "https://github.com/shinobiashi/saai-knowledge"
+msgstr ""
+
+#. Description of the plugin
+#: saai-knowledge.php
+msgid "FAQ / Knowledge Base / Glossary content types with a two-column KB layout, term auto-linking, and live search."
+msgstr ""
+
+#. Author of the plugin
+#: saai-knowledge.php
+msgid "Shinobiashi"
+msgstr ""
+
+#. translators: %d: maximum auto-link dictionary pattern count.
+#: includes/class-autolinker.php:468
+#, php-format
+msgid "The auto-link dictionary has more than %d term/synonym patterns; the shortest patterns were dropped from auto-linking. Consider trimming synonyms or splitting terms."
+msgstr ""
+
+#: includes/class-breadcrumbs.php:194
+#: includes/class-llms-index.php:379
+#: includes/class-post-types.php:86
+#: includes/class-post-types.php:87
+#: includes/class-search.php:162
+msgid "Knowledge Base"
+msgstr ""
+
+#: includes/class-export.php:148
+msgid "Comma-separated content types to export (faq,kb,glossary). Defaults to all."
+msgstr ""
+
+#: includes/class-export.php:155
+msgid "Response format: json (a paginated envelope) or jsonl (raw newline-delimited records, one JSON object per line)."
+msgstr ""
+
+#: includes/class-export.php:163
+msgid "Only include content modified at or after this ISO 8601 date-time, for incremental sync. Inclusive: pass back the last updated_at you received to avoid missing a same-second update, and de-duplicate by id."
+msgstr ""
+
+#: includes/class-export.php:192
+msgid "Page number."
+msgstr ""
+
+#: includes/class-export.php:200
+msgid "Records per page."
+msgstr ""
+
+#: includes/class-export.php:978
+msgid "KB records only: per-h2 chunks."
+msgstr ""
+
+#: includes/class-export.php:1002
+#: includes/class-export.php:1003
+#: includes/class-export.php:1020
+msgid "RAG Export"
+msgstr ""
+
+#. translators: %s: MAX_DOWNLOAD_ITEMS, formatted with thousands separators.
+#: includes/class-export.php:1025
+#, php-format
+msgid "Download every published FAQ, Knowledge Base, and Glossary entry (up to %s per file) for use in a custom support AI / RAG pipeline."
+msgstr ""
+
+#: includes/class-export.php:1031
+msgid "Download JSONL"
+msgstr ""
+
+#: includes/class-export.php:1032
+msgid "Download CSV"
+msgstr ""
+
+#. translators: %s: REST endpoint path.
+#: includes/class-export.php:1038
+#, php-format
+msgid "For incremental sync, or a site with more items than this download covers, use the REST endpoint (%s) with the page/per_page and modified_after parameters instead."
+msgstr ""
+
+#: includes/class-export.php:1077
+msgid "You do not have permission to do this."
+msgstr ""
+
+#: includes/class-export.php:1085
+msgid "Unsupported export format."
+msgstr ""
+
+#: includes/class-faq-list.php:319
+msgid "Other"
+msgstr ""
+
+#: includes/class-llms-index.php:378
+#: includes/class-post-types.php:67
+#: includes/class-search.php:158
+msgid "FAQ"
+msgstr ""
+
+#: includes/class-llms-index.php:380
+#: includes/class-post-types.php:110
+#: includes/class-post-types.php:111
+#: includes/class-search.php:166
+msgid "Glossary"
+msgstr ""
+
+#: includes/class-post-types.php:66
+#: includes/class-post-types.php:67
+#: includes/class-settings.php:421
+msgid "FAQs"
+msgstr ""
+
+#: includes/class-post-types.php:87
+msgid "KB Article"
+msgstr ""
+
+#: includes/class-post-types.php:111
+msgid "Term"
+msgstr ""
+
+#. translators: %s: singular label.
+#: includes/class-post-types.php:153
+#, php-format
+msgid "Add New %s"
+msgstr ""
+
+#. translators: %s: singular label.
+#: includes/class-post-types.php:155
+#, php-format
+msgid "Edit %s"
+msgstr ""
+
+#. translators: %s: singular label.
+#: includes/class-post-types.php:157
+#, php-format
+msgid "New %s"
+msgstr ""
+
+#. translators: %s: singular label.
+#: includes/class-post-types.php:159
+#, php-format
+msgid "View %s"
+msgstr ""
+
+#. translators: %s: plural label.
+#: includes/class-post-types.php:161
+#, php-format
+msgid "Search %s"
+msgstr ""
+
+#. translators: %s: plural label.
+#: includes/class-post-types.php:163
+#, php-format
+msgid "No %s found."
+msgstr ""
+
+#. translators: %s: plural label.
+#: includes/class-post-types.php:165
+#, php-format
+msgid "No %s found in Trash."
+msgstr ""
+
+#. translators: %s: plural label.
+#: includes/class-post-types.php:167
+#, php-format
+msgid "All %s"
+msgstr ""
+
+#: includes/class-search.php:77
+msgid "Search query string."
+msgstr ""
+
+#: includes/class-search.php:84
+msgid "Comma-separated content types to search (e.g. faq,kb,glossary). Defaults to all registered types."
+msgstr ""
+
+#: includes/class-search.php:91
+msgid "Maximum number of results to return."
+msgstr ""
+
+#: includes/class-search.php:333
+msgid "Post ID."
+msgstr ""
+
+#: includes/class-search.php:337
+msgid "Content type key, see the types request param."
+msgstr ""
+
+#: includes/class-search.php:341
+msgid "Post title."
+msgstr ""
+
+#: includes/class-search.php:346
+msgid "Permalink."
+msgstr ""
+
+#: includes/class-search.php:350
+msgid "Plain-text excerpt."
+msgstr ""
+
+#: includes/class-settings.php:105
+#: includes/class-settings.php:116
+msgid "SAAI Knowledge Settings"
+msgstr ""
+
+#: includes/class-settings.php:117
+msgid "Settings"
+msgstr ""
+
+#: includes/class-settings.php:381
+msgid "URL Slugs"
+msgstr ""
+
+#: includes/class-settings.php:385
+msgid "Knowledge Base slug"
+msgstr ""
+
+#: includes/class-settings.php:386
+msgid "Articles are served at /{slug}/article-name/."
+msgstr ""
+
+#: includes/class-settings.php:392
+msgid "FAQ slug"
+msgstr ""
+
+#: includes/class-settings.php:393
+msgid "The FAQ archive is served at /{slug}/."
+msgstr ""
+
+#: includes/class-settings.php:399
+msgid "Glossary slug"
+msgstr ""
+
+#: includes/class-settings.php:400
+msgid "The glossary index is served at /{slug}/."
+msgstr ""
+
+#: includes/class-settings.php:407
+msgid "Term Auto-Linking"
+msgstr ""
+
+#: includes/class-settings.php:411
+msgid "Auto-link terms in"
+msgstr ""
+
+#: includes/class-settings.php:418
+msgid "Posts"
+msgstr ""
+
+#: includes/class-settings.php:419
+msgid "Pages"
+msgstr ""
+
+#: includes/class-settings.php:420
+msgid "Knowledge Base articles"
+msgstr ""
+
+#: includes/class-settings.php:428
+msgid "Maximum links per post"
+msgstr ""
+
+#: includes/class-settings.php:429
+msgid "A term is only ever linked once per post, regardless of this limit."
+msgstr ""
+
+#: includes/class-settings.php:435
+msgid "Output"
+msgstr ""
+
+#: includes/class-settings.php:439
+msgid "Structured data"
+msgstr ""
+
+#: includes/class-settings.php:440
+msgid "Output FAQPage / QAPage / DefinedTerm / BreadcrumbList JSON-LD"
+msgstr ""
+
+#: includes/class-settings.php:441
+msgid "Turn this off if an SEO plugin already outputs this structured data."
+msgstr ""
+
+#: includes/class-settings.php:447
+msgid "AI Readability"
+msgstr ""
+
+#: includes/class-settings.php:451
+msgid "Markdown & llms.txt"
+msgstr ""
+
+#: includes/class-settings.php:452
+msgid "Serve FAQ/KB/glossary pages as Markdown (?format=markdown) and publish a Markdown index at /{kb slug}/llms.txt for AI crawlers."
+msgstr ""
+
+#: includes/class-settings.php:458
+msgid "Uninstall"
+msgstr ""
+
+#: includes/class-settings.php:462
+msgid "Delete data on uninstall"
+msgstr ""
+
+#: includes/class-settings.php:463
+msgid "Permanently delete all FAQs, KB articles, glossary terms, categories, and settings when this plugin is deleted."
+msgstr ""
+
+#: includes/class-settings.php:779
+msgid "The Knowledge Base, FAQ, and Glossary slugs must be different from each other; the previous slugs were kept."
+msgstr ""
+
+#: includes/class-taxonomies.php:44
+#: includes/class-template-loader.php:1590
+#: templates/classic/archive-saai_kb.php:20
+#: templates/classic/single-saai_kb.php:20
+#: templates/classic/taxonomy-saai_category.php:20
+msgid "Categories"
+msgstr ""
+
+#: includes/class-taxonomies.php:45
+#: src/faq-list/index.js:42
+msgid "Category"
+msgstr ""
+
+#: includes/class-taxonomies.php:46
+msgid "Search Categories"
+msgstr ""
+
+#: includes/class-taxonomies.php:47
+msgid "All Categories"
+msgstr ""
+
+#: includes/class-taxonomies.php:48
+msgid "Edit Category"
+msgstr ""
+
+#: includes/class-taxonomies.php:49
+msgid "Update Category"
+msgstr ""
+
+#: includes/class-taxonomies.php:50
+msgid "Add New Category"
+msgstr ""
+
+#: includes/class-taxonomies.php:51
+msgid "New Category Name"
+msgstr ""
+
+#: includes/class-taxonomies.php:69
+msgid "Tags"
+msgstr ""
+
+#: includes/class-taxonomies.php:70
+msgid "Tag"
+msgstr ""
+
+#: includes/class-taxonomies.php:71
+msgid "Search Tags"
+msgstr ""
+
+#: includes/class-taxonomies.php:72
+msgid "All Tags"
+msgstr ""
+
+#: includes/class-taxonomies.php:73
+msgid "Edit Tag"
+msgstr ""
+
+#: includes/class-taxonomies.php:74
+msgid "Update Tag"
+msgstr ""
+
+#: includes/class-taxonomies.php:75
+msgid "Add New Tag"
+msgstr ""
+
+#: includes/class-taxonomies.php:76
+msgid "New Tag Name"
+msgstr ""
+
+#: includes/class-template-loader.php:278
+msgid "Template provided by SAAI Knowledge. Customize it from the Site Editor."
+msgstr ""
+
+#: includes/class-template-loader.php:1545
+msgid "Single: Knowledge Base Article"
+msgstr ""
+
+#: includes/class-template-loader.php:1546
+msgid "Single: FAQ"
+msgstr ""
+
+#: includes/class-template-loader.php:1547
+msgid "Single: Glossary Term"
+msgstr ""
+
+#: includes/class-template-loader.php:1548
+msgid "Knowledge Base Hub"
+msgstr ""
+
+#: includes/class-template-loader.php:1549
+msgid "FAQ Archive"
+msgstr ""
+
+#: includes/class-template-loader.php:1550
+msgid "Glossary Archive"
+msgstr ""
+
+#: includes/class-template-loader.php:1551
+msgid "Knowledge Base Category Archive"
+msgstr ""
+
+#: includes/class-template-loader.php:1591
+#: src/kb-toc/render.php:159
+#: templates/classic/single-saai_kb.php:45
+msgid "Table of contents"
+msgstr ""
+
+#: includes/class-template-loader.php:1592
+#: templates/classic/archive-saai_kb.php:44
+msgid "No knowledge base articles found."
+msgstr ""
+
+#: includes/class-template-loader.php:1593
+#: templates/classic/taxonomy-saai_category.php:45
+msgid "No knowledge base articles found in this category."
+msgstr ""
+
+#: includes/class-term-order.php:135
+#: includes/class-term-order.php:158
+#: includes/class-term-order.php:208
+#: src/faq-list/index.js:83
+msgid "Order"
+msgstr ""
+
+#: includes/class-term-order.php:137
+#: includes/class-term-order.php:161
+msgid "Position among sibling categories. Lower numbers appear first; ties are ordered by name."
+msgstr ""
+
+#: src/breadcrumbs/render.php:206
+msgid "Breadcrumb"
+msgstr ""
+
+#: src/faq-list/render.php:103
+msgid "No FAQs found."
+msgstr ""
+
+#: src/glossary-index/render.php:27
+msgctxt "Glossary index catch-all bucket label (terms with no kana/Latin reading)"
+msgid "#"
+msgstr ""
+
+#: src/glossary-index/render.php:77
+msgid "No glossary terms found."
+msgstr ""
+
+#. translators: %s: category name.
+#: src/kb-sidebar/render.php:83
+#, php-format
+msgid "Toggle %s"
+msgstr ""
+
+#: src/search/render.php:25
+msgid "Search FAQ, Knowledge Base, and glossary…"
+msgstr ""
+
+#: src/search/render.php:47
+msgid "Searching…"
+msgstr ""
+
+#: src/search/render.php:48
+msgid "No results found."
+msgstr ""
+
+#: src/search/render.php:49
+msgid "Something went wrong. Please try again."
+msgstr ""
+
+#: src/search/render.php:80
+msgid "Search"
+msgstr ""
+
+#: assets/js/glossary-panel.js:35
+msgid "Glossary Details"
+msgstr ""
+
+#: assets/js/glossary-panel.js:38
+msgid "Reading (kana/index sort key)"
+msgstr ""
+
+#: assets/js/glossary-panel.js:43
+msgid "Synonyms (one per line)"
+msgstr ""
+
+#: src/faq-list/index.js:30
+msgid "All categories"
+msgstr ""
+
+#: src/faq-list/index.js:40
+msgid "FAQ settings"
+msgstr ""
+
+#: src/faq-list/index.js:52
+msgid "Number of FAQs"
+msgstr ""
+
+#: src/faq-list/index.js:53
+msgid "0 shows all FAQs."
+msgstr ""
+
+#: src/faq-list/index.js:64
+msgid "Order by"
+msgstr ""
+
+#: src/faq-list/index.js:68
+msgid "Date"
+msgstr ""
+
+#: src/faq-list/index.js:72
+msgid "Title"
+msgstr ""
+
+#: src/faq-list/index.js:87
+msgid "Descending"
+msgstr ""
+
+#: src/faq-list/index.js:91
+msgid "Ascending"
+msgstr ""
+
+#: src/faq-list/index.js:102
+msgid "Group by category"
+msgstr ""
+
+#: src/faq-list/index.js:103
+msgid "Show a heading per category. Each FAQ appears under its first category in display order."
+msgstr ""
+
+#: src/search/index.js:17
+msgid "Search settings"
+msgstr ""
+
+#: src/search/index.js:19
+msgid "Placeholder text"
+msgstr ""
+
+#: src/search/index.js:28
+msgid "Maximum results"
+msgstr ""
+
+#: src/breadcrumbs/block.json
+msgctxt "block title"
+msgid "KB Breadcrumbs"
+msgstr ""
+
+#: src/breadcrumbs/block.json
+msgctxt "block description"
+msgid "Hub / category / article breadcrumb trail for Knowledge Base pages, with BreadcrumbList JSON-LD."
+msgstr ""
+
+#: src/faq-list/block.json
+msgctxt "block title"
+msgid "FAQ List"
+msgstr ""
+
+#: src/faq-list/block.json
+msgctxt "block description"
+msgid "FAQ accordion list with FAQPage structured data, built on the core Accordion block."
+msgstr ""
+
+#: src/glossary-index/block.json
+msgctxt "block title"
+msgid "Glossary Index"
+msgstr ""
+
+#: src/glossary-index/block.json
+msgctxt "block description"
+msgid "Tabbed index of published glossary terms, grouped by gojūon row or A–Z."
+msgstr ""
+
+#: src/kb-sidebar/block.json
+msgctxt "block title"
+msgid "KB Sidebar"
+msgstr ""
+
+#: src/kb-sidebar/block.json
+msgctxt "block description"
+msgid "Category tree and article list sidebar for Knowledge Base pages."
+msgstr ""
+
+#: src/kb-toc/block.json
+msgctxt "block title"
+msgid "KB Table of Contents"
+msgstr ""
+
+#: src/kb-toc/block.json
+msgctxt "block description"
+msgid "In-page table of contents generated from the article's headings, with scroll-spy highlighting."
+msgstr ""
+
+#: src/search/block.json
+msgctxt "block title"
+msgid "Knowledge Search"
+msgstr ""
+
+#: src/search/block.json
+msgctxt "block description"
+msgid "Live search across FAQ, Knowledge Base, and glossary content."
+msgstr ""
