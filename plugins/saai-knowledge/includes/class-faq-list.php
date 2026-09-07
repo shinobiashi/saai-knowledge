@@ -548,11 +548,20 @@ final class Faq_List {
 	 * plugins (WP Super Cache et al.) use to decide a request is safe to
 	 * serve from a shared cache (Codex review).
 	 *
+	 * A core/block reference (a synced pattern/reusable block) is a second,
+	 * independent reason a cache keyed only by this FAQ's own ID/modified
+	 * time isn't safe: render_block_core_block() loads and renders the
+	 * referenced wp_block post's own content, which can change without this
+	 * FAQ post being saved at all — flush_answer_cache() has nothing to
+	 * invalidate on. has_block() gates the cache on that instead of trying
+	 * to track every referenced wp_block post's own modified time (Codex
+	 * review).
+	 *
 	 * @param \WP_Post $post The FAQ entry.
 	 * @return string
 	 */
 	private function render_answer( \WP_Post $post ): string {
-		if ( ! empty( $_COOKIE ) ) {
+		if ( ! empty( $_COOKIE ) || has_block( 'core/block', $post ) ) {
 			return $this->render_answer_uncached( $post );
 		}
 
