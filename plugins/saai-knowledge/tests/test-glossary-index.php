@@ -268,6 +268,49 @@ class Test_Glossary_Index extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A direct update_post_meta( $id, Post_Meta::READING, ... ) call (an
+	 * import script, a migration) changes a term's bucket/sort key without
+	 * going through wp_update_post(), so save_post_saai_glossary never fires
+	 * for it — added/updated/deleted_post_meta must invalidate the cache too
+	 * (Codex review).
+	 */
+	public function test_reading_meta_change_invalidates_cache() {
+		$this->index->register();
+
+		$post_id = $this->create_term( 'かいと', 'かいと' );
+
+		$this->index->grouped_items();
+
+		update_post_meta( $post_id, Post_Meta::READING, 'あんこ' );
+
+		$groups  = $this->index->grouped_items();
+		$buckets = wp_list_pluck( $groups, 'bucket' );
+
+		$this->assertSame( array( 'あ' ), $buckets );
+		$this->assertSame( array( 'かいと' ), wp_list_pluck( $groups[0]['items'], 'title' ) );
+	}
+
+	/**
+	 * A completely fresh install has no saai_knowledge_settings option row
+	 * yet; WordPress core's update_option() delegates a first-ever save of
+	 * it to add_option() internally, which fires add_option_{$option}
+	 * instead of update_option_{$option} — maybe_flush_cache_on_slug_change()
+	 * alone would miss a slug changed on that very first save (Codex
+	 * review).
+	 */
+	public function test_add_option_hook_invalidates_cache_on_first_ever_settings_save() {
+		$this->index->register();
+
+		delete_option( 'saai_knowledge_settings' );
+
+		$this->index->grouped_items();
+
+		add_option( 'saai_knowledge_settings', array( 'slug_glossary' => 'terms' ) );
+
+		$this->assertFalse( get_transient( 'saai_glossary_index' ) );
+	}
+
+	/**
 	 * Draft and password-protected entries should never appear in the index.
 	 */
 	public function test_items_excludes_non_public_entries() {

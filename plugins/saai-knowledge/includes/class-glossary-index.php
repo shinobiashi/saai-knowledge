@@ -35,18 +35,6 @@ final class Glossary_Index {
 	private const CACHE_TTL = HOUR_IN_SECONDS;
 
 	/**
-	 * Upper bound on how many glossary entries items()/grouped_items() query.
-	 * The bundled archive template deliberately renders the full index as one
-	 * page (paged_glossary_archive_redirect_url()'s docblock, DESIGN.md
-	 * section 3.5) rather than paginating — this cap only guards against an
-	 * unbounded query on a glossary large enough that -1 would be a real
-	 * problem, not a change to that one-page design.
-	 *
-	 * @var int
-	 */
-	private const MAX_ITEMS = 5000;
-
-	/**
 	 * Hooks cache invalidation into WordPress.
 	 */
 	public function register(): void {
@@ -57,7 +45,44 @@ final class Glossary_Index {
 		// fires — deleted_post is needed too (same reasoning as
 		// Llms_Index::register()).
 		add_action( 'deleted_post', array( $this, 'flush_cache' ) );
+		// A direct update_post_meta( $id, Post_Meta::READING, ... ) call (an
+		// import script, a migration, another plugin) changes a term's
+		// bucket/sort key without going through wp_update_post(), so
+		// save_post_saai_glossary above never fires for it — added/updated/
+		// deleted_post_meta are needed too (Codex review). Not narrowed to
+		// saai_glossary objects, matching the same accepted-tradeoff
+		// reasoning as Sidebar_Tree::flush_cache_on_term_relationship_change().
+		add_action( 'added_post_meta', array( $this, 'flush_cache_on_reading_meta_change' ), 10, 3 );
+		add_action( 'updated_post_meta', array( $this, 'flush_cache_on_reading_meta_change' ), 10, 3 );
+		add_action( 'deleted_post_meta', array( $this, 'flush_cache_on_reading_meta_change' ), 10, 3 );
 		add_action( 'update_option_saai_knowledge_settings', array( $this, 'maybe_flush_cache_on_slug_change' ), 10, 2 );
+		// A brand-new install has no saai_knowledge_settings option row yet;
+		// update_option() delegates a first-ever save of it to add_option()
+		// internally (WordPress core: default_option_{$option} matching the
+		// old value short-circuits to add_option()), which never fires
+		// update_option_{$option} — only add_option_{$option} does. Without
+		// this, a slug changed on that very first save wouldn't flush this
+		// cache at all (Codex review).
+		add_action( 'add_option_saai_knowledge_settings', array( $this, 'flush_cache' ) );
+	}
+
+	/**
+	 * Flushes the cache when a post's saai_reading meta is added, updated,
+	 * or deleted directly — see register()'s docblock.
+	 *
+	 * $meta_id is int for added_post_meta/updated_post_meta but an array of
+	 * IDs for deleted_post_meta (WordPress core: delete_metadata() passes
+	 * $meta_ids, plural) — untyped/mixed since this shared callback handles
+	 * all three and never uses the value.
+	 *
+	 * @param mixed  $meta_id   Unused; kept to match the *_post_meta hook signature.
+	 * @param int    $object_id Unused.
+	 * @param string $meta_key  The meta key that changed.
+	 */
+	public function flush_cache_on_reading_meta_change( $meta_id, int $object_id, string $meta_key ): void { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed -- $meta_id/$object_id must precede $meta_key to match the *_post_meta hook signature.
+		if ( Post_Meta::READING === $meta_key ) {
+			$this->flush_cache();
+		}
 	}
 
 	/**
@@ -154,6 +179,15 @@ final class Glossary_Index {
 	 * The published saai_glossary entries, each shaped
 	 * [ 'id', 'title', 'reading', 'url' ].
 	 *
+	 * Deliberately posts_per_page => -1, not a fixed cap: the bundled archive
+	 * template renders this as one complete page by design
+	 * (paged_glossary_archive_redirect_url()'s docblock, DESIGN.md section
+	 * 3.5) and redirects any /glossary/page/2/ request back to the root — a
+	 * hard cap here would silently and permanently drop every term past it
+	 * from the index, with no path to reach the missing entries (Codex
+	 * review: an earlier revision capped this at 5000 as a perf-audit
+	 * safety net, without accounting for that redirect).
+	 *
 	 * @return array<int, array<string, mixed>>
 	 */
 	public function items(): array {
@@ -162,7 +196,7 @@ final class Glossary_Index {
 				'post_type'           => 'saai_glossary',
 				'post_status'         => 'publish',
 				'has_password'        => false,
-				'posts_per_page'      => self::MAX_ITEMS,
+				'posts_per_page'      => -1,
 				'orderby'             => 'title',
 				'order'               => 'ASC',
 				'no_found_rows'       => true,
