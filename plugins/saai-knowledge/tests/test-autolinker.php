@@ -537,6 +537,50 @@ class Test_Autolinker extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Two process() calls sharing identical $html and no $post but different
+	 * $context — where saai_autolink_dictionary legitimately returns
+	 * different entries per context, its own documented contract — must
+	 * never share a render-result cache entry. In particular, a context
+	 * whose dictionary is empty must return the original $html untouched,
+	 * not leak another context's cached linked result: the render-result
+	 * cache key is checked before the dictionary is even built, so without
+	 * $context folded into it, whichever context ran first would silently
+	 * win for every other context sharing the same html/post (Codex review).
+	 */
+	public function test_process_cache_does_not_collide_across_different_context_for_identical_html() {
+		$term_id = $this->create_term( 'Widget' );
+
+		add_filter(
+			'saai_autolink_dictionary',
+			static function ( $entries, $context ) use ( $term_id ) {
+				if ( 'linked-context' !== ( $context['post_type'] ?? '' ) ) {
+					return array();
+				}
+
+				return array(
+					array(
+						'post_id'  => $term_id,
+						'url'      => 'https://example.com/term/',
+						'label'    => 'Widget',
+						'patterns' => array( 'Widget' ),
+						'excerpt'  => 'excerpt',
+					),
+				);
+			},
+			10,
+			2
+		);
+
+		$html = 'This mentions Widget here.';
+
+		$linked   = $this->autolinker->process( $html, array( 'post_type' => 'linked-context' ) );
+		$unlinked = $this->autolinker->process( $html, array( 'post_type' => 'empty-context' ) );
+
+		$this->assertStringContainsString( 'Widget</a>', $linked );
+		$this->assertSame( $html, $unlinked );
+	}
+
+	/**
 	 * The `saai_autolink_match_rejected` filter can force-reject a match
 	 * that would otherwise have been accepted.
 	 */
