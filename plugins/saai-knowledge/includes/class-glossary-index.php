@@ -18,11 +18,12 @@ defined( 'ABSPATH' ) || exit;
 final class Glossary_Index {
 
 	/**
-	 * Transient key the grouped index is cached under.
+	 * Transient key prefix the grouped index is cached under — see
+	 * cache_key() for the full key shape (folds in the active locale).
 	 *
 	 * @var string
 	 */
-	private const CACHE_KEY = 'saai_glossary_index';
+	private const CACHE_KEY_PREFIX = 'saai_glossary_index_';
 
 	/**
 	 * How long the grouped index is cached for. Like Sidebar_Tree, this
@@ -303,7 +304,8 @@ final class Glossary_Index {
 	 * @return array<int, array<string, mixed>> Groups shaped [ 'bucket' => string, 'items' => item[] ].
 	 */
 	public function grouped_items(): array {
-		$cached = get_transient( self::CACHE_KEY );
+		$key    = self::cache_key();
+		$cached = get_transient( $key );
 
 		if ( is_array( $cached ) ) {
 			return $cached;
@@ -311,18 +313,41 @@ final class Glossary_Index {
 
 		$groups = $this->grouped_items_uncached();
 
-		set_transient( self::CACHE_KEY, $groups, self::CACHE_TTL );
+		set_transient( $key, $groups, self::CACHE_TTL );
 
 		return $groups;
 	}
 
 	/**
-	 * Deletes the cached grouped index. Hooked to save/trash/delete of
-	 * saai_glossary posts. A stale cache otherwise only self-heals after
-	 * CACHE_TTL.
+	 * The transient key the grouped index is cached under for the current
+	 * request's active locale.
+	 *
+	 * A multilingual site (WPML/Polylang) filters get_locale() (via
+	 * pre_get_posts/the_title/post_type_link, in turn) to the language the
+	 * current request is viewing, so grouped_items_uncached()'s query
+	 * results, titles, and URLs all vary by it — a single site-wide key
+	 * would let whichever language rendered the index first get served to
+	 * every other language for up to CACHE_TTL (Codex review).
+	 *
+	 * flush_cache() only ever clears the CURRENT request's locale key, not
+	 * every language's cached copy — the same TTL-bounded-staleness
+	 * tradeoff this codebase already accepts elsewhere (docs/review-backlog.md)
+	 * for invalidation paths that can't cheaply reach every affected cache
+	 * entry.
+	 *
+	 * @return string
+	 */
+	private static function cache_key(): string {
+		return self::CACHE_KEY_PREFIX . md5( get_locale() );
+	}
+
+	/**
+	 * Deletes the current locale's cached grouped index. Hooked to
+	 * save/trash/delete of saai_glossary posts. A stale cache otherwise only
+	 * self-heals after CACHE_TTL.
 	 */
 	public function flush_cache(): void {
-		delete_transient( self::CACHE_KEY );
+		delete_transient( self::cache_key() );
 	}
 
 	/**

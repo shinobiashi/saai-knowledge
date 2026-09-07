@@ -30,6 +30,18 @@ class Test_Glossary_Index extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The transient key grouped_items() caches under for the current
+	 * request's locale — mirrors Glossary_Index::cache_key() (private)
+	 * exactly, so tests can assert on it without depending on a specific
+	 * locale value.
+	 *
+	 * @return string
+	 */
+	private function cache_key(): string {
+		return 'saai_glossary_index_' . md5( get_locale() );
+	}
+
+	/**
 	 * Creates a published glossary entry.
 	 *
 	 * @param string $title   Term title.
@@ -258,13 +270,13 @@ class Test_Glossary_Index extends WP_UnitTestCase {
 				'autolink_max_links' => 5,
 			)
 		);
-		$this->assertIsArray( get_transient( 'saai_glossary_index' ), 'An unrelated field change must not flush the cache.' );
+		$this->assertIsArray( get_transient( $this->cache_key() ), 'An unrelated field change must not flush the cache.' );
 
 		$this->index->maybe_flush_cache_on_slug_change(
 			array( 'slug_glossary' => 'glossary' ),
 			array( 'slug_glossary' => 'terms' )
 		);
-		$this->assertFalse( get_transient( 'saai_glossary_index' ), 'A slug_glossary change must flush the cache.' );
+		$this->assertFalse( get_transient( $this->cache_key() ), 'A slug_glossary change must flush the cache.' );
 	}
 
 	/**
@@ -307,7 +319,57 @@ class Test_Glossary_Index extends WP_UnitTestCase {
 
 		add_option( 'saai_knowledge_settings', array( 'slug_glossary' => 'terms' ) );
 
-		$this->assertFalse( get_transient( 'saai_glossary_index' ) );
+		$this->assertFalse( get_transient( $this->cache_key() ) );
+	}
+
+	/**
+	 * A multilingual site (WPML/Polylang) hooks pre_get_posts to restrict
+	 * saai_glossary query results to the request's current language
+	 * (get_locale(), which such plugins filter); grouped_items()'s cache must
+	 * key on that too, or whichever language rendered the index first would
+	 * get served to every other language for up to CACHE_TTL (Codex review).
+	 */
+	public function test_grouped_items_does_not_leak_between_locales() {
+		$this->create_term( 'Apple' );
+		$japanese_only_id = $this->create_term( 'Banana' );
+
+		// Stands in for a multilingual plugin's own pre_get_posts filtering:
+		// this term is only visible while the ja_JP locale is active.
+		$restrict_by_locale = static function ( \WP_Query $query ) use ( $japanese_only_id ) {
+			if ( 'saai_glossary' === $query->get( 'post_type' ) && 'ja_JP' !== get_locale() ) {
+				$query->set( 'post__not_in', array( $japanese_only_id ) );
+			}
+		};
+
+		add_action( 'pre_get_posts', $restrict_by_locale );
+
+		$locale_filter = static function () {
+			return 'ja_JP';
+		};
+
+		try {
+			add_filter( 'locale', $locale_filter );
+			$ja_groups = $this->index->grouped_items();
+			remove_filter( 'locale', $locale_filter );
+
+			$en_groups = $this->index->grouped_items();
+		} finally {
+			remove_action( 'pre_get_posts', $restrict_by_locale );
+			remove_filter( 'locale', $locale_filter );
+		}
+
+		$ja_titles = array();
+		foreach ( $ja_groups as $group ) {
+			$ja_titles = array_merge( $ja_titles, wp_list_pluck( $group['items'], 'title' ) );
+		}
+
+		$en_titles = array();
+		foreach ( $en_groups as $group ) {
+			$en_titles = array_merge( $en_titles, wp_list_pluck( $group['items'], 'title' ) );
+		}
+
+		$this->assertContains( 'Banana', $ja_titles, 'test setup: the ja_JP-locale call should see the term restricted to it' );
+		$this->assertNotContains( 'Banana', $en_titles, "the default-locale call must not see the ja_JP-locale call's cached result" );
 	}
 
 	/**
