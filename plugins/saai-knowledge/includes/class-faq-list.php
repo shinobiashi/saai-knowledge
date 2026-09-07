@@ -120,7 +120,7 @@ final class Faq_List {
 	/**
 	 * Deletes one FAQ's cached rendered answer. Hooked to save/trash/delete
 	 * of saai_faq (see register()); a stale cache otherwise only self-heals
-	 * after ANSWER_CACHE_TTL.
+	 * after render_answer()'s DAY_IN_SECONDS transient TTL.
 	 *
 	 * @param int $post_id The FAQ whose cache entry to clear.
 	 */
