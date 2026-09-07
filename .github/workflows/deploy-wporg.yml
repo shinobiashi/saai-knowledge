@@ -7,8 +7,8 @@ name: Deploy to WordPress.org
 #   1. The plugin has been submitted and approved at
 #      https://wordpress.org/plugins/developers/add/
 #   2. SVN_USERNAME / SVN_PASSWORD secrets have been added to this repo
-#   3. plugins/saai-knowledge/readme.txt's Stable tag matches the version
-#      being deployed (and the corresponding vX.Y.Z tag/release exists)
+#   3. The corresponding vX.Y.Z tag/release exists — the job itself checks
+#      that readme.txt's Stable tag at that tag matches the version input
 on:
   workflow_dispatch:
     inputs:
@@ -27,6 +27,16 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: v${{ github.event.inputs.version }}
+
+      - name: Verify version matches readme.txt Stable tag
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          STABLE_TAG="$(grep -m1 '^Stable tag:' plugins/saai-knowledge/readme.txt | sed 's/^Stable tag:[[:space:]]*//')"
+          if [ "$STABLE_TAG" != "$INPUT_VERSION" ]; then
+            echo "::error::Input version ($INPUT_VERSION) does not match plugins/saai-knowledge/readme.txt's Stable tag ($STABLE_TAG) at tag v$INPUT_VERSION. Fix readme.txt and re-tag before deploying."
+            exit 1
+          fi
 
       - uses: actions/setup-node@v5
         with:
