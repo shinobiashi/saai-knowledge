@@ -9,6 +9,7 @@
         "includes",
         "languages",
         "templates",
+        "readme.txt",
         "saai-knowledge.php",
         "uninstall.php"
     ],
