@@ -355,22 +355,46 @@ final class Autolinker {
 			}
 		}
 
-		// The render-result cache is checked before building the dictionary,
-		// not after: a hit here can skip dictionary_for_context() (a
-		// get_cached_dictionary_entries() read plus a full
-		// sanitize_dictionary_entries() pass over every entry) entirely —
-		// that pass otherwise re-ran on every process() call regardless of
-		// whether its result would even be used (perf review). This is only
-		// safe because cache_key() folds $context in: process() is a public
-		// service (docs/DESIGN-HOOKS-API.md section 5) an add-on can call
-		// more than once for the *same* $html/$post with a *different*
-		// $context, and a saai_autolink_dictionary callback is documented to
-		// vary its returned entries by context — without $context in the
-		// key, whichever context's call happened to run first would get
-		// cached and silently reused for every other context sharing that
-		// html/post, including a context whose own (correct) dictionary is
-		// empty, which must return $html unmodified rather than another
-		// context's linked result (Codex review).
+		// The dictionary is resolved (and the empty-dictionary case returned)
+		// BEFORE the render-result cache is even consulted — not reordered
+		// to check the cache first, even though that could skip
+		// dictionary_for_context() (a get_cached_dictionary_entries() read
+		// plus a full sanitize_dictionary_entries() pass) on a hit. That
+		// reorder was tried and reverted: saai_autolink_dictionary is a
+		// public filter (docs/DESIGN-HOOKS-API.md section 5) documented to
+		// vary its returned entries by $context, but it can just as
+		// legitimately vary by ANY other request state (is_user_logged_in(),
+		// a WooCommerce cart, ...) that a $context-only cache key can never
+		// capture. Checking the cache first means whichever request/context
+		// happened to populate it first silently wins for every later
+		// request/context sharing the same html/post — including one whose
+		// own (correctly re-evaluated) dictionary is empty, which must
+		// return $html unmodified rather than another call's cached linked
+		// result (Codex review, two rounds: folding $context into
+		// cache_key() closed the context-only case but not this one, so the
+		// ordering itself has to stay dictionary-first).
+		$entries = $this->dictionary_for_context( $context );
+
+		if ( $post instanceof \WP_Post ) {
+			$current_post_id = $post->ID;
+			$entries         = array_values(
+				array_filter(
+					$entries,
+					static function ( array $entry ) use ( $current_post_id ): bool {
+						return $entry['post_id'] !== $current_post_id;
+					}
+				)
+			);
+		}
+
+		if ( ! $entries ) {
+			return $html;
+		}
+
+		// $context is still folded into cache_key() (see its own docblock):
+		// two calls can share identical $html/$post but legitimately resolve
+		// to different non-empty $entries for different $context values,
+		// and must not share a cache entry either.
 		$cache_key = $this->cache_key( $html, $post, $context );
 		$cached    = wp_cache_get( $cache_key, self::CACHE_GROUP );
 
@@ -378,24 +402,6 @@ final class Autolinker {
 			$result    = $cached['html'];
 			$has_links = ! empty( $cached['has_links'] );
 		} else {
-			$entries = $this->dictionary_for_context( $context );
-
-			if ( $post instanceof \WP_Post ) {
-				$current_post_id = $post->ID;
-				$entries         = array_values(
-					array_filter(
-						$entries,
-						static function ( array $entry ) use ( $current_post_id ): bool {
-							return $entry['post_id'] !== $current_post_id;
-						}
-					)
-				);
-			}
-
-			if ( ! $entries ) {
-				return $html;
-			}
-
 			$link_count = 0;
 			$result     = $this->replace_in_html( $html, $entries, $link_count );
 			$has_links  = $link_count > 0;
