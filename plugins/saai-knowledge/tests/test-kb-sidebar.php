@@ -149,6 +149,61 @@ class Test_Kb_Sidebar extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Re-assigning an existing saai_kb post to a different saai_category term
+	 * via wp_set_object_terms() alone (wp-admin's Quick Edit bulk category
+	 * change does this without calling wp_update_post()) must invalidate the
+	 * cache — save_post_saai_kb never fires for this path, so without the
+	 * set_object_terms hook the tree would keep the post under its old
+	 * category for up to an hour (Codex review).
+	 */
+	public function test_set_object_terms_hook_invalidates_cache_on_recategorization() {
+		$sidebar_tree = new Sidebar_Tree();
+		$sidebar_tree->register();
+
+		$old_term = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+		$new_term = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+
+		$post_id = self::factory()->post->create( array( 'post_type' => 'saai_kb' ) );
+		wp_set_object_terms( $post_id, array( $old_term ), 'saai_category' );
+
+		$sidebar_tree->build();
+
+		wp_set_object_terms( $post_id, array( $new_term ), 'saai_category' );
+
+		$tree          = $sidebar_tree->build();
+		$old_term_node = $this->find_node( $tree, $old_term );
+		$new_term_node = $this->find_node( $tree, $new_term );
+
+		$this->assertNotNull( $old_term_node );
+		$this->assertSame( array(), $old_term_node['children'] );
+
+		$this->assertNotNull( $new_term_node );
+		$this->assertSame( array( $post_id ), wp_list_pluck( $new_term_node['children'], 'id' ) );
+	}
+
+	/**
+	 * A saai_category term change is a shared taxonomy also used by saai_faq
+	 * (docs/DESIGN.md section 3.2) — set_object_terms fires for any object
+	 * type, and flush_cache_on_term_relationship_change() only checks the
+	 * taxonomy, not the object's post type. Confirms this doesn't crash or
+	 * misbehave for a non-saai_kb object; the resulting extra flush is an
+	 * accepted, harmless tradeoff (see register()'s docblock).
+	 */
+	public function test_set_object_terms_hook_flushes_for_unrelated_post_types_sharing_the_taxonomy() {
+		$sidebar_tree = new Sidebar_Tree();
+		$sidebar_tree->register();
+
+		$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+		$faq_id  = self::factory()->post->create( array( 'post_type' => 'saai_faq' ) );
+
+		$sidebar_tree->build();
+
+		wp_set_object_terms( $faq_id, array( $term_id ), 'saai_category' );
+
+		$this->assertFalse( get_transient( 'saai_kb_sidebar_tree' ) );
+	}
+
+	/**
 	 * The maybe_flush_cache_on_slug_change() method flushes the cache only
 	 * when slug_kb actually changes — every post node's 'url' embeds
 	 * get_permalink(), which changes once Post_Types re-registers saai_kb

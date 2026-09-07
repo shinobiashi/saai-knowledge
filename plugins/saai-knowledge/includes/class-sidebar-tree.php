@@ -51,7 +51,33 @@ final class Sidebar_Tree {
 		add_action( 'created_saai_category', array( $this, 'flush_cache' ) );
 		add_action( 'edited_saai_category', array( $this, 'flush_cache' ) );
 		add_action( 'delete_saai_category', array( $this, 'flush_cache' ) );
+		// Re-assigning an existing saai_kb post to a different saai_category
+		// term (wp-admin's Quick Edit bulk category change, a REST update
+		// that only touches taxonomy terms, a direct wp_set_object_terms()
+		// call) goes through wp_set_object_terms() without necessarily
+		// calling wp_update_post() — save_post_saai_kb above doesn't fire,
+		// so this is needed to catch that case too (Codex review). Not
+		// narrowed to saai_kb objects: 'saai_category' is shared with
+		// saai_faq (docs/DESIGN.md section 3.2), and flushing on an
+		// unrelated saai_faq's term change is a harmless extra rebuild, the
+		// same tradeoff trashed_post/deleted_post above already accept.
+		add_action( 'set_object_terms', array( $this, 'flush_cache_on_term_relationship_change' ), 10, 4 );
 		add_action( 'update_option_saai_knowledge_settings', array( $this, 'maybe_flush_cache_on_slug_change' ), 10, 2 );
+	}
+
+	/**
+	 * Flushes the cache when an object's saai_category term relationships
+	 * change via wp_set_object_terms() — see register()'s docblock.
+	 *
+	 * @param int    $object_id Unused; kept to match the set_object_terms hook signature.
+	 * @param int[]  $terms     Unused.
+	 * @param int[]  $tt_ids    Unused.
+	 * @param string $taxonomy  The taxonomy terms were set for.
+	 */
+	public function flush_cache_on_term_relationship_change( int $object_id, array $terms, array $tt_ids, string $taxonomy ): void { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed -- $object_id/$terms/$tt_ids must precede $taxonomy to match the set_object_terms hook signature.
+		if ( 'saai_category' === $taxonomy ) {
+			$this->flush_cache();
+		}
 	}
 
 	/**
