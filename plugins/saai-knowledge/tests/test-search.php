@@ -216,6 +216,30 @@ class Test_Search extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A shortcode in the raw content (with no manual excerpt) must not leak
+	 * its literal `[shortcode ...]` syntax into the public REST response —
+	 * wp_trim_words()'s own internal tag-stripping only strips HTML tags, not
+	 * shortcode syntax, so excerpt_for() must run strip_shortcodes() first,
+	 * the same way core's wp_trim_excerpt() does (Codex review).
+	 */
+	public function test_results_strips_shortcode_syntax_from_the_fallback_excerpt() {
+		self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_faq',
+				'post_status'  => 'publish',
+				'post_title'   => 'Widget gallery',
+				'post_content' => 'Widget photos: [gallery ids="1,2,3"] see below.',
+				'post_excerpt' => '',
+			)
+		);
+
+		$results = $this->search->results( 'Widget', array( 'faq' ), 10 );
+
+		$this->assertStringNotContainsString( '[gallery', $results[0]['excerpt'] );
+		$this->assertStringContainsString( 'Widget photos:', $results[0]['excerpt'] );
+	}
+
+	/**
 	 * The `types` filter should actually exclude non-selected types, not
 	 * just label results.
 	 */
