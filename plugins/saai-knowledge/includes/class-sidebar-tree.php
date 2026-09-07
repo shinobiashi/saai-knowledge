@@ -63,6 +63,14 @@ final class Sidebar_Tree {
 		// same tradeoff trashed_post/deleted_post above already accept.
 		add_action( 'set_object_terms', array( $this, 'flush_cache_on_term_relationship_change' ), 10, 4 );
 		add_action( 'update_option_saai_knowledge_settings', array( $this, 'maybe_flush_cache_on_slug_change' ), 10, 2 );
+		// A brand-new install has no saai_knowledge_settings option row yet;
+		// update_option() delegates a first-ever save of it to add_option()
+		// internally (WordPress core: default_option_{$option} matching the
+		// old value short-circuits to add_option()), which never fires
+		// update_option_{$option} — only add_option_{$option} does. Without
+		// this, a slug changed on that very first save wouldn't flush this
+		// cache at all (Codex review).
+		add_action( 'add_option_saai_knowledge_settings', array( $this, 'flush_cache' ) );
 	}
 
 	/**

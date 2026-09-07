@@ -233,6 +233,27 @@ class Test_Kb_Sidebar extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A completely fresh install has no saai_knowledge_settings option row
+	 * yet; WordPress core's update_option() delegates a first-ever save of
+	 * it to add_option() internally, which fires add_option_{$option}
+	 * instead of update_option_{$option} — maybe_flush_cache_on_slug_change()
+	 * alone would miss a slug changed on that very first save (Codex
+	 * review).
+	 */
+	public function test_add_option_hook_invalidates_cache_on_first_ever_settings_save() {
+		$sidebar_tree = new Sidebar_Tree();
+		$sidebar_tree->register();
+
+		delete_option( 'saai_knowledge_settings' );
+
+		$sidebar_tree->build();
+
+		add_option( 'saai_knowledge_settings', array( 'slug_kb' => 'articles' ) );
+
+		$this->assertFalse( get_transient( 'saai_kb_sidebar_tree' ) );
+	}
+
+	/**
 	 * The tree should mirror the saai_category hierarchy with articles
 	 * nested under their term, ordered by menu_order then title.
 	 */
