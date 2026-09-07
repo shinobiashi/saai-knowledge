@@ -230,6 +230,7 @@ final class Sidebar_Tree {
 				$node['children'] = $this->apply_expansion( $node['children'], $ancestor_term_ids );
 			}
 		}
+		unset( $node ); // Break the reference: left dangling, a later reassignment of a loop-like variable in this scope could otherwise silently overwrite the last element (Copilot review).
 
 		return $nodes;
 	}
