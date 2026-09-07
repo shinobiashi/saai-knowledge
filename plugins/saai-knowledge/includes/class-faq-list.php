@@ -532,10 +532,30 @@ final class Faq_List {
 	 * an O(FAQ count) content-pipeline cost per page view into a one-time
 	 * cost per FAQ (perf review).
 	 *
+	 * That sharing is only safe for a render that doesn't itself vary by
+	 * viewer: render_answer_uncached() runs the answer's post_content through
+	 * do_blocks()/do_shortcode(), core's own the_content machinery, which can
+	 * legitimately contain a shortcode/block whose output varies by viewer —
+	 * not just by login state, but by anything a visitor's own cookies drive
+	 * (a cart, a language switcher, a geo/currency preference). Caching and
+	 * replaying one such visitor's render to every other visitor for up to a
+	 * day would leak whatever that render exposed, and a cache hit skips
+	 * whatever asset-enqueue side effects that shortcode/block would
+	 * otherwise perform on every render. A request carrying *any* cookie at
+	 * all — logged in or not — therefore bypasses this cache entirely, both
+	 * reading and writing it: the same heuristic Markdown_Output::render_cached()
+	 * already uses for the identical risk, and the one full-page-cache
+	 * plugins (WP Super Cache et al.) use to decide a request is safe to
+	 * serve from a shared cache (Codex review).
+	 *
 	 * @param \WP_Post $post The FAQ entry.
 	 * @return string
 	 */
 	private function render_answer( \WP_Post $post ): string {
+		if ( ! empty( $_COOKIE ) ) {
+			return $this->render_answer_uncached( $post );
+		}
+
 		$key    = self::answer_cache_key( $post->ID );
 		$cached = get_transient( $key );
 

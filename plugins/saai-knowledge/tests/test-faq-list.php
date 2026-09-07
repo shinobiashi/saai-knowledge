@@ -211,6 +211,41 @@ class Test_Faq_List extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A request carrying any cookie at all — not just a logged-in auth
+	 * cookie — must never read or write the shared answer cache, so a
+	 * viewer-dependent answer (a shortcode reading $_COOKIE, a cart, a
+	 * language preference, ...) can't leak into what a cookie-less visitor
+	 * sees for up to a day (same pattern as Markdown_Output's equivalent
+	 * test; Codex review).
+	 */
+	public function test_items_bypasses_answer_cache_for_any_cookie() {
+		add_shortcode(
+			'saai_test_session_marker',
+			static function () {
+				return isset( $_COOKIE['saai_test_session'] ) ? 'SESSION-SPECIFIC' : 'ANONYMOUS';
+			}
+		);
+
+		$this->create_faq( array( 'post_content' => 'Marker: [saai_test_session_marker]' ) );
+
+		try {
+			$_COOKIE['saai_test_session'] = '1';
+			$cookied                      = $this->faq_list->items( array() );
+			$this->assertStringContainsString( 'SESSION-SPECIFIC', $cookied[0]['answer'] );
+
+			// If the cookied render above had been cached, this cookie-less
+			// call would incorrectly see its leaked "SESSION-SPECIFIC" output
+			// instead of freshly re-evaluating the shortcode.
+			unset( $_COOKIE['saai_test_session'] );
+			$anonymous = $this->faq_list->items( array() );
+			$this->assertStringContainsString( 'ANONYMOUS', $anonymous[0]['answer'] );
+		} finally {
+			remove_shortcode( 'saai_test_session_marker' );
+			unset( $_COOKIE['saai_test_session'] );
+		}
+	}
+
+	/**
 	 * Shortcodes inside an answer should see the FAQ entry — not the page
 	 * containing the faq-list block — as the current post, and the containing
 	 * page's context should be restored after the render.
