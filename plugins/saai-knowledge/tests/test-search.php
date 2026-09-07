@@ -192,6 +192,30 @@ class Test_Search extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A post with no manual excerpt falls back to the first words of its raw
+	 * content (excerpt_for()'s has_excerpt()-gated branch) instead of running
+	 * the full the_content pipeline just to trim it down — block/shortcode
+	 * markup around the matched word must still come back as plain,
+	 * tag-stripped text, not raw block comments/shortcode syntax leaking
+	 * through unrendered.
+	 */
+	public function test_results_falls_back_to_trimmed_content_when_no_manual_excerpt_is_set() {
+		self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_faq',
+				'post_status'  => 'publish',
+				'post_title'   => 'Widget refund policy',
+				'post_content' => "<!-- wp:paragraph -->\n<p>Widgets are refundable within 30 days.</p>\n<!-- /wp:paragraph -->",
+				'post_excerpt' => '',
+			)
+		);
+
+		$results = $this->search->results( 'Widget', array( 'faq' ), 10 );
+
+		$this->assertSame( 'Widgets are refundable within 30 days.', trim( $results[0]['excerpt'] ) );
+	}
+
+	/**
 	 * The `types` filter should actually exclude non-selected types, not
 	 * just label results.
 	 */

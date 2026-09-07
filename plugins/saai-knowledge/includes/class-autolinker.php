@@ -355,24 +355,14 @@ final class Autolinker {
 			}
 		}
 
-		$entries = $this->dictionary_for_context( $context );
-
-		if ( $post instanceof \WP_Post ) {
-			$current_post_id = $post->ID;
-			$entries         = array_values(
-				array_filter(
-					$entries,
-					static function ( array $entry ) use ( $current_post_id ): bool {
-						return $entry['post_id'] !== $current_post_id;
-					}
-				)
-			);
-		}
-
-		if ( ! $entries ) {
-			return $html;
-		}
-
+		// The render-result cache is checked before building the dictionary,
+		// not after: cache_key() depends only on $html/$post/the generation/
+		// max_links(), never on the dictionary entries themselves, so a hit
+		// here can skip dictionary_for_context() (a get_cached_dictionary_entries()
+		// read plus a full sanitize_dictionary_entries() pass over every
+		// entry) entirely — that pass otherwise re-ran on every process()
+		// call regardless of whether its result would even be used (perf
+		// review).
 		$cache_key = $this->cache_key( $html, $post );
 		$cached    = wp_cache_get( $cache_key, self::CACHE_GROUP );
 
@@ -380,6 +370,24 @@ final class Autolinker {
 			$result    = $cached['html'];
 			$has_links = ! empty( $cached['has_links'] );
 		} else {
+			$entries = $this->dictionary_for_context( $context );
+
+			if ( $post instanceof \WP_Post ) {
+				$current_post_id = $post->ID;
+				$entries         = array_values(
+					array_filter(
+						$entries,
+						static function ( array $entry ) use ( $current_post_id ): bool {
+							return $entry['post_id'] !== $current_post_id;
+						}
+					)
+				);
+			}
+
+			if ( ! $entries ) {
+				return $html;
+			}
+
 			$link_count = 0;
 			$result     = $this->replace_in_html( $html, $entries, $link_count );
 			$has_links  = $link_count > 0;

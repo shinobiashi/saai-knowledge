@@ -5,10 +5,177 @@
  * @package SAAI\Knowledge
  */
 
+use SAAI\Knowledge\Sidebar_Tree;
+
 /**
  * Class Test_Kb_Sidebar.
  */
 class Test_Kb_Sidebar extends WP_UnitTestCase {
+
+	/**
+	 * The skeleton is cached: a second build() call after content changes
+	 * would otherwise still see the first build's article. Plugin::boot()
+	 * already registered its own Sidebar_Tree instance whose
+	 * save_post_saai_kb hook calls flush_cache() automatically (both share
+	 * the same transient key), so a plain factory create between two build()
+	 * calls is enough to exercise the production invalidation path — this is
+	 * the same pattern test-llms-index.php uses for Llms_Index.
+	 */
+	public function test_build_reflects_a_new_article_added_after_the_cache_was_warmed() {
+		$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+
+		$first_post_id = self::factory()->post->create( array( 'post_type' => 'saai_kb' ) );
+		wp_set_object_terms( $first_post_id, array( $term_id ), 'saai_category' );
+
+		( new Sidebar_Tree() )->build();
+
+		$second_post_id = self::factory()->post->create( array( 'post_type' => 'saai_kb' ) );
+		wp_set_object_terms( $second_post_id, array( $term_id ), 'saai_category' );
+
+		$tree      = ( new Sidebar_Tree() )->build();
+		$term_node = $this->find_node( $tree, $term_id );
+
+		$this->assertNotNull( $term_node );
+		$this->assertSame(
+			array( $first_post_id, $second_post_id ),
+			wp_list_pluck(
+				array_filter(
+					$term_node['children'],
+					static fn ( $node ) => 'post' === $node['type']
+				),
+				'id'
+			)
+		);
+	}
+
+	/**
+	 * Build()'s apply_expansion() step mutates the array cached_skeleton()
+	 * returns (via `foreach ... as &$node`) rather than building a fresh
+	 * copy. Two
+	 * consecutive build() calls in the same request, with different
+	 * current_post_id — and therefore different ancestor_term_ids — share the
+	 * same underlying transient-backed skeleton: each call's expansion must
+	 * be independent of the other's, not leak or accumulate across calls
+	 * (PHP's array copy-on-write means the second get_transient() read is
+	 * safe to mutate even though the first call already mutated its own copy
+	 * — this test locks that safety property in against a future refactor
+	 * that might, say, cache the built \WP_Term/\WP_Post objects by reference
+	 * instead of a plain array).
+	 */
+	public function test_build_expansion_is_independent_across_consecutive_calls_sharing_the_cached_skeleton() {
+		$parent_term = self::factory()->term->create_and_get( array( 'taxonomy' => 'saai_category' ) );
+		$other_term  = self::factory()->term->create_and_get( array( 'taxonomy' => 'saai_category' ) );
+
+		$post_under_parent = self::factory()->post->create( array( 'post_type' => 'saai_kb' ) );
+		wp_set_object_terms( $post_under_parent, array( $parent_term->term_id ), 'saai_category' );
+
+		$post_under_other = self::factory()->post->create( array( 'post_type' => 'saai_kb' ) );
+		wp_set_object_terms( $post_under_other, array( $other_term->term_id ), 'saai_category' );
+
+		$sidebar_tree = new Sidebar_Tree();
+
+		$first_tree        = $sidebar_tree->build( $post_under_parent );
+		$first_parent_node = $this->find_node( $first_tree, $parent_term->term_id );
+		$first_other_node  = $this->find_node( $first_tree, $other_term->term_id );
+
+		$this->assertTrue( $first_parent_node['expanded'] );
+		$this->assertFalse( $first_other_node['expanded'] );
+
+		// Same instance, same cached skeleton (still warm), different
+		// current_post_id: the roles must flip, not accumulate both as
+		// expanded or leak the first call's flags into the second.
+		$second_tree        = $sidebar_tree->build( $post_under_other );
+		$second_parent_node = $this->find_node( $second_tree, $parent_term->term_id );
+		$second_other_node  = $this->find_node( $second_tree, $other_term->term_id );
+
+		$this->assertFalse( $second_parent_node['expanded'] );
+		$this->assertTrue( $second_other_node['expanded'] );
+
+		// The first call's own result must still read as it did — proof the
+		// second call's mutation didn't reach back into it.
+		$this->assertTrue( $first_parent_node['expanded'] );
+		$this->assertFalse( $first_other_node['expanded'] );
+	}
+
+	/**
+	 * A force-delete (wp_delete_post( $id, true ) — REST's force=true, `wp
+	 * post delete --force`) skips wp_trash_post() entirely, so trashed_post
+	 * never fires; deleted_post must invalidate the cache too (same
+	 * reasoning as Llms_Index's equivalent test).
+	 */
+	public function test_deleted_post_hook_invalidates_cache() {
+		$sidebar_tree = new Sidebar_Tree();
+		$sidebar_tree->register();
+
+		$term_id = self::factory()->term->create( array( 'taxonomy' => 'saai_category' ) );
+		$post_id = self::factory()->post->create( array( 'post_type' => 'saai_kb' ) );
+		wp_set_object_terms( $post_id, array( $term_id ), 'saai_category' );
+
+		$sidebar_tree->build();
+
+		wp_delete_post( $post_id, true );
+
+		$tree      = $sidebar_tree->build();
+		$term_node = $this->find_node( $tree, $term_id );
+
+		$this->assertNotNull( $term_node );
+		$this->assertSame( array(), $term_node['children'] );
+	}
+
+	/**
+	 * Renaming a saai_category term changes a term node's 'title', which the
+	 * cached skeleton must pick up rather than keep serving the old name.
+	 */
+	public function test_edited_saai_category_hook_invalidates_cache() {
+		$sidebar_tree = new Sidebar_Tree();
+		$sidebar_tree->register();
+
+		$term_id = self::factory()->term->create(
+			array(
+				'taxonomy' => 'saai_category',
+				'name'     => 'Original Name',
+			)
+		);
+
+		$sidebar_tree->build();
+
+		wp_update_term( $term_id, 'saai_category', array( 'name' => 'Renamed' ) );
+
+		$tree      = $sidebar_tree->build();
+		$term_node = $this->find_node( $tree, $term_id );
+
+		$this->assertNotNull( $term_node );
+		$this->assertSame( 'Renamed', $term_node['title'] );
+	}
+
+	/**
+	 * The maybe_flush_cache_on_slug_change() method flushes the cache only
+	 * when slug_kb actually changes — every post node's 'url' embeds
+	 * get_permalink(), which changes once Post_Types re-registers saai_kb
+	 * with the new slug (same reasoning as Llms_Index's equivalent test).
+	 */
+	public function test_maybe_flush_cache_on_slug_change_flushes_only_on_a_real_slug_change() {
+		$sidebar_tree = new Sidebar_Tree();
+		$sidebar_tree->build();
+
+		$sidebar_tree->maybe_flush_cache_on_slug_change(
+			array(
+				'slug_kb'            => 'kb',
+				'autolink_max_links' => 20,
+			),
+			array(
+				'slug_kb'            => 'kb',
+				'autolink_max_links' => 5,
+			)
+		);
+		$this->assertIsArray( get_transient( 'saai_kb_sidebar_tree' ), 'An unrelated field change must not flush the cache.' );
+
+		$sidebar_tree->maybe_flush_cache_on_slug_change(
+			array( 'slug_kb' => 'kb' ),
+			array( 'slug_kb' => 'articles' )
+		);
+		$this->assertFalse( get_transient( 'saai_kb_sidebar_tree' ), 'A slug_kb change must flush the cache.' );
+	}
 
 	/**
 	 * The tree should mirror the saai_category hierarchy with articles

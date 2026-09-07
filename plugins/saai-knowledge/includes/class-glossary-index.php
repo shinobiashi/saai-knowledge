@@ -18,6 +18,49 @@ defined( 'ABSPATH' ) || exit;
 final class Glossary_Index {
 
 	/**
+	 * Transient key the grouped index is cached under.
+	 *
+	 * @var string
+	 */
+	private const CACHE_KEY = 'saai_glossary_index';
+
+	/**
+	 * How long the grouped index is cached for. Like Sidebar_Tree, this
+	 * rebuilds (query + per-item kana folding/sorting) on every render of the
+	 * glossary-index block/shortcode; a TTL self-heals anything the
+	 * invalidation hooks in register() don't cover.
+	 *
+	 * @var int
+	 */
+	private const CACHE_TTL = HOUR_IN_SECONDS;
+
+	/**
+	 * Upper bound on how many glossary entries items()/grouped_items() query.
+	 * The bundled archive template deliberately renders the full index as one
+	 * page (paged_glossary_archive_redirect_url()'s docblock, DESIGN.md
+	 * section 3.5) rather than paginating — this cap only guards against an
+	 * unbounded query on a glossary large enough that -1 would be a real
+	 * problem, not a change to that one-page design.
+	 *
+	 * @var int
+	 */
+	private const MAX_ITEMS = 5000;
+
+	/**
+	 * Hooks cache invalidation into WordPress.
+	 */
+	public function register(): void {
+		add_action( 'save_post_saai_glossary', array( $this, 'flush_cache' ) );
+		add_action( 'trashed_post', array( $this, 'flush_cache' ) );
+		// wp_delete_post( $id, true ) (REST's force=true, `wp post delete
+		// --force`) skips wp_trash_post() entirely, so trashed_post never
+		// fires — deleted_post is needed too (same reasoning as
+		// Llms_Index::register()).
+		add_action( 'deleted_post', array( $this, 'flush_cache' ) );
+		add_action( 'update_option_saai_knowledge_settings', array( $this, 'maybe_flush_cache_on_slug_change' ), 10, 2 );
+	}
+
+	/**
 	 * Bucket labels in display order: the ten gojūon rows, then A–Z, then the
 	 * catch-all bucket for readings that fold to neither (digits, symbols,
 	 * unreadable CJK left as-is).
@@ -119,7 +162,7 @@ final class Glossary_Index {
 				'post_type'           => 'saai_glossary',
 				'post_status'         => 'publish',
 				'has_password'        => false,
-				'posts_per_page'      => -1,
+				'posts_per_page'      => self::MAX_ITEMS,
 				'orderby'             => 'title',
 				'order'               => 'ASC',
 				'no_found_rows'       => true,
@@ -170,8 +213,24 @@ final class Glossary_Index {
 	 * @return string
 	 */
 	public function bucket_for( string $reading ): string {
-		$folded = Normalizer::fold_kana( Normalizer::normalize( $reading ) );
-		$first  = self::first_char( $folded );
+		return self::bucket_from_folded( Normalizer::fold_kana( Normalizer::normalize( $reading ) ) );
+	}
+
+	/**
+	 * The actual bucket-resolution logic bucket_for() wraps, taking an
+	 * already-normalized-and-kana-folded string so grouped_items() can share
+	 * one fold_kana()/normalize() pass with sort_key() instead of each
+	 * running it independently on the same reading (perf review — folding is
+	 * a per-character table walk, so this halves that cost for every entry).
+	 * Case-insensitive on the Latin-letter branch (it uppercases $first
+	 * itself), so it's safe to call with either sort_key()'s lowercased
+	 * output or bucket_for()'s own unmodified one.
+	 *
+	 * @param string $folded Normalize()+fold_kana() output.
+	 * @return string
+	 */
+	private static function bucket_from_folded( string $folded ): string {
+		$first = self::first_char( $folded );
 
 		if ( '' === $first ) {
 			return self::OTHER_BUCKET;
@@ -204,20 +263,71 @@ final class Glossary_Index {
 	}
 
 	/**
+	 * The cached result of grouped_items_uncached(), building and caching it
+	 * on a miss.
+	 *
+	 * @return array<int, array<string, mixed>> Groups shaped [ 'bucket' => string, 'items' => item[] ].
+	 */
+	public function grouped_items(): array {
+		$cached = get_transient( self::CACHE_KEY );
+
+		if ( is_array( $cached ) ) {
+			return $cached;
+		}
+
+		$groups = $this->grouped_items_uncached();
+
+		set_transient( self::CACHE_KEY, $groups, self::CACHE_TTL );
+
+		return $groups;
+	}
+
+	/**
+	 * Deletes the cached grouped index. Hooked to save/trash/delete of
+	 * saai_glossary posts. A stale cache otherwise only self-heals after
+	 * CACHE_TTL.
+	 */
+	public function flush_cache(): void {
+		delete_transient( self::CACHE_KEY );
+	}
+
+	/**
+	 * Flushes the cache when a saai_knowledge_settings save changes
+	 * slug_glossary — every item's 'url' embeds get_permalink(), which
+	 * changes as soon as Post_Types re-registers saai_glossary with its new
+	 * slug on the next init (same reasoning as Llms_Index's equivalent).
+	 *
+	 * @param mixed $old_value Previous `saai_knowledge_settings` value.
+	 * @param mixed $new_value New `saai_knowledge_settings` value.
+	 */
+	public function maybe_flush_cache_on_slug_change( $old_value, $new_value ): void {
+		$old_value = is_array( $old_value ) ? $old_value : array();
+		$new_value = is_array( $new_value ) ? $new_value : array();
+
+		if ( ( $old_value['slug_glossary'] ?? null ) !== ( $new_value['slug_glossary'] ?? null ) ) {
+			$this->flush_cache();
+		}
+	}
+
+	/**
 	 * All glossary entries grouped into index buckets, in BUCKET_ORDER —
 	 * buckets with no entries are omitted. Entries within a bucket are
 	 * sorted by sort_key(), then title as a final deterministic tie-break.
 	 *
 	 * @return array<int, array<string, mixed>> Groups shaped [ 'bucket' => string, 'items' => item[] ].
 	 */
-	public function grouped_items(): array {
+	private function grouped_items_uncached(): array {
 		$buckets = array();
 
 		foreach ( $this->items() as $item ) {
 			$reading = is_string( $item['reading'] ?? null ) ? $item['reading'] : '';
-			$bucket  = $this->bucket_for( $reading );
+			// normalize()+fold_kana() run once here and are shared between the
+			// bucket lookup and the sort key (see bucket_from_folded()'s
+			// docblock) instead of each independently reprocessing $reading.
+			$folded = Normalizer::fold_kana( Normalizer::normalize( $reading ) );
+			$bucket = self::bucket_from_folded( $folded );
 
-			$item['sort_key']     = $this->sort_key( $reading );
+			$item['sort_key']     = strtolower( $folded );
 			$buckets[ $bucket ][] = $item;
 		}
 

@@ -285,7 +285,7 @@ final class Search {
 				continue;
 			}
 
-			// get_the_title()/get_the_excerpt() encode characters as HTML
+			// get_the_title()/excerpt_for() encode characters as HTML
 			// references (the_title/get_the_excerpt filters); decode them
 			// since this is plain-text JSON consumed via JS textContent, not
 			// an HTML sink (see class-glossary-term.php for the same pattern
@@ -295,7 +295,7 @@ final class Search {
 				'type'    => $type_key,
 				'title'   => html_entity_decode( wp_strip_all_tags( get_the_title( $post ) ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' ),
 				'url'     => (string) get_permalink( $post ),
-				'excerpt' => html_entity_decode( wp_strip_all_tags( get_the_excerpt( $post ) ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' ),
+				'excerpt' => self::excerpt_for( $post ),
 			);
 		}
 
@@ -312,6 +312,30 @@ final class Search {
 
 		// @phpstan-ignore ternary.elseUnreachable (PHPStan trusts the docblock @param type above, but a third-party saai_search_results callback can violate it at runtime.)
 		return is_array( $results ) ? $results : array();
+	}
+
+	/**
+	 * A plain-text search-result excerpt for a post: its manual excerpt if
+	 * set, otherwise the first 55 words of its raw content — the same
+	 * has_excerpt()-gated fallback Autolinker::entry_excerpt() uses.
+	 *
+	 * Deliberately not get_the_excerpt() unconditionally: without a manual
+	 * excerpt, that runs the post's content through the full `the_content`
+	 * pipeline (do_blocks(), wpautop(), do_shortcode(), every third-party
+	 * the_content filter — including this plugin's own Autolinker) merely to
+	 * discard everything past the first 55 words. This instant-search
+	 * endpoint can be dispatched once per keystroke, up to MAX_PER_PAGE times
+	 * per request; wp_trim_words() on the raw content directly (only ever
+	 * stripping tags, never rendering them) reaches the same-length result
+	 * without that cost (perf review).
+	 *
+	 * @param \WP_Post $post Result post.
+	 * @return string
+	 */
+	private static function excerpt_for( \WP_Post $post ): string {
+		$text = has_excerpt( $post ) ? get_the_excerpt( $post ) : wp_trim_words( $post->post_content, 55 );
+
+		return html_entity_decode( wp_strip_all_tags( $text ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' );
 	}
 
 	/**

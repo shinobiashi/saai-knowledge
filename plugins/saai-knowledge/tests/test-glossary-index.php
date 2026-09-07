@@ -186,6 +186,88 @@ class Test_Glossary_Index extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The grouped_items() result is cached: Plugin::boot() already registered its own
+	 * Glossary_Index instance whose save_post_saai_glossary hook calls
+	 * flush_cache() automatically (both share the same transient key), so a
+	 * plain factory create between two grouped_items() calls is enough to
+	 * exercise the production invalidation path — same pattern
+	 * test-llms-index.php uses for Llms_Index.
+	 */
+	public function test_grouped_items_reflects_a_new_entry_added_after_the_cache_was_warmed() {
+		$this->create_term( 'Apple' );
+
+		$this->index->grouped_items();
+
+		$this->create_term( 'Banana' );
+
+		$groups    = $this->index->grouped_items();
+		$by_bucket = array();
+
+		foreach ( $groups as $group ) {
+			$by_bucket[ $group['bucket'] ] = wp_list_pluck( $group['items'], 'title' );
+		}
+
+		$this->assertSame( array( 'Apple' ), $by_bucket['A'] );
+		$this->assertSame( array( 'Banana' ), $by_bucket['B'] );
+	}
+
+	/**
+	 * A force-delete (wp_delete_post( $id, true ) — REST's force=true, `wp
+	 * post delete --force`) skips wp_trash_post() entirely, so trashed_post
+	 * never fires; deleted_post must invalidate the cache too (same
+	 * reasoning as Llms_Index's equivalent test).
+	 */
+	public function test_deleted_post_hook_invalidates_cache() {
+		$this->index->register();
+
+		$post_id = $this->create_term( 'Deleted Soon' );
+
+		$this->index->grouped_items();
+
+		wp_delete_post( $post_id, true );
+
+		$groups = $this->index->grouped_items();
+		$titles = array();
+
+		foreach ( $groups as $group ) {
+			foreach ( $group['items'] as $item ) {
+				$titles[] = $item['title'];
+			}
+		}
+
+		$this->assertNotContains( 'Deleted Soon', $titles );
+	}
+
+	/**
+	 * The maybe_flush_cache_on_slug_change() method flushes the cache only
+	 * when slug_glossary actually changes — every item's 'url' embeds
+	 * get_permalink(), which changes once Post_Types re-registers
+	 * saai_glossary with the new slug (same reasoning as Llms_Index's
+	 * equivalent test).
+	 */
+	public function test_maybe_flush_cache_on_slug_change_flushes_only_on_a_real_slug_change() {
+		$this->index->grouped_items();
+
+		$this->index->maybe_flush_cache_on_slug_change(
+			array(
+				'slug_glossary'      => 'glossary',
+				'autolink_max_links' => 20,
+			),
+			array(
+				'slug_glossary'      => 'glossary',
+				'autolink_max_links' => 5,
+			)
+		);
+		$this->assertIsArray( get_transient( 'saai_glossary_index' ), 'An unrelated field change must not flush the cache.' );
+
+		$this->index->maybe_flush_cache_on_slug_change(
+			array( 'slug_glossary' => 'glossary' ),
+			array( 'slug_glossary' => 'terms' )
+		);
+		$this->assertFalse( get_transient( 'saai_glossary_index' ), 'A slug_glossary change must flush the cache.' );
+	}
+
+	/**
 	 * Draft and password-protected entries should never appear in the index.
 	 */
 	public function test_items_excludes_non_public_entries() {
