@@ -192,51 +192,40 @@ class Test_Search extends WP_UnitTestCase {
 	}
 
 	/**
-	 * A post with no manual excerpt falls back to the first words of its raw
-	 * content (excerpt_for()'s has_excerpt()-gated branch) instead of running
-	 * the full the_content pipeline just to trim it down — block/shortcode
-	 * markup around the matched word must still come back as plain,
-	 * tag-stripped text, not raw block comments/shortcode syntax leaking
-	 * through unrendered.
+	 * A post with no manual excerpt still goes through get_the_excerpt()'s
+	 * full the_content pipeline (via wp_trim_excerpt()) rather than a
+	 * lighter-weight fallback that bypasses it — a site's own access-control
+	 * plugin (membership/age-gating/etc.) hooks exactly that filter to
+	 * replace a restricted post's body with a teaser, and this is a public,
+	 * unauthenticated REST endpoint. A the_content callback simulates such a
+	 * plugin here; its replacement text, not the real post body, must be
+	 * what the search response exposes (Codex review).
 	 */
-	public function test_results_falls_back_to_trimmed_content_when_no_manual_excerpt_is_set() {
+	public function test_results_excerpt_honors_the_content_access_control_filters() {
 		self::factory()->post->create(
 			array(
 				'post_type'    => 'saai_faq',
 				'post_status'  => 'publish',
 				'post_title'   => 'Widget refund policy',
-				'post_content' => "<!-- wp:paragraph -->\n<p>Widgets are refundable within 30 days.</p>\n<!-- /wp:paragraph -->",
+				'post_content' => 'Widgets are refundable within 30 days, secret details follow.',
 				'post_excerpt' => '',
 			)
 		);
 
-		$results = $this->search->results( 'Widget', array( 'faq' ), 10 );
+		$gate = static function () {
+			return 'Restricted — members only.';
+		};
 
-		$this->assertSame( 'Widgets are refundable within 30 days.', trim( $results[0]['excerpt'] ) );
-	}
+		add_filter( 'the_content', $gate );
 
-	/**
-	 * A shortcode in the raw content (with no manual excerpt) must not leak
-	 * its literal `[shortcode ...]` syntax into the public REST response —
-	 * wp_trim_words()'s own internal tag-stripping only strips HTML tags, not
-	 * shortcode syntax, so excerpt_for() must run strip_shortcodes() first,
-	 * the same way core's wp_trim_excerpt() does (Codex review).
-	 */
-	public function test_results_strips_shortcode_syntax_from_the_fallback_excerpt() {
-		self::factory()->post->create(
-			array(
-				'post_type'    => 'saai_faq',
-				'post_status'  => 'publish',
-				'post_title'   => 'Widget gallery',
-				'post_content' => 'Widget photos: [gallery ids="1,2,3"] see below.',
-				'post_excerpt' => '',
-			)
-		);
+		try {
+			$results = $this->search->results( 'Widget', array( 'faq' ), 10 );
+		} finally {
+			remove_filter( 'the_content', $gate );
+		}
 
-		$results = $this->search->results( 'Widget', array( 'faq' ), 10 );
-
-		$this->assertStringNotContainsString( '[gallery', $results[0]['excerpt'] );
-		$this->assertStringContainsString( 'Widget photos:', $results[0]['excerpt'] );
+		$this->assertSame( 'Restricted — members only.', trim( $results[0]['excerpt'] ) );
+		$this->assertStringNotContainsString( 'secret details', $results[0]['excerpt'] );
 	}
 
 	/**

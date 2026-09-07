@@ -315,40 +315,28 @@ final class Search {
 	}
 
 	/**
-	 * A plain-text search-result excerpt for a post: its manual excerpt if
-	 * set, otherwise the first 55 words of its raw content, stripped of
-	 * shortcode/block syntax the same way core's own wp_trim_excerpt() does.
+	 * A plain-text search-result excerpt for a post: always get_the_excerpt(),
+	 * decoded/stripped for this endpoint's plain-text JSON sink.
 	 *
-	 * Deliberately not get_the_excerpt() unconditionally: without a manual
-	 * excerpt, that runs the post's content through the full `the_content`
-	 * pipeline (do_blocks(), wpautop(), do_shortcode(), every third-party
-	 * the_content filter — including this plugin's own Autolinker) merely to
-	 * discard everything past the first 55 words. This instant-search
-	 * endpoint can be dispatched once per keystroke, up to MAX_PER_PAGE times
-	 * per request; wp_trim_words() on the raw content directly reaches the
-	 * same-length result without executing any of that (perf review).
-	 *
-	 * strip_shortcodes()/excerpt_remove_blocks() run first because
-	 * wp_trim_words()'s own internal wp_strip_all_tags() only strips HTML
-	 * tags — a literal `[gallery ids="1,2,3"]` or an unparsed block comment
-	 * isn't one, so it would otherwise reach this public REST response
-	 * verbatim. wp_trim_excerpt() applies the exact same two calls, in this
-	 * order, before its own wp_trim_words() call, for the same reason
-	 * (Codex review).
+	 * A prior revision of this method skipped get_the_excerpt() when no
+	 * manual excerpt was set, falling back to wp_trim_words() on the raw
+	 * post_content directly — avoiding the full `the_content` pipeline
+	 * wp_trim_excerpt() runs internally in that case. That was a real
+	 * regression, not just a missed optimization: `the_content` is exactly
+	 * where a site's own access-control plugins (membership/age-gating/etc.)
+	 * hook to replace a restricted post's body with a teaser, and this is a
+	 * public, unauthenticated REST endpoint. Bypassing `the_content` bypassed
+	 * that protection too, exposing the real post body's opening words to
+	 * anyone regardless of access level (Codex review). There is no safe way
+	 * to keep the performance win here: which third-party `the_content`
+	 * callbacks matter for access control isn't something this plugin can
+	 * distinguish from purely cosmetic ones, so the whole pipeline has to run.
 	 *
 	 * @param \WP_Post $post Result post.
 	 * @return string
 	 */
 	private static function excerpt_for( \WP_Post $post ): string {
-		if ( has_excerpt( $post ) ) {
-			$text = get_the_excerpt( $post );
-		} else {
-			$text = strip_shortcodes( $post->post_content );
-			$text = excerpt_remove_blocks( $text );
-			$text = wp_trim_words( $text, 55 );
-		}
-
-		return html_entity_decode( wp_strip_all_tags( $text ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' );
+		return html_entity_decode( wp_strip_all_tags( get_the_excerpt( $post ) ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' );
 	}
 
 	/**
