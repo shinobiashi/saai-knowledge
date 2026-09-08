@@ -533,9 +533,13 @@ final class Faq_List {
 	 * cost per FAQ (perf review).
 	 *
 	 * That sharing is only safe for a render that doesn't itself vary by
-	 * viewer: render_answer_uncached() runs the answer's post_content through
-	 * do_blocks()/do_shortcode(), core's own the_content machinery, which can
-	 * legitimately contain a shortcode/block whose output varies by viewer —
+	 * viewer. render_answer_uncached() deliberately never re-enters the
+	 * `the_content` filter chain (see its own docblock), so a third-party
+	 * `the_content` callback — this plugin's own Autolinker included — never
+	 * runs here; the risk is narrower than that, but still real:
+	 * do_blocks()/do_shortcode() still execute whatever block render
+	 * callback or shortcode handler a post's content names directly, and
+	 * that callback's own implementation can legitimately vary by viewer —
 	 * not just by login state, but by anything a visitor's own cookies drive
 	 * (a cart, a language switcher, a geo/currency preference). Caching and
 	 * replaying one such visitor's render to every other visitor for up to a
@@ -546,7 +550,9 @@ final class Faq_List {
 	 * reading and writing it: the same heuristic Markdown_Output::render_cached()
 	 * already uses for the identical risk, and the one full-page-cache
 	 * plugins (WP Super Cache et al.) use to decide a request is safe to
-	 * serve from a shared cache (Codex review).
+	 * serve from a shared cache (Codex review; wording corrected per Copilot
+	 * review — an earlier revision overstated this as running the full
+	 * `the_content` pipeline).
 	 *
 	 * A core/block reference (a synced pattern/reusable block) is a second,
 	 * independent reason a cache keyed only by this FAQ's own ID/modified
