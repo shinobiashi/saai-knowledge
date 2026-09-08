@@ -1,11 +1,9 @@
 <?php
 /**
- * PHPUnit bootstrap file.
- *
- * @package SAAI\Knowledge
+ * PHPUnit bootstrap file for the monorepo (free plugin + WooCommerce add-on).
  */
 
-$saai_composer_autoload = dirname( __DIR__, 3 ) . '/vendor/autoload.php';
+$saai_composer_autoload = dirname( __DIR__ ) . '/vendor/autoload.php';
 
 if ( ! file_exists( $saai_composer_autoload ) ) {
 	// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite -- CLI diagnostic output before WordPress (and WP_Filesystem) is loaded.
@@ -22,7 +20,7 @@ if ( ! $saai_tests_dir ) {
 }
 
 if ( ! $saai_tests_dir ) {
-	$saai_tests_dir = dirname( __DIR__, 3 ) . '/vendor/wp-phpunit/wp-phpunit';
+	$saai_tests_dir = dirname( __DIR__ ) . '/vendor/wp-phpunit/wp-phpunit';
 }
 
 if ( ! file_exists( $saai_tests_dir . '/includes/functions.php' ) ) {
@@ -34,12 +32,18 @@ if ( ! file_exists( $saai_tests_dir . '/includes/functions.php' ) ) {
 require_once $saai_tests_dir . '/includes/functions.php';
 
 /**
- * Manually load the plugin under test.
+ * Manually loads the free plugin and the WooCommerce add-on under test.
+ *
+ * The free plugin is required first so its `plugins_loaded` (priority 20)
+ * and `saai_loaded` hooks are registered before the add-on's own
+ * `plugins_loaded` (priority 21) / `saai_loaded` listeners, matching the
+ * load order a real WordPress install would produce.
  */
-function saai_knowledge_tests_load_plugin() {
-	require dirname( __DIR__ ) . '/saai-knowledge.php';
+function saai_knowledge_tests_load_plugins() {
+	require dirname( __DIR__ ) . '/plugins/saai-knowledge/saai-knowledge.php';
+	require dirname( __DIR__ ) . '/plugins/saai-knowledge-for-woocommerce/saai-knowledge-for-woocommerce.php';
 }
-tests_add_filter( 'muplugins_loaded', 'saai_knowledge_tests_load_plugin' );
+tests_add_filter( 'muplugins_loaded', 'saai_knowledge_tests_load_plugins' );
 
 require $saai_tests_dir . '/includes/bootstrap.php';
 

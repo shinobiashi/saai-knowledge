@@ -5,7 +5,7 @@
 FAQ・Knowledge Base・用語集（Glossary）を WordPress サイトに追加する WordPress プラグインのモノレポです。読者と AI クローラーの両方が期待する構造・ナビゲーション・構造化データを備えています。
 
 - **[SAAI Knowledge](plugins/saai-knowledge/)** — 無料版。[WordPress.org](https://wordpress.org/plugins/saai-knowledge/) で配布。
-- **SAAI Knowledge for WooCommerce** — 有料版アドオン。WooCommerce.com Marketplace で販売し、FAQ/KB/用語集コンテンツを WooCommerce の商品・商品カテゴリーに紐づけます。無料版単体でも利用可能で、有料版は必須ではありません。
+- **SAAI Knowledge for WooCommerce** — 有料版アドオン。FAQ/KB/用語集コンテンツを WooCommerce の商品・商品カテゴリーに紐づけます。WooCommerce.com Marketplace での販売を予定していますが、まだ公開されていません。無料版単体でも利用可能で、有料版は必須ではありません。
 
 ## 主な機能（無料版）
 
