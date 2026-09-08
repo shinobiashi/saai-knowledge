@@ -30,6 +30,18 @@ class Test_Glossary_Index extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The transient key grouped_items() caches under for the current
+	 * request's locale — mirrors Glossary_Index::cache_key() (private)
+	 * exactly, so tests can assert on it without depending on a specific
+	 * locale value.
+	 *
+	 * @return string
+	 */
+	private function cache_key(): string {
+		return 'saai_glossary_index_' . md5( get_locale() );
+	}
+
+	/**
 	 * Creates a published glossary entry.
 	 *
 	 * @param string $title   Term title.
@@ -183,6 +195,181 @@ class Test_Glossary_Index extends WP_UnitTestCase {
 
 		$this->assertCount( 1, $groups );
 		$this->assertSame( 'A', $groups[0]['bucket'] );
+	}
+
+	/**
+	 * The grouped_items() result is cached: Plugin::boot() already registered its own
+	 * Glossary_Index instance whose save_post_saai_glossary hook calls
+	 * flush_cache() automatically (both share the same transient key), so a
+	 * plain factory create between two grouped_items() calls is enough to
+	 * exercise the production invalidation path — same pattern
+	 * test-llms-index.php uses for Llms_Index.
+	 */
+	public function test_grouped_items_reflects_a_new_entry_added_after_the_cache_was_warmed() {
+		$this->create_term( 'Apple' );
+
+		$this->index->grouped_items();
+
+		$this->create_term( 'Banana' );
+
+		$groups    = $this->index->grouped_items();
+		$by_bucket = array();
+
+		foreach ( $groups as $group ) {
+			$by_bucket[ $group['bucket'] ] = wp_list_pluck( $group['items'], 'title' );
+		}
+
+		$this->assertSame( array( 'Apple' ), $by_bucket['A'] );
+		$this->assertSame( array( 'Banana' ), $by_bucket['B'] );
+	}
+
+	/**
+	 * A force-delete (wp_delete_post( $id, true ) — REST's force=true, `wp
+	 * post delete --force`) skips wp_trash_post() entirely, so trashed_post
+	 * never fires; deleted_post must invalidate the cache too (same
+	 * reasoning as Llms_Index's equivalent test).
+	 */
+	public function test_deleted_post_hook_invalidates_cache() {
+		$this->index->register();
+
+		$post_id = $this->create_term( 'Deleted Soon' );
+
+		$this->index->grouped_items();
+
+		wp_delete_post( $post_id, true );
+
+		$groups = $this->index->grouped_items();
+		$titles = array();
+
+		foreach ( $groups as $group ) {
+			foreach ( $group['items'] as $item ) {
+				$titles[] = $item['title'];
+			}
+		}
+
+		$this->assertNotContains( 'Deleted Soon', $titles );
+	}
+
+	/**
+	 * The maybe_flush_cache_on_slug_change() method flushes the cache only
+	 * when slug_glossary actually changes — every item's 'url' embeds
+	 * get_permalink(), which changes once Post_Types re-registers
+	 * saai_glossary with the new slug (same reasoning as Llms_Index's
+	 * equivalent test).
+	 */
+	public function test_maybe_flush_cache_on_slug_change_flushes_only_on_a_real_slug_change() {
+		$this->index->grouped_items();
+
+		$this->index->maybe_flush_cache_on_slug_change(
+			array(
+				'slug_glossary'      => 'glossary',
+				'autolink_max_links' => 20,
+			),
+			array(
+				'slug_glossary'      => 'glossary',
+				'autolink_max_links' => 5,
+			)
+		);
+		$this->assertIsArray( get_transient( $this->cache_key() ), 'An unrelated field change must not flush the cache.' );
+
+		$this->index->maybe_flush_cache_on_slug_change(
+			array( 'slug_glossary' => 'glossary' ),
+			array( 'slug_glossary' => 'terms' )
+		);
+		$this->assertFalse( get_transient( $this->cache_key() ), 'A slug_glossary change must flush the cache.' );
+	}
+
+	/**
+	 * A direct update_post_meta( $id, Post_Meta::READING, ... ) call (an
+	 * import script, a migration) changes a term's bucket/sort key without
+	 * going through wp_update_post(), so save_post_saai_glossary never fires
+	 * for it — added/updated/deleted_post_meta must invalidate the cache too
+	 * (Codex review).
+	 */
+	public function test_reading_meta_change_invalidates_cache() {
+		$this->index->register();
+
+		$post_id = $this->create_term( 'かいと', 'かいと' );
+
+		$this->index->grouped_items();
+
+		update_post_meta( $post_id, Post_Meta::READING, 'あんこ' );
+
+		$groups  = $this->index->grouped_items();
+		$buckets = wp_list_pluck( $groups, 'bucket' );
+
+		$this->assertSame( array( 'あ' ), $buckets );
+		$this->assertSame( array( 'かいと' ), wp_list_pluck( $groups[0]['items'], 'title' ) );
+	}
+
+	/**
+	 * A completely fresh install has no saai_knowledge_settings option row
+	 * yet; WordPress core's update_option() delegates a first-ever save of
+	 * it to add_option() internally, which fires add_option_{$option}
+	 * instead of update_option_{$option} — maybe_flush_cache_on_slug_change()
+	 * alone would miss a slug changed on that very first save (Codex
+	 * review).
+	 */
+	public function test_add_option_hook_invalidates_cache_on_first_ever_settings_save() {
+		$this->index->register();
+
+		delete_option( 'saai_knowledge_settings' );
+
+		$this->index->grouped_items();
+
+		add_option( 'saai_knowledge_settings', array( 'slug_glossary' => 'terms' ) );
+
+		$this->assertFalse( get_transient( $this->cache_key() ) );
+	}
+
+	/**
+	 * A multilingual site (WPML/Polylang) hooks pre_get_posts to restrict
+	 * saai_glossary query results to the request's current language
+	 * (get_locale(), which such plugins filter); grouped_items()'s cache must
+	 * key on that too, or whichever language rendered the index first would
+	 * get served to every other language for up to CACHE_TTL (Codex review).
+	 */
+	public function test_grouped_items_does_not_leak_between_locales() {
+		$this->create_term( 'Apple' );
+		$japanese_only_id = $this->create_term( 'Banana' );
+
+		// Stands in for a multilingual plugin's own pre_get_posts filtering:
+		// this term is only visible while the ja_JP locale is active.
+		$restrict_by_locale = static function ( \WP_Query $query ) use ( $japanese_only_id ) {
+			if ( 'saai_glossary' === $query->get( 'post_type' ) && 'ja_JP' !== get_locale() ) {
+				$query->set( 'post__not_in', array( $japanese_only_id ) );
+			}
+		};
+
+		add_action( 'pre_get_posts', $restrict_by_locale );
+
+		$locale_filter = static function () {
+			return 'ja_JP';
+		};
+
+		try {
+			add_filter( 'locale', $locale_filter );
+			$ja_groups = $this->index->grouped_items();
+			remove_filter( 'locale', $locale_filter );
+
+			$en_groups = $this->index->grouped_items();
+		} finally {
+			remove_action( 'pre_get_posts', $restrict_by_locale );
+			remove_filter( 'locale', $locale_filter );
+		}
+
+		$ja_titles = array();
+		foreach ( $ja_groups as $group ) {
+			$ja_titles = array_merge( $ja_titles, wp_list_pluck( $group['items'], 'title' ) );
+		}
+
+		$en_titles = array();
+		foreach ( $en_groups as $group ) {
+			$en_titles = array_merge( $en_titles, wp_list_pluck( $group['items'], 'title' ) );
+		}
+
+		$this->assertContains( 'Banana', $ja_titles, 'test setup: the ja_JP-locale call should see the term restricted to it' );
+		$this->assertNotContains( 'Banana', $en_titles, "the default-locale call must not see the ja_JP-locale call's cached result" );
 	}
 
 	/**

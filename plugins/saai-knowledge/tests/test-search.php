@@ -192,6 +192,43 @@ class Test_Search extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A post with no manual excerpt still goes through get_the_excerpt()'s
+	 * full the_content pipeline (via wp_trim_excerpt()) rather than a
+	 * lighter-weight fallback that bypasses it — a site's own access-control
+	 * plugin (membership/age-gating/etc.) hooks exactly that filter to
+	 * replace a restricted post's body with a teaser, and this is a public,
+	 * unauthenticated REST endpoint. A the_content callback simulates such a
+	 * plugin here; its replacement text, not the real post body, must be
+	 * what the search response exposes (Codex review).
+	 */
+	public function test_results_excerpt_honors_the_content_access_control_filters() {
+		self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_faq',
+				'post_status'  => 'publish',
+				'post_title'   => 'Widget refund policy',
+				'post_content' => 'Widgets are refundable within 30 days, secret details follow.',
+				'post_excerpt' => '',
+			)
+		);
+
+		$gate = static function () {
+			return 'Restricted — members only.';
+		};
+
+		add_filter( 'the_content', $gate );
+
+		try {
+			$results = $this->search->results( 'Widget', array( 'faq' ), 10 );
+		} finally {
+			remove_filter( 'the_content', $gate );
+		}
+
+		$this->assertSame( 'Restricted — members only.', trim( $results[0]['excerpt'] ) );
+		$this->assertStringNotContainsString( 'secret details', $results[0]['excerpt'] );
+	}
+
+	/**
 	 * The `types` filter should actually exclude non-selected types, not
 	 * just label results.
 	 */

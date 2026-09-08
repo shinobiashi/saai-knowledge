@@ -171,6 +171,117 @@ class Test_Faq_List extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The rendered answer is cached per FAQ: a save_post_saai_faq (fired by
+	 * wp_update_post()) must invalidate it, or items() would keep serving the
+	 * pre-edit answer for up to a day (register()'s flush_answer_cache()).
+	 */
+	public function test_items_reflects_an_edited_answer_after_the_cache_was_warmed() {
+		$faq_id = $this->create_faq( array( 'post_content' => 'Original answer' ) );
+
+		$first = $this->faq_list->items( array() );
+		$this->assertStringContainsString( 'Original answer', $first[0]['answer'] );
+
+		wp_update_post(
+			array(
+				'ID'           => $faq_id,
+				'post_content' => 'Updated answer',
+			)
+		);
+
+		$second = $this->faq_list->items( array() );
+		$this->assertStringContainsString( 'Updated answer', $second[0]['answer'] );
+		$this->assertStringNotContainsString( 'Original answer', $second[0]['answer'] );
+	}
+
+	/**
+	 * A force-delete (wp_delete_post( $id, true ) — REST's force=true, `wp
+	 * post delete --force`) skips wp_trash_post() entirely, so trashed_post
+	 * never fires; deleted_post must invalidate the answer cache too (same
+	 * reasoning as Markdown_Output's equivalent test) — otherwise the
+	 * orphaned transient just sits uncollected for up to a day.
+	 */
+	public function test_deleted_post_hook_invalidates_answer_cache() {
+		$faq_id = $this->create_faq( array( 'post_content' => 'Doomed answer' ) );
+
+		$this->faq_list->items( array() );
+
+		wp_delete_post( $faq_id, true );
+
+		$this->assertFalse( get_transient( 'saai_faq_answer_' . $faq_id ) );
+	}
+
+	/**
+	 * A request carrying any cookie at all — not just a logged-in auth
+	 * cookie — must never read or write the shared answer cache, so a
+	 * viewer-dependent answer (a shortcode reading $_COOKIE, a cart, a
+	 * language preference, ...) can't leak into what a cookie-less visitor
+	 * sees for up to a day (same pattern as Markdown_Output's equivalent
+	 * test; Codex review).
+	 */
+	public function test_items_bypasses_answer_cache_for_any_cookie() {
+		add_shortcode(
+			'saai_test_session_marker',
+			static function () {
+				return isset( $_COOKIE['saai_test_session'] ) ? 'SESSION-SPECIFIC' : 'ANONYMOUS';
+			}
+		);
+
+		$this->create_faq( array( 'post_content' => 'Marker: [saai_test_session_marker]' ) );
+
+		try {
+			$_COOKIE['saai_test_session'] = '1';
+			$cookied                      = $this->faq_list->items( array() );
+			$this->assertStringContainsString( 'SESSION-SPECIFIC', $cookied[0]['answer'] );
+
+			// If the cookied render above had been cached, this cookie-less
+			// call would incorrectly see its leaked "SESSION-SPECIFIC" output
+			// instead of freshly re-evaluating the shortcode.
+			unset( $_COOKIE['saai_test_session'] );
+			$anonymous = $this->faq_list->items( array() );
+			$this->assertStringContainsString( 'ANONYMOUS', $anonymous[0]['answer'] );
+		} finally {
+			remove_shortcode( 'saai_test_session_marker' );
+			unset( $_COOKIE['saai_test_session'] );
+		}
+	}
+
+	/**
+	 * An answer referencing a synced pattern (core/block, a wp_block post)
+	 * must never be cached: render_block_core_block() renders the referenced
+	 * wp_block post's own current content, which can change independently of
+	 * this FAQ post being saved — flush_answer_cache() has nothing to
+	 * invalidate on, so a cached copy would keep serving the pattern's
+	 * pre-edit content for up to a day (Codex review).
+	 */
+	public function test_items_bypasses_answer_cache_for_a_synced_pattern_reference() {
+		$pattern_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'wp_block',
+				'post_status'  => 'publish',
+				'post_content' => 'Original pattern content',
+			)
+		);
+
+		$this->create_faq(
+			array( 'post_content' => '<!-- wp:block {"ref":' . $pattern_id . '} /-->' )
+		);
+
+		$before = $this->faq_list->items( array() );
+		$this->assertStringContainsString( 'Original pattern content', $before[0]['answer'] );
+
+		wp_update_post(
+			array(
+				'ID'           => $pattern_id,
+				'post_content' => 'Updated pattern content',
+			)
+		);
+
+		$after = $this->faq_list->items( array() );
+		$this->assertStringContainsString( 'Updated pattern content', $after[0]['answer'] );
+		$this->assertStringNotContainsString( 'Original pattern content', $after[0]['answer'] );
+	}
+
+	/**
 	 * Shortcodes inside an answer should see the FAQ entry — not the page
 	 * containing the faq-list block — as the current post, and the containing
 	 * page's context should be restored after the render.

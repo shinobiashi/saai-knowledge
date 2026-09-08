@@ -355,6 +355,24 @@ final class Autolinker {
 			}
 		}
 
+		// The dictionary is resolved (and the empty-dictionary case returned)
+		// BEFORE the render-result cache is even consulted — not reordered
+		// to check the cache first, even though that could skip
+		// dictionary_for_context() (a get_cached_dictionary_entries() read
+		// plus a full sanitize_dictionary_entries() pass) on a hit. That
+		// reorder was tried and reverted: saai_autolink_dictionary is a
+		// public filter (docs/DESIGN-HOOKS-API.md section 5) documented to
+		// vary its returned entries by $context, but it can just as
+		// legitimately vary by ANY other request state (is_user_logged_in(),
+		// a WooCommerce cart, ...) that a $context-only cache key can never
+		// capture. Checking the cache first means whichever request/context
+		// happened to populate it first silently wins for every later
+		// request/context sharing the same html/post — including one whose
+		// own (correctly re-evaluated) dictionary is empty, which must
+		// return $html unmodified rather than another call's cached linked
+		// result (Codex review, two rounds: folding $context into
+		// cache_key() closed the context-only case but not this one, so the
+		// ordering itself has to stay dictionary-first).
 		$entries = $this->dictionary_for_context( $context );
 
 		if ( $post instanceof \WP_Post ) {
@@ -373,7 +391,11 @@ final class Autolinker {
 			return $html;
 		}
 
-		$cache_key = $this->cache_key( $html, $post );
+		// $context is still folded into cache_key() (see its own docblock):
+		// two calls can share identical $html/$post but legitimately resolve
+		// to different non-empty $entries for different $context values,
+		// and must not share a cache entry either.
+		$cache_key = $this->cache_key( $html, $post, $context );
 		$cached    = wp_cache_get( $cache_key, self::CACHE_GROUP );
 
 		if ( is_array( $cached ) && isset( $cached['html'] ) && is_string( $cached['html'] ) ) {
@@ -846,17 +868,45 @@ final class Autolinker {
 	 * to one product post — and post_id + post_modified_gmt alone can't tell
 	 * those two calls apart.
 	 *
-	 * @param string        $html Input HTML, hashed into the key.
-	 * @param \WP_Post|null $post The post being processed, if any.
+	 * $context is folded in too, for the same reason: two calls sharing the
+	 * same $html/$post can still legitimately want different dictionaries —
+	 * saai_autolink_dictionary is documented to receive and may key off
+	 * $context — so two such calls must never share a cache entry (Codex
+	 * review; see process()'s docblock at the cache-lookup call site).
+	 *
+	 * @param string               $html    Input HTML, hashed into the key.
+	 * @param \WP_Post|null        $post    The post being processed, if any.
+	 * @param array<string, mixed> $context Context passed to process(), see its docblock.
 	 * @return string
 	 */
-	private function cache_key( string $html, ?\WP_Post $post ): string {
+	private function cache_key( string $html, ?\WP_Post $post, array $context ): string {
 		$generation = (int) get_option( self::GENERATION_OPTION, 1 );
 		$identity   = $post instanceof \WP_Post
 			? $post->ID . '|' . $post->post_modified_gmt . '|' . md5( $html )
 			: 'raw|' . md5( $html );
 
-		return 'saai_al_' . self::CACHE_SCHEMA_VERSION . '_' . md5( $generation . '|' . $this->max_links() . '|' . $identity );
+		return 'saai_al_' . self::CACHE_SCHEMA_VERSION . '_' . md5( $generation . '|' . $this->max_links() . '|' . $identity . '|' . $this->context_identity( $context ) );
+	}
+
+	/**
+	 * A deterministic string identity for a process() $context array, for
+	 * folding into cache_key(). Same wp_json_encode()-with-serialize()-fallback
+	 * pattern as Faq_List::structured_data_signature() — $context can
+	 * theoretically fail to encode (invalid UTF-8 from a caller-supplied
+	 * value), and collapsing every such failure to the same identity would
+	 * let unrelated contexts share a cache entry again.
+	 *
+	 * @param array<string, mixed> $context Context passed to process().
+	 * @return string
+	 */
+	private function context_identity( array $context ): string {
+		$encoded = wp_json_encode( $context );
+
+		if ( is_string( $encoded ) ) {
+			return $encoded;
+		}
+
+		return serialize( $context ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize -- deterministic, binary-safe fallback cache-key input; never unserialized or output.
 	}
 
 	/**

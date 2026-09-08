@@ -86,7 +86,18 @@ final class Faq_List {
 	);
 
 	/**
-	 * Hooks per-request state resets into WordPress.
+	 * Transient key prefix for a single FAQ's cached rendered answer — see
+	 * answer_cache_key(). Unlike Markdown_Output's equivalent, this pipeline
+	 * never applies the_content (see render_answer()'s docblock), so the key
+	 * doesn't need to fold in the autolink dictionary generation.
+	 *
+	 * @var string
+	 */
+	private const ANSWER_CACHE_PREFIX = 'saai_faq_answer_';
+
+	/**
+	 * Hooks per-request state resets and answer-cache invalidation into
+	 * WordPress.
 	 */
 	public function register(): void {
 		// A real HTTP request is a fresh PHP process, but a single
@@ -96,6 +107,36 @@ final class Faq_List {
 		// only the first page rendered would ever emit FAQPage JSON-LD. Same
 		// reasoning as Template_Loader::reset_article_content_hooks_state().
 		add_action( 'pre_get_posts', array( $this, 'reset_render_state' ) );
+
+		add_action( 'save_post_saai_faq', array( $this, 'flush_answer_cache' ) );
+		add_action( 'trashed_post', array( $this, 'flush_answer_cache' ) );
+		// wp_delete_post( $id, true ) (REST's force=true, `wp post delete
+		// --force`) skips wp_trash_post() entirely, so trashed_post never
+		// fires — deleted_post is needed too (same reasoning as
+		// Markdown_Output::register()).
+		add_action( 'deleted_post', array( $this, 'flush_answer_cache' ) );
+	}
+
+	/**
+	 * Deletes one FAQ's cached rendered answer. Hooked to save/trash/delete
+	 * of saai_faq (see register()); a stale cache otherwise only self-heals
+	 * after render_answer()'s DAY_IN_SECONDS transient TTL.
+	 *
+	 * @param int $post_id The FAQ whose cache entry to clear.
+	 */
+	public function flush_answer_cache( int $post_id ): void {
+		delete_transient( self::answer_cache_key( $post_id ) );
+	}
+
+	/**
+	 * The transient key for one FAQ's cached rendered answer — shared by
+	 * render_answer() and flush_answer_cache() so they can never drift apart.
+	 *
+	 * @param int $post_id FAQ post ID.
+	 * @return string
+	 */
+	private static function answer_cache_key( int $post_id ): string {
+		return self::ANSWER_CACHE_PREFIX . $post_id;
 	}
 
 	/**
@@ -483,6 +524,68 @@ final class Faq_List {
 	}
 
 	/**
+	 * Returns an FAQ answer's cached rendered body, rendering and caching it
+	 * on a miss. The answer only changes when the FAQ post itself is
+	 * saved/trashed/deleted (register() hooks flush_answer_cache() to all
+	 * three), so — unlike a page-scoped cache — this is safe to share across
+	 * every faq-list block/[saai_faq] shortcode render on the site, and turns
+	 * an O(FAQ count) content-pipeline cost per page view into a one-time
+	 * cost per FAQ (perf review).
+	 *
+	 * That sharing is only safe for a render that doesn't itself vary by
+	 * viewer. render_answer_uncached() deliberately never re-enters the
+	 * `the_content` filter chain (see its own docblock), so a third-party
+	 * `the_content` callback — this plugin's own Autolinker included — never
+	 * runs here; the risk is narrower than that, but still real:
+	 * do_blocks()/do_shortcode() still execute whatever block render
+	 * callback or shortcode handler a post's content names directly, and
+	 * that callback's own implementation can legitimately vary by viewer —
+	 * not just by login state, but by anything a visitor's own cookies drive
+	 * (a cart, a language switcher, a geo/currency preference). Caching and
+	 * replaying one such visitor's render to every other visitor for up to a
+	 * day would leak whatever that render exposed, and a cache hit skips
+	 * whatever asset-enqueue side effects that shortcode/block would
+	 * otherwise perform on every render. A request carrying *any* cookie at
+	 * all — logged in or not — therefore bypasses this cache entirely, both
+	 * reading and writing it: the same heuristic Markdown_Output::render_cached()
+	 * already uses for the identical risk, and the one full-page-cache
+	 * plugins (WP Super Cache et al.) use to decide a request is safe to
+	 * serve from a shared cache (Codex review; wording corrected per Copilot
+	 * review — an earlier revision overstated this as running the full
+	 * `the_content` pipeline).
+	 *
+	 * A core/block reference (a synced pattern/reusable block) is a second,
+	 * independent reason a cache keyed only by this FAQ's own ID/modified
+	 * time isn't safe: render_block_core_block() loads and renders the
+	 * referenced wp_block post's own content, which can change without this
+	 * FAQ post being saved at all — flush_answer_cache() has nothing to
+	 * invalidate on. has_block() gates the cache on that instead of trying
+	 * to track every referenced wp_block post's own modified time (Codex
+	 * review).
+	 *
+	 * @param \WP_Post $post The FAQ entry.
+	 * @return string
+	 */
+	private function render_answer( \WP_Post $post ): string {
+		if ( ! empty( $_COOKIE ) || has_block( 'core/block', $post ) ) {
+			return $this->render_answer_uncached( $post );
+		}
+
+		$key    = self::answer_cache_key( $post->ID );
+		$cached = get_transient( $key );
+
+		if ( is_string( $cached ) ) {
+			return $cached;
+		}
+
+		$html = $this->render_answer_uncached( $post );
+
+		set_transient( $key, $html, DAY_IN_SECONDS );
+
+		return $html;
+	}
+
+	/**
 	 * Renders an FAQ answer body.
 	 *
 	 * Applies the standard content transforms directly instead of the full
@@ -503,7 +606,7 @@ final class Faq_List {
 	 * @param \WP_Post $post The FAQ entry.
 	 * @return string
 	 */
-	private function render_answer( \WP_Post $post ): string {
+	private function render_answer_uncached( \WP_Post $post ): string {
 		$previous_post    = $GLOBALS['post'] ?? null;
 		$previous_globals = array();
 

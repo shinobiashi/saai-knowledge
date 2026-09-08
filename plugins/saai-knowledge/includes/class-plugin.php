@@ -77,11 +77,13 @@ final class Plugin {
 		( new Post_Meta() )->register();
 		( new Settings() )->register();
 		( new Term_Order() )->register();
+		( new Sidebar_Tree() )->register();
 		( new Template_Loader() )->register();
 		( new Heading_Anchors() )->register();
 		( new Faq_List() )->register();
 		( new Faq_Question() )->register();
 		( new Glossary_Term() )->register();
+		( new Glossary_Index() )->register();
 		( new Search() )->register();
 		( new Blocks() )->register();
 		( new Shortcodes() )->register();
