@@ -51,7 +51,7 @@ Every automatic behavior (auto-linking, structured data, and the Markdown/llms.t
 
 = Looking for WooCommerce integration? =
 
-A separate add-on, SAAI Knowledge for WooCommerce, links FAQ/KB/Glossary content to products and product categories and displays it on product pages. It's sold separately and is not required to use this plugin.
+SAAI Knowledge for WooCommerce, a companion add-on that links FAQ/KB/Glossary content to products and product categories and displays it on product pages, is planned as a separately sold, optional purchase — it isn't available yet and is not required to use this plugin.
 
 == Installation ==
 
@@ -76,7 +76,7 @@ Yes. A single "Markdown & llms.txt" setting controls the `?format=markdown` outp
 
 = Does this include a WooCommerce integration? =
 
-A separate add-on, SAAI Knowledge for WooCommerce, links FAQ/KB/Glossary content to products and product categories and displays it on product pages. It's sold separately and is not required to use this plugin.
+SAAI Knowledge for WooCommerce, a companion add-on that links FAQ/KB/Glossary content to products and product categories and displays it on product pages, is planned as a separately sold, optional purchase — it isn't available yet and is not required to use this plugin.
 
 = Is my content sent to any external service? =
 
