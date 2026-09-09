@@ -44,14 +44,23 @@ class Test_Bootstrap extends WP_UnitTestCase {
 	private $original_plugin_instance;
 
 	/**
-	 * Snapshots `all_admin_notices` and `Plugin::$instance` before the test.
+	 * Snapshots `all_admin_notices` and `Plugin::$instance` before the test,
+	 * then resets the latter to null.
+	 *
+	 * The reset makes test_boot_is_idempotent_and_stores_base_plugin()'s
+	 * "boot() hasn't run yet" precondition true unconditionally, rather than
+	 * relying on WooCommerce being absent from this PHPUnit environment
+	 * (Copilot review).
 	 */
 	public function set_up() {
 		parent::set_up();
 
 		global $wp_filter;
 		$this->original_all_admin_notices = isset( $wp_filter['all_admin_notices'] ) ? clone $wp_filter['all_admin_notices'] : null;
-		$this->original_plugin_instance   = self::plugin_instance_property()->getValue();
+
+		$plugin_instance_property       = self::plugin_instance_property();
+		$this->original_plugin_instance = $plugin_instance_property->getValue();
+		$plugin_instance_property->setValue( null, null );
 	}
 
 	/**
@@ -113,12 +122,12 @@ class Test_Bootstrap extends WP_UnitTestCase {
 	 * Plugin::boot() stores whatever base-plugin instance it's given and is a no-op
 	 * on a second call, matching the free plugin's own Plugin::boot() guard.
 	 *
-	 * The real saai_loaded fired during test bootstrap without WooCommerce
-	 * present (requirements_status() there resolves to missing_woocommerce),
-	 * so Plugin::boot() has not run yet by the time this test executes.
+	 * The set_up() method above resets Plugin::$instance to null before every
+	 * test, so this doesn't depend on whether the real saai_loaded happened
+	 * to boot it during this process's bootstrap.
 	 */
 	public function test_boot_is_idempotent_and_stores_base_plugin() {
-		$this->assertNull( Plugin::instance(), 'Precondition: boot() must not already have run in this process.' );
+		$this->assertNull( Plugin::instance(), 'Precondition: set_up() must have reset the singleton.' );
 
 		$first_base = new stdClass();
 		Plugin::boot( $first_base );
@@ -135,10 +144,21 @@ class Test_Bootstrap extends WP_UnitTestCase {
 	/**
 	 * The missing-WooCommerce notice only renders for users who can activate
 	 * plugins, and its output is escaped.
+	 *
+	 * The real notice strings are static text with no HTML-significant
+	 * characters, so comparing against `esc_html()` of the same string can't
+	 * actually detect a missing/broken escape call — a `gettext` filter
+	 * swaps in a translation that does contain such characters for the
+	 * duration of this test (Copilot review).
 	 */
 	public function test_missing_woocommerce_notice_is_capability_gated_and_escaped() {
 		$subscriber = self::factory()->user->create( array( 'role' => 'subscriber' ) );
 		$admin      = self::factory()->user->create( array( 'role' => 'administrator' ) );
+
+		$inject_unsafe_translation = static function ( $translation, $text, $domain ) {
+			return 'saai-knowledge-for-woocommerce' === $domain ? '<script>alert(1)</script>' : $translation;
+		};
+		add_filter( 'gettext', $inject_unsafe_translation, 10, 3 );
 
 		Bootstrap::on_saai_loaded( new stdClass() );
 
@@ -152,7 +172,9 @@ class Test_Bootstrap extends WP_UnitTestCase {
 		do_action( 'all_admin_notices' );
 		$output = ob_get_clean();
 
-		$this->assertStringContainsString( esc_html( Bootstrap::notice_message( 'missing_woocommerce' ) ), $output );
-		$this->assertStringNotContainsString( '<script', $output );
+		remove_filter( 'gettext', $inject_unsafe_translation, 10 );
+
+		$this->assertStringNotContainsString( '<script>', $output );
+		$this->assertStringContainsString( '&lt;script&gt;', $output );
 	}
 }
