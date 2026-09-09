@@ -92,11 +92,17 @@ final class Bootstrap {
 	/**
 	 * Registers an admin notice for the given requirement failure.
 	 *
+	 * Hooked on `all_admin_notices` rather than `admin_notices` — a network
+	 * activation fires `network_admin_notices` on Network Admin screens
+	 * instead, so `admin_notices` alone would leave a super admin looking at
+	 * the network plugins list with no indication why this add-on is
+	 * inactive. `all_admin_notices` fires on both (Codex review).
+	 *
 	 * @param string $status One of the non-'ok' requirements_status() outcomes.
 	 */
 	private static function register_notice( string $status ): void {
 		add_action(
-			'admin_notices',
+			'all_admin_notices',
 			function () use ( $status ) {
 				if ( ! current_user_can( 'activate_plugins' ) ) {
 					return;

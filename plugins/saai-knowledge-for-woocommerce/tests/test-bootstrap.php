@@ -14,11 +14,42 @@ use SAAI\KnowledgeWoo\Plugin;
 class Test_Bootstrap extends WP_UnitTestCase {
 
 	/**
-	 * Removes any admin_notices callback a test registered, so it can't
-	 * leak into another test in the same PHPUnit process.
+	 * Full snapshot of `all_admin_notices`' registered callbacks before the
+	 * test, so tear_down() can restore it wholesale.
+	 *
+	 * A blind `remove_all_actions( 'all_admin_notices' )` would also strip
+	 * the free plugin's own Autolinker::render_dictionary_truncated_notice()
+	 * (registered on the same hook at bootstrap), leaking a side effect into
+	 * every test that runs afterward in this process (Codex review) — the
+	 * same failure mode Test_Plugin's `$wp_rewrite` clone/restore guards
+	 * against for flush_rewrite_rules().
+	 *
+	 * @var \WP_Hook|null
+	 */
+	private $original_all_admin_notices;
+
+	/**
+	 * Snapshots `all_admin_notices` before the test.
+	 */
+	public function set_up() {
+		parent::set_up();
+
+		global $wp_filter;
+		$this->original_all_admin_notices = isset( $wp_filter['all_admin_notices'] ) ? clone $wp_filter['all_admin_notices'] : null;
+	}
+
+	/**
+	 * Restores `all_admin_notices` to its pre-test snapshot, removing only
+	 * what this test itself added.
 	 */
 	public function tear_down() {
-		remove_all_actions( 'admin_notices' );
+		global $wp_filter;
+
+		if ( null !== $this->original_all_admin_notices ) {
+			$wp_filter['all_admin_notices'] = $this->original_all_admin_notices; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- restoring the shared global to its pre-test snapshot, not introducing a new one.
+		} else {
+			unset( $wp_filter['all_admin_notices'] );
+		}
 
 		parent::tear_down();
 	}
@@ -83,12 +114,12 @@ class Test_Bootstrap extends WP_UnitTestCase {
 
 		wp_set_current_user( $subscriber );
 		ob_start();
-		do_action( 'admin_notices' );
+		do_action( 'all_admin_notices' );
 		$this->assertSame( '', ob_get_clean() );
 
 		wp_set_current_user( $admin );
 		ob_start();
-		do_action( 'admin_notices' );
+		do_action( 'all_admin_notices' );
 		$output = ob_get_clean();
 
 		$this->assertStringContainsString( esc_html( Bootstrap::notice_message( 'missing_woocommerce' ) ), $output );
