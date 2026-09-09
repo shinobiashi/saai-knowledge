@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name:          SAAI Knowledge for WooCommerce
- * Plugin URI:           https://woocommerce.com/products/saai-knowledge-for-woocommerce/
+ * Plugin URI:           https://github.com/shinobiashi/saai-knowledge
  * Description:          Links FAQ / Knowledge Base / Glossary content from SAAI Knowledge to WooCommerce products and product categories, and displays it on product pages.
  * Version:              0.1.0
  * Requires at least:    6.9
