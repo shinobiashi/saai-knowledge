@@ -29,18 +29,34 @@ class Test_Bootstrap extends WP_UnitTestCase {
 	private $original_all_admin_notices;
 
 	/**
-	 * Snapshots `all_admin_notices` before the test.
+	 * The real `Plugin::$instance` value before the test, so tear_down() can
+	 * restore it.
+	 *
+	 * `Plugin::boot()` is a process-wide singleton guard with no public
+	 * reset, and `phpunit.xml.dist` runs every testsuite (including the free
+	 * plugin's) in one process. Leaving a test double installed here would
+	 * make `Plugin::boot()` a permanent no-op — and `Plugin::instance()`
+	 * keep returning a `stdClass` `base()` — for the rest of the run
+	 * (Codex review).
+	 *
+	 * @var \SAAI\KnowledgeWoo\Plugin|null
+	 */
+	private $original_plugin_instance;
+
+	/**
+	 * Snapshots `all_admin_notices` and `Plugin::$instance` before the test.
 	 */
 	public function set_up() {
 		parent::set_up();
 
 		global $wp_filter;
 		$this->original_all_admin_notices = isset( $wp_filter['all_admin_notices'] ) ? clone $wp_filter['all_admin_notices'] : null;
+		$this->original_plugin_instance   = self::plugin_instance_property()->getValue();
 	}
 
 	/**
-	 * Restores `all_admin_notices` to its pre-test snapshot, removing only
-	 * what this test itself added.
+	 * Restores `all_admin_notices` and `Plugin::$instance` to their pre-test
+	 * snapshots, undoing only what this test itself added.
 	 */
 	public function tear_down() {
 		global $wp_filter;
@@ -51,7 +67,20 @@ class Test_Bootstrap extends WP_UnitTestCase {
 			unset( $wp_filter['all_admin_notices'] );
 		}
 
+		self::plugin_instance_property()->setValue( null, $this->original_plugin_instance );
+
 		parent::tear_down();
+	}
+
+	/**
+	 * Reflection accessor for the private static `Plugin::$instance`, which
+	 * has no public reset — see $original_plugin_instance.
+	 */
+	private static function plugin_instance_property(): \ReflectionProperty {
+		$property = new \ReflectionProperty( Plugin::class, 'instance' );
+		$property->setAccessible( true );
+
+		return $property;
 	}
 
 	/**
@@ -61,10 +90,11 @@ class Test_Bootstrap extends WP_UnitTestCase {
 	 * plan's wp-env verification step for the real three-combination check).
 	 */
 	public function test_requirements_status_covers_every_outcome() {
-		$this->assertSame( 'missing_base', Bootstrap::requirements_status( null, true ) );
-		$this->assertSame( 'outdated_base', Bootstrap::requirements_status( '0.9.0', true ) );
-		$this->assertSame( 'missing_woocommerce', Bootstrap::requirements_status( SAAI_WOO_MIN_BASE_VERSION, false ) );
-		$this->assertSame( 'ok', Bootstrap::requirements_status( SAAI_WOO_MIN_BASE_VERSION, true ) );
+		$this->assertSame( 'missing_base', Bootstrap::requirements_status( null, SAAI_WOO_MIN_WC_VERSION ) );
+		$this->assertSame( 'outdated_base', Bootstrap::requirements_status( '0.9.0', SAAI_WOO_MIN_WC_VERSION ) );
+		$this->assertSame( 'missing_woocommerce', Bootstrap::requirements_status( SAAI_WOO_MIN_BASE_VERSION, null ) );
+		$this->assertSame( 'outdated_woocommerce', Bootstrap::requirements_status( SAAI_WOO_MIN_BASE_VERSION, '9.9' ) );
+		$this->assertSame( 'ok', Bootstrap::requirements_status( SAAI_WOO_MIN_BASE_VERSION, SAAI_WOO_MIN_WC_VERSION ) );
 	}
 
 	/**

@@ -32,3 +32,7 @@ if ( ! defined( 'SAAI_KNOWLEDGE_WOO_URL' ) ) {
 if ( ! defined( 'SAAI_WOO_MIN_BASE_VERSION' ) ) {
 	define( 'SAAI_WOO_MIN_BASE_VERSION', '1.0.0' );
 }
+
+if ( ! defined( 'SAAI_WOO_MIN_WC_VERSION' ) ) {
+	define( 'SAAI_WOO_MIN_WC_VERSION', '10.9' );
+}

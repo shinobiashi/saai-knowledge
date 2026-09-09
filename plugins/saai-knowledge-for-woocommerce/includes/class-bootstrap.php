@@ -33,10 +33,10 @@ final class Bootstrap {
 	 * WooCommerce.
 	 *
 	 * @param string|null $base_version The free plugin's SAAI_KNOWLEDGE_VERSION, or null if it never booted.
-	 * @param bool        $woo_active   Whether the WooCommerce class exists.
-	 * @return string One of 'ok', 'missing_base', 'outdated_base', 'missing_woocommerce'.
+	 * @param string|null $woo_version  WooCommerce's WC_VERSION, or null if the WooCommerce class doesn't exist.
+	 * @return string One of 'ok', 'missing_base', 'outdated_base', 'missing_woocommerce', 'outdated_woocommerce'.
 	 */
-	public static function requirements_status( ?string $base_version, bool $woo_active ): string {
+	public static function requirements_status( ?string $base_version, ?string $woo_version ): string {
 		if ( null === $base_version ) {
 			return 'missing_base';
 		}
@@ -45,8 +45,12 @@ final class Bootstrap {
 			return 'outdated_base';
 		}
 
-		if ( ! $woo_active ) {
+		if ( null === $woo_version ) {
 			return 'missing_woocommerce';
+		}
+
+		if ( version_compare( $woo_version, SAAI_WOO_MIN_WC_VERSION, '<' ) ) {
+			return 'outdated_woocommerce';
 		}
 
 		return 'ok';
@@ -63,7 +67,7 @@ final class Bootstrap {
 	public static function on_saai_loaded( $base ): void {
 		$status = self::requirements_status(
 			defined( 'SAAI_KNOWLEDGE_VERSION' ) ? SAAI_KNOWLEDGE_VERSION : null,
-			class_exists( 'WooCommerce' )
+			defined( 'WC_VERSION' ) ? WC_VERSION : null
 		);
 
 		if ( 'ok' !== $status ) {
@@ -125,6 +129,13 @@ final class Bootstrap {
 					/* translators: %s: minimum required SAAI Knowledge version number */
 					__( 'SAAI Knowledge for WooCommerce requires SAAI Knowledge version %s or later. Please update the SAAI Knowledge plugin.', 'saai-knowledge-for-woocommerce' ),
 					SAAI_WOO_MIN_BASE_VERSION
+				);
+
+			case 'outdated_woocommerce':
+				return sprintf(
+					/* translators: %s: minimum required WooCommerce version number */
+					__( 'SAAI Knowledge for WooCommerce requires WooCommerce version %s or later. Please update WooCommerce.', 'saai-knowledge-for-woocommerce' ),
+					SAAI_WOO_MIN_WC_VERSION
 				);
 
 			case 'missing_woocommerce':
