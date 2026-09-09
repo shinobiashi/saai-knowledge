@@ -5,7 +5,7 @@
 A WordPress plugin monorepo that adds FAQ, Knowledge Base, and Glossary content types to any site — with the structure, navigation, and structured data that both readers and AI crawlers expect.
 
 - **[SAAI Knowledge](plugins/saai-knowledge/)** — the free plugin, distributed on [WordPress.org](https://wordpress.org/plugins/saai-knowledge/).
-- **SAAI Knowledge for WooCommerce** — a paid add-on that links FAQ/KB/Glossary content to WooCommerce products and product categories. Planned as a separately sold WooCommerce.com Marketplace purchase; it isn't available yet and is not required to use the free plugin.
+- **[SAAI Knowledge for WooCommerce](plugins/saai-knowledge-for-woocommerce/)** — a paid add-on that links FAQ/KB/Glossary content to WooCommerce products and product categories. Its source lives in this monorepo and is under active development; it's planned as a separately sold WooCommerce.com Marketplace purchase, but that listing isn't published yet, and it is not required to use the free plugin.
 
 ## Features (free plugin)
 
