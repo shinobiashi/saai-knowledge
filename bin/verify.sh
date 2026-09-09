@@ -11,7 +11,7 @@ echo "==> composer lint"
 composer lint
 
 echo "==> composer analyze"
-composer exec phpstan analyse -- --memory-limit=512M
+composer exec phpstan analyse -- --memory-limit=3G
 
 STARTED_WP_ENV=0
 if ! npx wp-env run tests-cli true >/dev/null 2>&1; then

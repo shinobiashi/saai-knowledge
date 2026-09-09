@@ -122,7 +122,7 @@ FAQ / Knowledge Base / 用語集を提供する WordPress プラグインのモ�
 
 ```sh
 npm run start / npm run build   # wp-scripts（workspaces で各プラグイン）
-npx wp-env start                # ローカル環境（無料版 + WooCommerce。有料版は M5 でマウント追加）
+npx wp-env start                # ローカル環境（無料版 + 有料版 + WooCommerce をマウント）
 composer lint / lint:fix        # PHPCS / PHPCBF
 composer analyze                # PHPStan
 composer test                   # PHPUnit（ローカルは wp-env の tests-cli コンテナ、CI は bin/install-wp-tests.sh + WP_TESTS_DIR でホスト直実行）

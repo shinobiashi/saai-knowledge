@@ -2,8 +2,10 @@ parameters:
     level: 6
     bootstrapFiles:
         - phpstan-bootstrap.php
+        - vendor/php-stubs/woocommerce-stubs/woocommerce-stubs.php
     paths:
         - plugins/saai-knowledge
+        - plugins/saai-knowledge-for-woocommerce
     excludePaths:
         - plugins/*/vendor/*
         - plugins/*/node_modules/*

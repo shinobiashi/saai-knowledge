@@ -2,6 +2,7 @@
     "plugins": [
         "./plugins/saai-knowledge",
         "https://downloads.wordpress.org/plugin/woocommerce.zip",
+        "./plugins/saai-knowledge-for-woocommerce",
         "https://downloads.wordpress.org/plugin/wp-mail-logging.zip",
         "https://downloads.wordpress.org/plugin/plugin-check.zip",
         "https://downloads.wordpress.org/plugin/debug-bar.zip"

@@ -1,13 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <phpunit
-    bootstrap="plugins/saai-knowledge/tests/bootstrap.php"
+    bootstrap="tests/bootstrap.php"
     colors="true"
     beStrictAboutTestsThatDoNotTestAnything="true"
 >
     <testsuites>
         <testsuite name="saai-knowledge">
             <directory suffix=".php">plugins/saai-knowledge/tests</directory>
-            <exclude>plugins/saai-knowledge/tests/bootstrap.php</exclude>
+        </testsuite>
+        <testsuite name="saai-knowledge-for-woocommerce">
+            <directory suffix=".php">plugins/saai-knowledge-for-woocommerce/tests</directory>
         </testsuite>
     </testsuites>
 </phpunit>

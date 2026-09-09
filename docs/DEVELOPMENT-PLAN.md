@@ -42,7 +42,7 @@ M1〜M5 の全タスクは GitHub Issues #1〜#27（マイルストーン M1〜M
 ### タスク
 
 - [x] モノレポ雛形: `plugins/saai-knowledge/`、ルート `package.json`（workspaces）+ `composer.json`
-- [x] `.wp-env.json`（WP 6.9 / PHP 8.2、WooCommerce マウント。有料版プラグインは M5 で実体ができてからマウント追加）
+- [x] `.wp-env.json`（WP 6.9 / PHP 8.2、WooCommerce マウント。有料版プラグインは M5-1（Issue #20）でマウント追加済み）
 - [x] ツールチェーン: @wordpress/scripts、PHPCS（.phpcs.xml.dist、prefix/text-domain チェック）、PHPStan（szepeviktor/phpstan-wordpress）、PHPUnit ブートストラップ
 - [x] GitHub Actions: lint + test（PHP 8.2–8.4 × WP 6.9–latest マトリクス）+ ZIP ビルド
 - [x] 無料版ブートストラップ: メインファイル、オートローダ、`Plugin::boot()`、activation/deactivation フック（rewrite flush）、`uninstall.php`
@@ -145,7 +145,7 @@ M1〜M5 の全タスクは GitHub Issues #1〜#27（マイルストーン M1〜M
 
 ### タスク
 
-- [ ] アドオン骨格: 依存チェック（無料版 + WooCommerce、fatal にしない）、HPOS / Cart-Checkout Blocks 互換宣言
+- [x] アドオン骨格: 依存チェック（無料版 + WooCommerce、fatal にしない）、HPOS / Cart-Checkout Blocks 互換宣言
 - [ ] 紐づけメタ（`saai_linked_products` / `saai_linked_product_cats`、1値1行保存）+ 解決ロジック（商品 ∪ 所属カテゴリー祖先、重複排除）
 - [ ] コンテンツ側 UI: エディターサイドバーで商品・商品カテゴリー検索選択
 - [ ] 商品側 UI: 商品編集画面の逆引きメタボックス（一覧・追加・解除）
