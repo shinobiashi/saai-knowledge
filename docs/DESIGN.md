@@ -265,7 +265,7 @@ plugins/saai-knowledge/
 ├── src/                          # JSソース（blocks/*, view.js は Interactivity API store）
 ├── build/                        # wp-scripts ビルド成果物
 ├── templates/                    # ブロックテンプレート(.html) + クラシック用(.php)
-└── languages/                    # ja 同梱、WP.org は translate.wordpress.org
+└── languages/                    # 翻訳の作業用（.po が正）。無料版の配布ZIPには同梱しない
 ```
 
 - ファイルロード時の副作用禁止。すべて `plugins_loaded` / `init` 以降のフックで登録。
@@ -282,7 +282,9 @@ plugins/saai-knowledge/
 
 ### 8.3 i18n
 
-- Text Domain = 各プラグインスラッグ。`wp i18n make-pot` / `make-json`（ブロックJS用）。日本語は自前 `ja` を同梱しつつ、WP.org 公開後は translate.wordpress.org へ移行。
+- Text Domain = 各プラグインスラッグ。`wp i18n make-pot` / `make-json`（ブロックJS用）の手順は `bin/i18n-build.sh` にまとめる。
+- **無料版（WordPress.org 配布）**: `load_plugin_textdomain()` は呼ばない（WP 4.6 以降不要で、審査の指摘対象）。翻訳は translate.wordpress.org が生成する言語パック（`WP_LANG_DIR/plugins/`）から自動ロードされる。`languages/` は配布ZIPに同梱しない（`package.json` の `files` から除外し、`ci-js.yml` で混入を検知）。リポジトリの `languages/saai-knowledge-ja.po` は GlotPress へインポートする元データとして維持する。
+- **有料版（WooCommerce.com 配布）**: WordPress.org の言語パック配信対象外なので、`load_plugin_textdomain()` と `languages/` 同梱を継続する。
 
 ---
 
