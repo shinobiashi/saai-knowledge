@@ -5,6 +5,28 @@
 #   - languages/saai-knowledge-ja.mo / .l10n.php (compiled from the maintained .po)
 #   - languages/saai-knowledge-ja-<hash>.json (per-script JS translations)
 #
+# NONE of these ship in the release ZIP (see package.json's "files", and the
+# guard in ci-js.yml): translations for the WordPress.org build come from
+# translate.wordpress.org, which generates and delivers its own .mo/.l10n.php
+# /.json language packs into WP_LANG_DIR/plugins. languages/saai-knowledge-ja.po
+# is kept here as the hand-maintained source to import into GlotPress.
+#
+# Because the plugin no longer calls load_plugin_textdomain() (WordPress.org
+# review: it has been unnecessary since WP 4.6), WordPress does NOT look inside
+# this languages/ directory at runtime — WP_Textdomain_Registry only searches
+# WP_LANG_DIR/plugins, WP_LANG_DIR/themes, and paths registered by
+# load_plugin_textdomain(). To try a translation locally, copy the compiled
+# files into wp-content/languages/plugins/ instead:
+#
+#   npx wp-env run cli -- bash -c "mkdir -p /var/www/html/wp-content/languages/plugins \
+#     && cp /var/www/html/wp-content/plugins/saai-knowledge/languages/saai-knowledge-ja* \
+#        /var/www/html/wp-content/languages/plugins/"
+#
+# The glob must be `saai-knowledge-ja*`, NOT `saai-knowledge-ja.*`: the JS
+# translation files are named saai-knowledge-ja-<md5>.json (a hyphen after the
+# locale, not a dot), so the dotted glob silently copies only the PHP .mo/
+# .l10n.php and leaves every block-editor string untranslated.
+#
 # Run `npm run build` first: the JS JSON filenames are hashed from the
 # *built* script paths that wp_set_script_translations() resolves at
 # runtime (build/<block>/index.js), not the src/ paths that

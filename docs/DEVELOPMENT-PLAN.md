@@ -125,10 +125,11 @@ M1〜M5 の全タスクは GitHub Issues #1〜#27（マイルストーン M1〜M
 - [x] 設定画面（Settings API: スラッグ、自動リンク、構造化データ、アンインストール時削除。AI可読性機能の on/off は Issue #25 で追加予定）
 - [x] スラッグ変更時の deferred rewrite flush
 - [x] `uninstall.php` 実装（設定で有効時のみ CPT・メタ・オプション削除）
-- [x] i18n: POT 生成、`make-json`、日本語翻訳同梱
+- [x] i18n: POT 生成、`make-json`、日本語翻訳（WordPress.org 審査の指摘により配布ZIPには同梱せず、translate.wordpress.org の言語パック配信に任せる。`languages/saai-knowledge-ja.po` は GlotPress インポート用にリポジトリで維持）
 - [x] セキュリティ監査（`wp-security-check` を実施）
 - [x] readme.txt（タグ・説明・FAQ・スクリーンショット）、アセット（banner / icon / screenshots）
 - [ ] WordPress.org 申請 → レビュー対応 → SVN 初回デプロイ → GitHub Actions からの自動デプロイ設定
+  - [x] 第1回レビュー指摘への対応（ソース公開の明記・`load_plugin_textdomain()` 削除・翻訳ファイル非同梱・エスケープ再確認）— Issue #61
 
 ### 完了条件
 

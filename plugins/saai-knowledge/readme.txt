@@ -49,6 +49,23 @@ SAAI Knowledge adds three purpose-built content types to WordPress — FAQ, Know
 
 Every automatic behavior (auto-linking, structured data, and the Markdown/llms.txt output) is controlled from Settings, and the plugin exposes `saai_*` actions/filters so other plugins and themes can customize or extend it.
 
+= Source code and build process =
+
+SAAI Knowledge is developed in the open. The complete, human-readable source — including the un-minified JavaScript and SCSS under `src/` that the compiled files under `build/` are generated from — is maintained at:
+
+https://github.com/shinobiashi/saai-knowledge
+
+The free plugin is the `plugins/saai-knowledge/` directory of that repository.
+
+The build uses [@wordpress/scripts](https://www.npmjs.com/package/@wordpress/scripts) (webpack + Babel) and needs Node.js and npm; the project's CI builds with Node.js 24. To reproduce the compiled files from source:
+
+1. `git clone https://github.com/shinobiashi/saai-knowledge.git`
+2. `cd saai-knowledge`
+3. `npm install`
+4. `npm run build`
+
+`npm run build` compiles `plugins/saai-knowledge/src/**` into `plugins/saai-knowledge/build/**`. No third-party JavaScript library is bundled: the only module the front-end scripts import is `@wordpress/interactivity`, which WordPress itself provides at runtime.
+
 = Looking for WooCommerce integration? =
 
 SAAI Knowledge for WooCommerce, a companion add-on that links FAQ/KB/Glossary content to products and product categories and displays it on product pages, is planned as a separately sold, optional purchase — it isn't available yet and is not required to use this plugin.
