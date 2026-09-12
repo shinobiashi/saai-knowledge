@@ -57,7 +57,7 @@ https://github.com/shinobiashi/saai-knowledge
 
 The free plugin is the `plugins/saai-knowledge/` directory of that repository.
 
-The build uses [@wordpress/scripts](https://www.npmjs.com/package/@wordpress/scripts) (webpack + Babel) and requires Node.js 24 or newer with npm. To reproduce the compiled files from source:
+The build uses [@wordpress/scripts](https://www.npmjs.com/package/@wordpress/scripts) (webpack + Babel) and needs Node.js and npm; the project's CI builds with Node.js 24. To reproduce the compiled files from source:
 
 1. `git clone https://github.com/shinobiashi/saai-knowledge.git`
 2. `cd saai-knowledge`

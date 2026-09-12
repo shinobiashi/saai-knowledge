@@ -19,8 +19,13 @@
 # files into wp-content/languages/plugins/ instead:
 #
 #   npx wp-env run cli -- bash -c "mkdir -p /var/www/html/wp-content/languages/plugins \
-#     && cp /var/www/html/wp-content/plugins/saai-knowledge/languages/saai-knowledge-ja.* \
+#     && cp /var/www/html/wp-content/plugins/saai-knowledge/languages/saai-knowledge-ja* \
 #        /var/www/html/wp-content/languages/plugins/"
+#
+# The glob must be `saai-knowledge-ja*`, NOT `saai-knowledge-ja.*`: the JS
+# translation files are named saai-knowledge-ja-<md5>.json (a hyphen after the
+# locale, not a dot), so the dotted glob silently copies only the PHP .mo/
+# .l10n.php and leaves every block-editor string untranslated.
 #
 # Run `npm run build` first: the JS JSON filenames are hashed from the
 # *built* script paths that wp_set_script_translations() resolves at

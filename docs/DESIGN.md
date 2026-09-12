@@ -284,7 +284,7 @@ plugins/saai-knowledge/
 
 - Text Domain = 各プラグインスラッグ。`wp i18n make-pot` / `make-json`（ブロックJS用）の手順は `bin/i18n-build.sh` にまとめる。
 - **無料版（WordPress.org 配布）**: `load_plugin_textdomain()` は呼ばない（WP 4.6 以降不要で、審査の指摘対象）。翻訳は translate.wordpress.org が生成する言語パック（`WP_LANG_DIR/plugins/`）から自動ロードされる。`languages/` は配布ZIPに同梱しない（`package.json` の `files` から除外し、`ci-js.yml` で混入を検知）。リポジトリの `languages/saai-knowledge-ja.po` は GlotPress へインポートする元データとして維持する。
-- **有料版（WooCommerce.com 配布）**: WordPress.org の言語パック配信対象外なので、`load_plugin_textdomain()` と `languages/` 同梱を継続する。
+- **有料版（WooCommerce.com 配布）**: WordPress.org の言語パック配信対象外なので、`load_plugin_textdomain()` による自前ロードを維持する（呼び出しは実装済み。`languages/` 自体は未作成で、翻訳を用意する M5 以降に同梱する）。
 
 ---
 

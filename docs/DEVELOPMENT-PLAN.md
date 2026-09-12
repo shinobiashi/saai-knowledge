@@ -129,7 +129,7 @@ M1〜M5 の全タスクは GitHub Issues #1〜#27（マイルストーン M1〜M
 - [x] セキュリティ監査（`wp-security-check` を実施）
 - [x] readme.txt（タグ・説明・FAQ・スクリーンショット）、アセット（banner / icon / screenshots）
 - [ ] WordPress.org 申請 → レビュー対応 → SVN 初回デプロイ → GitHub Actions からの自動デプロイ設定
-    - [x] 第1回レビュー指摘への対応（ソース公開の明記・`load_plugin_textdomain()` 削除・翻訳ファイル非同梱・エスケープ再確認）— Issue #61
+  - [x] 第1回レビュー指摘への対応（ソース公開の明記・`load_plugin_textdomain()` 削除・翻訳ファイル非同梱・エスケープ再確認）— Issue #61
 
 ### 完了条件
 
