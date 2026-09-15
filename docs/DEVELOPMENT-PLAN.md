@@ -12,7 +12,7 @@
 | M1 | 開発環境 + プラグイン骨格 + データモデル | 有効化できる無料版プラグイン、CI |
 | M2 | Knowledge Base コア（2カラムレイアウト） | KB が動く状態 |
 | M3 | FAQ + 用語集 | 無料版の全コンテンツ機能 |
-| M4 | 検索・設定・仕上げ → WordPress.org 申請 | 無料版 v1.0.0 公開 |
+| M4 | 検索・設定・仕上げ → WordPress.org 申請 | 無料版 v1.0.1 公開 |
 | M5 | 有料版（WooCommerce 連携）→ WooCommerce.com 申請 | 有料版 v1.0.0 公開 |
 
 各フェーズは「完了条件をすべて満たす → 次へ」。フェーズ内のタスク順は原則上から。
@@ -130,11 +130,12 @@ M1〜M5 の全タスクは GitHub Issues #1〜#27（マイルストーン M1〜M
 - [x] readme.txt（タグ・説明・FAQ・スクリーンショット）、アセット（banner / icon / screenshots）
 - [ ] WordPress.org 申請 → レビュー対応 → SVN 初回デプロイ → GitHub Actions からの自動デプロイ設定
   - [x] 第1回レビュー指摘への対応（ソース公開の明記・`load_plugin_textdomain()` 削除・翻訳ファイル非同梱・エスケープ再確認）— Issue #61
+  - [x] v1.0.1 としてリリース準備（バージョン文字列・Stable tag・changelog）。審査対応で配布物が変わったため、初回公開版は 1.0.0 ではなく 1.0.1 になる
 
 ### 完了条件
 
 - プラグインチェック（Plugin Check プラグイン）でエラーゼロ。
-- WordPress.org で v1.0.0 公開。
+- WordPress.org で v1.0.1 公開（審査第1回の指摘対応を反映した版。1.0.0 は未公開のまま）。
 
 ### 使用スキル
 

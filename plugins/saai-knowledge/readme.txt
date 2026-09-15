@@ -3,7 +3,7 @@ Contributors:      shinobiashi
 Tags:               faq, knowledge-base, glossary, search, structured-data
 Requires at least:  6.9
 Tested up to:       7.1
-Stable tag:         1.0.0
+Stable tag:         1.0.1
 Requires PHP:       8.2
 License:            GPLv2 or later
 License URI:        https://www.gnu.org/licenses/gpl-2.0.html
@@ -110,10 +110,19 @@ No. SAAI Knowledge does not call any external API or service; all processing hap
 
 == Changelog ==
 
+= 1.0.1 =
+* Translations are now delivered as language packs from translate.wordpress.org instead of being bundled with the plugin; the `languages/` directory and the `Domain Path` header have been removed accordingly.
+* Documented the public source repository and the steps to rebuild the compiled files under `build/` from the un-minified sources under `src/`.
+* Clarified that the SAAI Knowledge for WooCommerce add-on is not available yet.
+* No functional or behavioral changes.
+
 = 1.0.0 =
 * Initial release.
 
 == Upgrade Notice ==
+
+= 1.0.1 =
+Housekeeping release. Translations now come from translate.wordpress.org language packs rather than files bundled with the plugin, and the readme documents the public source repository and build process. No functional changes.
 
 = 1.0.0 =
 Initial release.
