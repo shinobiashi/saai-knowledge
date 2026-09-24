@@ -104,6 +104,34 @@
 	}
 
 	/**
+	 * Wraps a debounced setter so that clearing the field takes effect at once.
+	 *
+	 * ComboboxControl calls onFilterValueChange( '' ) synchronously on focus
+	 * and after a selection. Routing that through the debounce would leave the
+	 * previous results on screen for the delay, and — worse — a keystroke
+	 * still pending when an item is picked would resurrect the old term and
+	 * fire exactly the request the debounce exists to avoid.
+	 *
+	 * @param {Function} setSearch Raw state setter.
+	 * @param {Function} debounced Debounced state setter, carrying .cancel().
+	 * @return {Function} Handler for onFilterValueChange.
+	 */
+	function searchHandler( setSearch, debounced ) {
+		return function ( value ) {
+			if ( '' === value ) {
+				if ( debounced.cancel ) {
+					debounced.cancel();
+				}
+
+				setSearch( '' );
+				return;
+			}
+
+			debounced( value );
+		};
+	}
+
+	/**
 	 * Fetches the records naming a set of already-linked IDs.
 	 *
 	 * @param {string}   kind Entity kind ('postType' or 'taxonomy').
@@ -218,6 +246,9 @@
 		var debouncedProductSearch = useDebounce( setProductSearch, SEARCH_DEBOUNCE_MS );
 		var debouncedCategorySearch = useDebounce( setCategorySearch, SEARCH_DEBOUNCE_MS );
 
+		var changeProductSearch = searchHandler( setProductSearch, debouncedProductSearch );
+		var changeCategorySearch = searchHandler( setCategorySearch, debouncedCategorySearch );
+
 		var productIds = toIds( meta[ PRODUCT_META ] );
 		var categoryIds = toIds( meta[ CATEGORY_META ] );
 
@@ -325,9 +356,9 @@
 				label: __( 'Add a product', 'saai-knowledge-for-woocommerce' ),
 				value: null,
 				options: buildOptions( productMatches, productName, productHint, productIds ),
-				onFilterValueChange: debouncedProductSearch,
+				onFilterValueChange: changeProductSearch,
 				onChange: function ( value ) {
-					addId( PRODUCT_META, productIds, value, setProductSearch );
+					addId( PRODUCT_META, productIds, value, changeProductSearch );
 				},
 			} ),
 			createElement(
@@ -354,9 +385,9 @@
 				),
 				value: null,
 				options: buildOptions( categoryMatches, categoryName, categoryHint, categoryIds ),
-				onFilterValueChange: debouncedCategorySearch,
+				onFilterValueChange: changeCategorySearch,
 				onChange: function ( value ) {
-					addId( CATEGORY_META, categoryIds, value, setCategorySearch );
+					addId( CATEGORY_META, categoryIds, value, changeCategorySearch );
 				},
 			} )
 		);

@@ -247,8 +247,8 @@ final class Link_Resolver {
 	 * match against the indexed `meta_value` column. Casting to NUMERIC would
 	 * defeat that index on what becomes a per-product-page query in M5-3.
 	 * Values written through this class and through REST are normalized by
-	 * Post_Meta's absint sanitize_callback, so the stored form is always the
-	 * canonical decimal string.
+	 * Post_Meta::sanitize_id(), so the stored form is always the canonical
+	 * decimal string.
 	 *
 	 * @param int $product_id Product post ID.
 	 * @return array<string, mixed>

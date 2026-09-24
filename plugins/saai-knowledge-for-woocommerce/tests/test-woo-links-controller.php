@@ -668,6 +668,56 @@ class Test_Woo_Links_Controller extends WP_UnitTestCase {
 		$data = $this->server->dispatch( new WP_REST_Request( 'GET', $this->base_path( $product ) ) )->get_data();
 
 		$this->assertSame( array( $faq ), wp_list_pluck( $data['direct'], 'id' ) );
+		// No "Protected: " prefix: get_the_title() adds one outside the admin
+		// screens, and a REST request is not is_admin(). The status field
+		// already carries that information.
+		$this->assertSame( 'Members only', $data['direct'][0]['title'] );
+	}
+
+	/**
+	 * A private post's title comes back unprefixed too.
+	 */
+	public function test_private_content_title_is_not_prefixed() {
+		$this->login_as_admin();
+
+		$product = $this->create_product();
+		$faq     = self::factory()->post->create(
+			array(
+				'post_type'   => 'saai_faq',
+				'post_title'  => 'Internal note',
+				'post_status' => 'private',
+			)
+		);
+
+		add_post_meta( $faq, Post_Meta::LINKED_PRODUCTS, $product );
+
+		$data = $this->server->dispatch( new WP_REST_Request( 'GET', $this->base_path( $product ) ) )->get_data();
+
+		$this->assertSame( 'Internal note', $data['direct'][0]['title'] );
+	}
+
+	/**
+	 * Temporarily filtering the title formats leaves no trace behind.
+	 */
+	public function test_title_format_filters_are_restored() {
+		$this->login_as_admin();
+
+		$product = $this->create_product();
+		$faq     = self::factory()->post->create(
+			array(
+				'post_type'     => 'saai_faq',
+				'post_title'    => 'Members only',
+				'post_password' => 'secret',
+			)
+		);
+
+		add_post_meta( $faq, Post_Meta::LINKED_PRODUCTS, $product );
+
+		$before = array( has_filter( 'protected_title_format' ), has_filter( 'private_title_format' ) );
+
+		$this->server->dispatch( new WP_REST_Request( 'GET', $this->base_path( $product ) ) );
+
+		$this->assertSame( $before, array( has_filter( 'protected_title_format' ), has_filter( 'private_title_format' ) ) );
 	}
 
 	/**

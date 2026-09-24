@@ -368,7 +368,10 @@ final class Links_Controller {
 		$direct_all = $this->resolver->direct_content_ids_for_product( $product_id, $admin_args );
 		$every_id   = $this->resolver->content_ids_for_product( $product_id, $admin_args );
 
-		_prime_post_caches( $every_id, false, false );
+		// Meta cache included: the inherited loop below reads
+		// saai_linked_product_cats per post to work out which category
+		// brought it in.
+		_prime_post_caches( $every_id, false, true );
 
 		$direct_ids    = $this->visible_items( $direct_all );
 		$all_ids       = $this->visible_items( $every_id );
@@ -423,7 +426,25 @@ final class Links_Controller {
 	private function content_item( int $post_id ): array {
 		$post_id   = (int) $post_id;
 		$post_type = (string) get_post_type( $post_id );
-		$title     = html_entity_decode( wp_strip_all_tags( get_the_title( $post_id ) ), ENT_QUOTES, 'UTF-8' );
+
+		// get_the_title() prefixes "Protected: " / "Private: " outside the
+		// admin screens, and a REST request is not is_admin(). The status is
+		// already reported in its own field, so the prefix would only produce
+		// a second, differently-worded label in the meta box. The filters go
+		// back exactly as they were found — the closure is its own identity.
+		$plain_title_format = static function () {
+			return '%s';
+		};
+
+		add_filter( 'protected_title_format', $plain_title_format );
+		add_filter( 'private_title_format', $plain_title_format );
+
+		try {
+			$title = html_entity_decode( wp_strip_all_tags( get_the_title( $post_id ) ), ENT_QUOTES, 'UTF-8' );
+		} finally {
+			remove_filter( 'protected_title_format', $plain_title_format );
+			remove_filter( 'private_title_format', $plain_title_format );
+		}
 
 		$status = (string) get_post_status( $post_id );
 

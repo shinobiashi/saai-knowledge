@@ -443,6 +443,10 @@ class Test_Woo_Link_Resolver extends WP_UnitTestCase {
 	/**
 	 * With product_cat unregistered — WooCommerce inactive — category
 	 * resolution degrades to "no categories" instead of erroring.
+	 *
+	 * Two guards produce that outcome (the taxonomy_exists() short-circuit and
+	 * the is_wp_error() branch after wp_get_object_terms()); this pins the
+	 * behaviour they exist for, not either one individually.
 	 */
 	public function test_category_resolution_degrades_without_the_taxonomy() {
 		if ( ! $this->registered_taxonomy ) {

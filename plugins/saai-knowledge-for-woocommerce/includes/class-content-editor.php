@@ -64,11 +64,14 @@ final class Content_Editor {
 
 		wp_set_script_translations( self::HANDLE, 'saai-knowledge-for-woocommerce' );
 
+		// Deliberately not $version: once a build generates the asset file,
+		// that variable becomes the JS bundle's hash, which would not change
+		// when only this stylesheet is edited.
 		wp_enqueue_style(
 			self::HANDLE,
 			plugins_url( 'assets/css/linked-products-panel.css', SAAI_KNOWLEDGE_WOO_DIR . 'saai-knowledge-for-woocommerce.php' ),
 			array( 'wp-components' ),
-			$version
+			SAAI_KNOWLEDGE_WOO_VERSION
 		);
 	}
 }

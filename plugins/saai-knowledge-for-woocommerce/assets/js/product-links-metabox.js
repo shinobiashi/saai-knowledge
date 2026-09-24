@@ -164,7 +164,8 @@
 		/**
 		 * Sends a link change and replaces the lists with the response.
 		 *
-		 * @param {Object} options apiFetch options.
+		 * @param {Object} options      apiFetch options.
+		 * @param {string} announcement Message to announce once it succeeds.
 		 */
 		function mutate( options, announcement ) {
 			setBusy( true );
@@ -275,13 +276,19 @@
 				label: __( 'Link content to this product', 'saai-knowledge-for-woocommerce' ),
 				help: __( 'Search FAQs, knowledge base articles, and glossary terms.', 'saai-knowledge-for-woocommerce' ),
 				value: null,
-				// Blocked while a request is in flight: every response carries a
-				// full snapshot, so a second request started before the first
-				// resolves could roll the list back to the older one.
-				disabled: busy,
+				// ComboboxControl has no `disabled` prop — it destructures a fixed
+				// list and drops anything else — so the in-flight guard lives in
+				// onChange below, with isLoading showing why. Without it a second
+				// request started before the first resolves could roll the list
+				// back: every response carries a full snapshot.
+				isLoading: busy,
 				options: options,
 				onFilterValueChange: setSearch,
 				onChange: function ( value ) {
+					if ( busy ) {
+						return;
+					}
+
 					var id = parseInt( value, 10 );
 					var chosen = suggestions.filter( function ( item ) {
 						return item.id === id;
