@@ -24,6 +24,7 @@
 	var Button = wp.components.Button;
 	var useEntityProp = wp.coreData.useEntityProp;
 	var useSelect = wp.data.useSelect;
+	var useDebounce = wp.compose.useDebounce;
 	var createElement = wp.element.createElement;
 	var Fragment = wp.element.Fragment;
 	var useState = wp.element.useState;
@@ -35,6 +36,7 @@
 	var CATEGORY_META = 'saai_linked_product_cats';
 	var CONTENT_TYPES = [ 'saai_faq', 'saai_kb', 'saai_glossary' ];
 	var MAX_SUGGESTIONS = 20;
+	var SEARCH_DEBOUNCE_MS = 300;
 
 	if ( ! PluginDocumentSettingPanel ) {
 		return;
@@ -159,8 +161,8 @@
 				var label = record
 					? props.getName( record )
 					: sprintf(
-							/* translators: %d: ID of a product or product category that could not be found. */
-							__( 'Not found (#%d)', 'saai-knowledge-for-woocommerce' ),
+							/* translators: %d: ID of a linked product or product category that could not be loaded. */
+							__( 'Cannot be shown — unpublished or deleted (#%d)', 'saai-knowledge-for-woocommerce' ),
 							id
 					  );
 
@@ -210,6 +212,12 @@
 		var categorySearch = categorySearchState[ 0 ];
 		var setCategorySearch = categorySearchState[ 1 ];
 
+		// The controls keep their own input state, so only the query is
+		// delayed — without this every keystroke starts a REST request, unlike
+		// the product meta box which has always debounced.
+		var debouncedProductSearch = useDebounce( setProductSearch, SEARCH_DEBOUNCE_MS );
+		var debouncedCategorySearch = useDebounce( setCategorySearch, SEARCH_DEBOUNCE_MS );
+
 		var productIds = toIds( meta[ PRODUCT_META ] );
 		var categoryIds = toIds( meta[ CATEGORY_META ] );
 
@@ -222,6 +230,11 @@
 				return (
 					select( 'core' ).getEntityRecords( 'postType', 'product', {
 						search: productSearch,
+						// Titles only: ComboboxControl re-filters the options it
+						// is given against the typed text, so a product matched
+						// on its description alone would be invisible while
+						// still consuming a per_page slot.
+						search_columns: [ 'post_title' ],
 						per_page: MAX_SUGGESTIONS,
 						orderby: 'title',
 						order: 'asc',
@@ -312,7 +325,7 @@
 				label: __( 'Add a product', 'saai-knowledge-for-woocommerce' ),
 				value: null,
 				options: buildOptions( productMatches, productName, productHint, productIds ),
-				onFilterValueChange: setProductSearch,
+				onFilterValueChange: debouncedProductSearch,
 				onChange: function ( value ) {
 					addId( PRODUCT_META, productIds, value, setProductSearch );
 				},
@@ -341,7 +354,7 @@
 				),
 				value: null,
 				options: buildOptions( categoryMatches, categoryName, categoryHint, categoryIds ),
-				onFilterValueChange: setCategorySearch,
+				onFilterValueChange: debouncedCategorySearch,
 				onChange: function ( value ) {
 					addId( CATEGORY_META, categoryIds, value, setCategorySearch );
 				},

@@ -26,6 +26,7 @@
 	var Fragment = wp.element.Fragment;
 	var useEffect = wp.element.useEffect;
 	var useState = wp.element.useState;
+	var speak = wp.a11y.speak;
 	var __ = wp.i18n.__;
 	var sprintf = wp.i18n.sprintf;
 
@@ -65,7 +66,11 @@
 			createElement( 'span', { className: 'saai-woo-product-links__type' }, item.post_type_label ),
 			'publish' === item.status
 				? null
-				: createElement( 'span', { className: 'saai-woo-product-links__status' }, item.status )
+				: createElement(
+						'span',
+						{ className: 'saai-woo-product-links__status' },
+						item.status_label || item.status
+				  )
 		);
 	}
 
@@ -161,13 +166,16 @@
 		 *
 		 * @param {Object} options apiFetch options.
 		 */
-		function mutate( options ) {
+		function mutate( options, announcement ) {
 			setBusy( true );
 			setError( '' );
 
 			apiFetch( options )
 				.then( function ( payload ) {
 					setData( payload );
+					// The row that had focus is gone after an unlink, so the
+					// outcome needs announcing explicitly.
+					speak( announcement );
 				} )
 				.catch( function ( reason ) {
 					setError( messageFrom( reason ) );
@@ -246,7 +254,14 @@
 											item.title
 										),
 										onClick: function () {
-											mutate( { path: basePath + '/' + item.id, method: 'DELETE' } );
+											mutate(
+												{ path: basePath + '/' + item.id, method: 'DELETE' },
+												sprintf(
+													/* translators: %s: title of the content that was unlinked. */
+													__( '%s is no longer linked to this product.', 'saai-knowledge-for-woocommerce' ),
+													item.title
+												)
+											);
 										},
 									},
 									__( 'Unlink', 'saai-knowledge-for-woocommerce' )
@@ -260,13 +275,27 @@
 				label: __( 'Link content to this product', 'saai-knowledge-for-woocommerce' ),
 				help: __( 'Search FAQs, knowledge base articles, and glossary terms.', 'saai-knowledge-for-woocommerce' ),
 				value: null,
+				// Blocked while a request is in flight: every response carries a
+				// full snapshot, so a second request started before the first
+				// resolves could roll the list back to the older one.
+				disabled: busy,
 				options: options,
 				onFilterValueChange: setSearch,
 				onChange: function ( value ) {
 					var id = parseInt( value, 10 );
+					var chosen = suggestions.filter( function ( item ) {
+						return item.id === id;
+					} )[ 0 ];
 
 					if ( ! isNaN( id ) && id > 0 ) {
-						mutate( { path: basePath, method: 'POST', data: { content_id: id } } );
+						mutate(
+							{ path: basePath, method: 'POST', data: { content_id: id } },
+							sprintf(
+								/* translators: %s: title of the content that was linked. */
+								__( '%s is now linked to this product.', 'saai-knowledge-for-woocommerce' ),
+								chosen ? chosen.title : String( id )
+							)
+						);
 					}
 
 					setSearch( '' );

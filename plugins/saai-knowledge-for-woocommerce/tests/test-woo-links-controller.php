@@ -508,6 +508,233 @@ class Test_Woo_Links_Controller extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Content the current user may not read is dropped from the listing.
+	 *
+	 * The query asks for `post_status => any` without a `perm` argument, so
+	 * WP_Query returns every draft regardless of author — visible_items() is
+	 * the only thing standing between another author's unpublished content and
+	 * whoever can edit this product.
+	 */
+	public function test_listing_hides_content_the_user_cannot_read() {
+		$owner_id     = self::factory()->user->create( array( 'role' => 'author' ) );
+		$stranger_id  = self::factory()->user->create( array( 'role' => 'author' ) );
+		$product      = self::factory()->post->create(
+			array(
+				'post_type'   => Link_Resolver::PRODUCT_POST_TYPE,
+				'post_author' => $owner_id,
+			)
+		);
+		$others_draft = self::factory()->post->create(
+			array(
+				'post_type'   => 'saai_faq',
+				'post_title'  => 'Unreleased secret',
+				'post_status' => 'draft',
+				'post_author' => $stranger_id,
+			)
+		);
+		$own_draft    = self::factory()->post->create(
+			array(
+				'post_type'   => 'saai_faq',
+				'post_title'  => 'My own draft',
+				'post_status' => 'draft',
+				'post_author' => $owner_id,
+			)
+		);
+
+		add_post_meta( $others_draft, Post_Meta::LINKED_PRODUCTS, $product );
+		add_post_meta( $own_draft, Post_Meta::LINKED_PRODUCTS, $product );
+
+		wp_set_current_user( $owner_id );
+
+		$ids = wp_list_pluck(
+			$this->server->dispatch( new WP_REST_Request( 'GET', $this->base_path( $product ) ) )->get_data()['direct'],
+			'id'
+		);
+
+		$this->assertSame( array( $own_draft ), $ids );
+	}
+
+	/**
+	 * The same guard applies to the search used by the "add" field.
+	 */
+	public function test_content_search_hides_content_the_user_cannot_read() {
+		$owner_id    = self::factory()->user->create( array( 'role' => 'author' ) );
+		$stranger_id = self::factory()->user->create( array( 'role' => 'author' ) );
+
+		self::factory()->post->create(
+			array(
+				'post_type'   => 'saai_faq',
+				'post_title'  => 'Zephyr secret draft',
+				'post_status' => 'draft',
+				'post_author' => $stranger_id,
+			)
+		);
+		$own = self::factory()->post->create(
+			array(
+				'post_type'   => 'saai_faq',
+				'post_title'  => 'Zephyr own draft',
+				'post_status' => 'draft',
+				'post_author' => $owner_id,
+			)
+		);
+
+		wp_set_current_user( $owner_id );
+
+		$request = new WP_REST_Request( 'GET', '/' . Links_Controller::NAMESPACE_ROUTE . '/content-search' );
+		$request->set_param( 'search', 'Zephyr' );
+
+		$this->assertSame( array( $own ), wp_list_pluck( $this->server->dispatch( $request )->get_data(), 'id' ) );
+	}
+
+	/**
+	 * A readable but uneditable item comes back without an edit link.
+	 */
+	public function test_edit_link_is_empty_without_edit_permission() {
+		$owner_id    = self::factory()->user->create( array( 'role' => 'author' ) );
+		$stranger_id = self::factory()->user->create( array( 'role' => 'author' ) );
+		$product     = self::factory()->post->create(
+			array(
+				'post_type'   => Link_Resolver::PRODUCT_POST_TYPE,
+				'post_author' => $owner_id,
+			)
+		);
+		$published   = self::factory()->post->create(
+			array(
+				'post_type'   => 'saai_faq',
+				'post_author' => $stranger_id,
+			)
+		);
+
+		add_post_meta( $published, Post_Meta::LINKED_PRODUCTS, $product );
+
+		wp_set_current_user( $owner_id );
+
+		$data = $this->server->dispatch( new WP_REST_Request( 'GET', $this->base_path( $product ) ) )->get_data();
+
+		$this->assertSame( array( $published ), wp_list_pluck( $data['direct'], 'id' ) );
+		$this->assertSame( '', $data['direct'][0]['edit_link'] );
+	}
+
+	/**
+	 * Unlinking needs edit_post on the content, not just on the product.
+	 */
+	public function test_delete_requires_permission_to_edit_the_content() {
+		$owner_id    = self::factory()->user->create( array( 'role' => 'author' ) );
+		$stranger_id = self::factory()->user->create( array( 'role' => 'author' ) );
+		$product     = self::factory()->post->create(
+			array(
+				'post_type'   => Link_Resolver::PRODUCT_POST_TYPE,
+				'post_author' => $owner_id,
+			)
+		);
+		$faq         = self::factory()->post->create(
+			array(
+				'post_type'   => 'saai_faq',
+				'post_author' => $stranger_id,
+			)
+		);
+
+		add_post_meta( $faq, Post_Meta::LINKED_PRODUCTS, $product );
+
+		wp_set_current_user( $owner_id );
+
+		$response = $this->server->dispatch( new WP_REST_Request( 'DELETE', $this->base_path( $product ) . '/' . $faq ) );
+
+		$this->assertSame( 403, $response->get_status() );
+		$this->assertSame( 'saai_woo_cannot_edit_content', $response->as_error()->get_error_code() );
+		$this->assertSame( array( (string) $product ), get_post_meta( $faq, Post_Meta::LINKED_PRODUCTS, false ) );
+	}
+
+	/**
+	 * Password-protected content stays listed.
+	 *
+	 * The resolver excludes it by default for front-end output, but this list
+	 * is the only place its link can be removed from the product side.
+	 */
+	public function test_password_protected_content_is_listed() {
+		$this->login_as_admin();
+
+		$product = $this->create_product();
+		$faq     = self::factory()->post->create(
+			array(
+				'post_type'     => 'saai_faq',
+				'post_title'    => 'Members only',
+				'post_password' => 'secret',
+			)
+		);
+
+		add_post_meta( $faq, Post_Meta::LINKED_PRODUCTS, $product );
+
+		$data = $this->server->dispatch( new WP_REST_Request( 'GET', $this->base_path( $product ) ) )->get_data();
+
+		$this->assertSame( array( $faq ), wp_list_pluck( $data['direct'], 'id' ) );
+	}
+
+	/**
+	 * The search matches titles only.
+	 *
+	 * ComboboxControl re-filters the options it is handed against the typed
+	 * text, so a body-only match can never be shown — it would only crowd a
+	 * real title match out of the per_page window.
+	 */
+	public function test_content_search_matches_titles_only() {
+		$this->login_as_admin();
+
+		self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_faq',
+				'post_title'   => 'Unrelated heading',
+				'post_content' => 'Mentions zqxprobe in the body only.',
+			)
+		);
+		$titled = self::factory()->post->create(
+			array(
+				'post_type'  => 'saai_faq',
+				'post_title' => 'Zqxprobe care guide',
+			)
+		);
+
+		$request = new WP_REST_Request( 'GET', '/' . Links_Controller::NAMESPACE_ROUTE . '/content-search' );
+		$request->set_param( 'search', 'zqxprobe' );
+
+		$this->assertSame( array( $titled ), wp_list_pluck( $this->server->dispatch( $request )->get_data(), 'id' ) );
+	}
+
+	/**
+	 * An empty search term is rejected rather than listing everything.
+	 */
+	public function test_content_search_rejects_an_empty_term() {
+		$this->login_as_admin();
+
+		$request = new WP_REST_Request( 'GET', '/' . Links_Controller::NAMESPACE_ROUTE . '/content-search' );
+		$request->set_param( 'search', '' );
+
+		$this->assertSame( 400, $this->server->dispatch( $request )->get_status() );
+	}
+
+	/**
+	 * Items carry a translated status label, not just the raw slug.
+	 */
+	public function test_items_carry_a_translated_status_label() {
+		$this->login_as_admin();
+
+		$product = $this->create_product();
+		$draft   = self::factory()->post->create(
+			array(
+				'post_type'   => 'saai_faq',
+				'post_status' => 'draft',
+			)
+		);
+
+		add_post_meta( $draft, Post_Meta::LINKED_PRODUCTS, $product );
+
+		$item = $this->server->dispatch( new WP_REST_Request( 'GET', $this->base_path( $product ) ) )->get_data()['direct'][0];
+
+		$this->assertSame( 'draft', $item['status'] );
+		$this->assertSame( get_post_status_object( 'draft' )->label, $item['status_label'] );
+	}
+
+	/**
 	 * The routes advertise a schema, so OPTIONS discovery works.
 	 */
 	public function test_routes_expose_their_schema() {

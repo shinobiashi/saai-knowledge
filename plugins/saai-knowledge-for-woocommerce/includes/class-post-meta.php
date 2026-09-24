@@ -67,7 +67,7 @@ final class Post_Meta {
 						// (the same trap Term_Order's saai_order documents).
 						'single'            => false,
 						'show_in_rest'      => true,
-						'sanitize_callback' => 'absint',
+						'sanitize_callback' => array( $this, 'sanitize_id' ),
 						'auth_callback'     => array( $this, 'can_edit_post_meta' ),
 					)
 				);
@@ -76,11 +76,31 @@ final class Post_Meta {
 	}
 
 	/**
+	 * Normalizes a stored value to a non-negative integer ID.
+	 *
+	 * Deliberately not `absint()`: that turns a negative value into its
+	 * absolute value, so a `-3` would silently become `3` — a different,
+	 * perfectly valid product ID. Anything that isn't a positive ID collapses
+	 * to 0 instead, which matches no product or term and is dropped on read.
+	 *
+	 * @param mixed $value Incoming meta value.
+	 * @return int
+	 */
+	public function sanitize_id( $value ): int {
+		if ( ! is_scalar( $value ) ) {
+			return 0;
+		}
+
+		return max( 0, (int) $value );
+	}
+
+	/**
 	 * Restricts meta read/write access to users who can edit the post.
 	 *
-	 * Signature matches the `auth_{$object_type}_meta_{$meta_key}` filter
-	 * WordPress invokes this callback through (see `map_meta_cap()` in
-	 * wp-includes/capabilities.php). The incoming `$allowed` is intentionally
+	 * Signature matches the `auth_{$object_type}_meta_{$meta_key}_for_{$object_subtype}`
+	 * filter WordPress invokes this callback through — `register_meta()` uses
+	 * the subtype-qualified name whenever an object subtype (here, the post
+	 * type) is given. The incoming `$allowed` is intentionally
 	 * ignored: it only reflects `is_protected_meta()`, not a real permission
 	 * decision, so `current_user_can()` is the actual authorization check.
 	 *

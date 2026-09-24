@@ -131,7 +131,12 @@ final class Links_Controller {
 							'description'       => __( 'Text to search for.', 'saai-knowledge-for-woocommerce' ),
 							'type'              => 'string',
 							'required'          => true,
-							'sanitize_callback' => 'sanitize_text_field',
+							'minLength'         => 1,
+							// No sanitize_text_field(): it strips percent-encoded
+							// octets (%[a-f0-9]{2}), which would quietly mangle a
+							// search for something like "50%ab". The value is only
+							// ever handed to WP_Query's `s`, which parameterizes it,
+							// and the schema already constrains it to a string.
 							'validate_callback' => 'rest_validate_request_arg',
 						),
 						'post_type' => array(
@@ -178,6 +183,14 @@ final class Links_Controller {
 	 * `current_user_can( 'edit_post', $id )` against an ID that might be a
 	 * product, whose separate `edit_products` capability would then be
 	 * mistaken for permission to edit content.
+	 *
+	 * The product capability gates reachability of this route, not the link
+	 * itself: the same meta is writable through core's own
+	 * `/wp/v2/saai_faq/<id>` with `meta.saai_linked_products`, which asks only
+	 * for `edit_post` on the content. Anyone who may edit this plugin's
+	 * content may therefore link it to any product, by design — see
+	 * docs/DESIGN.md section 6.1. Do not treat `edit_products` as an effective
+	 * boundary on where content can appear.
 	 *
 	 * @param \WP_REST_Request $request Request object.
 	 * @return true|\WP_Error
@@ -309,6 +322,12 @@ final class Links_Controller {
 				// anything the current user may not read.
 				'post_status'         => 'any',
 				's'                   => (string) $request->get_param( 'search' ),
+				// Titles only. ComboboxControl re-filters the options it is given
+				// against the typed text (wp-includes/js/dist/components.js), so a
+				// body-only match is invisible in the UI anyway — and worse, it
+				// consumes a per_page slot that a real title match needed. Also
+				// what docs/DESIGN.md section 6.1 specifies.
+				'search_columns'      => array( 'post_title' ),
 				'posts_per_page'      => (int) $request->get_param( 'per_page' ),
 				'fields'              => 'ids',
 				// Deterministic instead of relevance-ranked, so the suggestion
@@ -322,6 +341,11 @@ final class Links_Controller {
 
 		$ids = array_map( 'intval', $query->posts );
 
+		// `fields => 'ids'` leaves the post cache cold, so prime it once rather
+		// than letting visible_items() and content_item() fire a get_post() per
+		// result.
+		_prime_post_caches( $ids, false, false );
+
 		return rest_ensure_response( array_map( array( $this, 'content_item' ), $this->visible_items( $ids ) ) );
 	}
 
@@ -333,10 +357,21 @@ final class Links_Controller {
 	 */
 	private function linked_content_payload( int $product_id ): array {
 		$category_ids = $this->resolver->category_ids_for_product( $product_id );
-		$admin_args   = array( 'post_status' => 'any' );
+		// `has_password => null` drops the resolver's front-end default of
+		// excluding protected posts: here the list is the only place a link to
+		// one can be removed, so hiding it would strand the meta row.
+		$admin_args = array(
+			'post_status'  => 'any',
+			'has_password' => null,
+		);
 
-		$direct_ids    = $this->visible_items( $this->resolver->direct_content_ids_for_product( $product_id, $admin_args ) );
-		$all_ids       = $this->visible_items( $this->resolver->content_ids_for_product( $product_id, $admin_args ) );
+		$direct_all = $this->resolver->direct_content_ids_for_product( $product_id, $admin_args );
+		$every_id   = $this->resolver->content_ids_for_product( $product_id, $admin_args );
+
+		_prime_post_caches( $every_id, false, false );
+
+		$direct_ids    = $this->visible_items( $direct_all );
+		$all_ids       = $this->visible_items( $every_id );
 		$inherited_ids = array_values( array_diff( $all_ids, $direct_ids ) );
 
 		$inherited = array();
@@ -390,14 +425,34 @@ final class Links_Controller {
 		$post_type = (string) get_post_type( $post_id );
 		$title     = html_entity_decode( wp_strip_all_tags( get_the_title( $post_id ) ), ENT_QUOTES, 'UTF-8' );
 
+		$status = (string) get_post_status( $post_id );
+
 		return array(
 			'id'              => $post_id,
 			'title'           => '' !== trim( $title ) ? $title : __( '(no title)', 'saai-knowledge-for-woocommerce' ),
 			'post_type'       => $post_type,
 			'post_type_label' => $this->post_type_label( $post_type ),
-			'status'          => (string) get_post_status( $post_id ),
+			'status'          => $status,
+			'status_label'    => $this->status_label( $status ),
 			'edit_link'       => (string) get_edit_post_link( $post_id, 'raw' ),
 		);
+	}
+
+	/**
+	 * The translated label of a post status, falling back to its slug.
+	 *
+	 * The raw slug would otherwise reach the meta box untranslated.
+	 *
+	 * @param string $status Post status slug.
+	 */
+	private function status_label( string $status ): string {
+		$object = get_post_status_object( $status );
+
+		if ( null === $object ) {
+			return $status;
+		}
+
+		return (string) $object->label;
 	}
 
 	/**
@@ -566,7 +621,12 @@ final class Links_Controller {
 					'context'     => array( 'view', 'edit' ),
 				),
 				'status'          => array(
-					'description' => __( 'Post status.', 'saai-knowledge-for-woocommerce' ),
+					'description' => __( 'Post status slug.', 'saai-knowledge-for-woocommerce' ),
+					'type'        => 'string',
+					'context'     => array( 'view', 'edit' ),
+				),
+				'status_label'    => array(
+					'description' => __( 'Human-readable post status name.', 'saai-knowledge-for-woocommerce' ),
 					'type'        => 'string',
 					'context'     => array( 'view', 'edit' ),
 				),

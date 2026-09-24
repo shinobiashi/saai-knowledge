@@ -40,7 +40,7 @@ final class Content_Editor {
 		}
 
 		$asset_file   = SAAI_KNOWLEDGE_WOO_DIR . 'assets/js/linked-products-panel.asset.php';
-		$dependencies = array( 'wp-components', 'wp-core-data', 'wp-data', 'wp-editor', 'wp-element', 'wp-html-entities', 'wp-i18n', 'wp-plugins' );
+		$dependencies = array( 'wp-components', 'wp-compose', 'wp-core-data', 'wp-data', 'wp-editor', 'wp-element', 'wp-html-entities', 'wp-i18n', 'wp-plugins' );
 		$version      = SAAI_KNOWLEDGE_WOO_VERSION;
 
 		// The script is hand-written rather than bundled today (the add-on has
@@ -63,5 +63,12 @@ final class Content_Editor {
 		);
 
 		wp_set_script_translations( self::HANDLE, 'saai-knowledge-for-woocommerce' );
+
+		wp_enqueue_style(
+			self::HANDLE,
+			plugins_url( 'assets/css/linked-products-panel.css', SAAI_KNOWLEDGE_WOO_DIR . 'saai-knowledge-for-woocommerce.php' ),
+			array( 'wp-components' ),
+			$version
+		);
 	}
 }

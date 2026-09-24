@@ -145,6 +145,18 @@ class Test_Woo_Product_Metabox extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A caller that hands do_meta_boxes() something other than a WP_Post gets
+	 * an empty box rather than a TypeError.
+	 */
+	public function test_render_tolerates_a_non_post_argument() {
+		ob_start();
+		$this->metabox->render( null );
+		$output = (string) ob_get_clean();
+
+		$this->assertSame( '', $output );
+	}
+
+	/**
 	 * The no-JS message is escaped.
 	 *
 	 * The shipped English string contains nothing that needs escaping, so
@@ -209,7 +221,7 @@ class Test_Woo_Product_Metabox extends WP_UnitTestCase {
 
 		$script = wp_scripts()->registered[ Product_Metabox::HANDLE ];
 
-		foreach ( array( 'wp-api-fetch', 'wp-components', 'wp-element', 'wp-i18n', 'wp-url' ) as $dependency ) {
+		foreach ( array( 'wp-a11y', 'wp-api-fetch', 'wp-components', 'wp-element', 'wp-i18n', 'wp-url' ) as $dependency ) {
 			$this->assertContains( $dependency, $script->deps, $dependency );
 		}
 	}

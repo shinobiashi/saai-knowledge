@@ -65,9 +65,18 @@ final class Product_Metabox {
 	/**
 	 * Renders the meta box container the script mounts into.
 	 *
-	 * @param \WP_Post $post The product being edited.
+	 * `$post` is deliberately untyped and normalized: do_meta_boxes() passes
+	 * whatever its caller gave it, which for a third-party
+	 * `do_meta_boxes( 'product', 'normal', null )` is not a WP_Post at all.
+	 *
+	 * @param mixed $post The product being edited, or anything do_meta_boxes() was handed.
 	 */
-	public function render( \WP_Post $post ): void {
+	public function render( $post ): void {
+		$post = get_post( $post );
+
+		if ( ! $post instanceof \WP_Post ) {
+			return;
+		}
 		?>
 		<div class="saai-woo-product-links" data-product-id="<?php echo esc_attr( (string) $post->ID ); ?>">
 			<noscript>
@@ -88,7 +97,7 @@ final class Product_Metabox {
 		}
 
 		$asset_file   = SAAI_KNOWLEDGE_WOO_DIR . 'assets/js/product-links-metabox.asset.php';
-		$dependencies = array( 'wp-api-fetch', 'wp-components', 'wp-element', 'wp-i18n', 'wp-url' );
+		$dependencies = array( 'wp-a11y', 'wp-api-fetch', 'wp-components', 'wp-element', 'wp-i18n', 'wp-url' );
 		$version      = SAAI_KNOWLEDGE_WOO_VERSION;
 
 		// See Content_Editor::enqueue_panel_script() for why an asset file is

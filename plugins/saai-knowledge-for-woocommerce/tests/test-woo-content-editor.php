@@ -39,6 +39,8 @@ class Test_Woo_Content_Editor extends WP_UnitTestCase {
 	public function tear_down() {
 		wp_dequeue_script( Content_Editor::HANDLE );
 		wp_deregister_script( Content_Editor::HANDLE );
+		wp_dequeue_style( Content_Editor::HANDLE );
+		wp_deregister_style( Content_Editor::HANDLE );
 		set_current_screen( 'front' );
 
 		parent::tear_down();
@@ -87,6 +89,19 @@ class Test_Woo_Content_Editor extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The panel ships its own stylesheet.
+	 *
+	 * The markup uses saai-woo-linked* class names, which do nothing without it.
+	 */
+	public function test_stylesheet_is_enqueued_with_the_script() {
+		$this->set_edit_screen( 'saai_kb' );
+
+		$this->editor->enqueue_panel_script();
+
+		$this->assertTrue( wp_style_is( Content_Editor::HANDLE, 'enqueued' ) );
+	}
+
+	/**
 	 * The panel script stays off unrelated edit screens.
 	 */
 	public function test_script_is_not_enqueued_for_other_post_types() {
@@ -123,7 +138,7 @@ class Test_Woo_Content_Editor extends WP_UnitTestCase {
 
 		$script = wp_scripts()->registered[ Content_Editor::HANDLE ];
 
-		foreach ( array( 'wp-components', 'wp-core-data', 'wp-data', 'wp-editor', 'wp-element', 'wp-html-entities', 'wp-i18n', 'wp-plugins' ) as $dependency ) {
+		foreach ( array( 'wp-components', 'wp-compose', 'wp-core-data', 'wp-data', 'wp-editor', 'wp-element', 'wp-html-entities', 'wp-i18n', 'wp-plugins' ) as $dependency ) {
 			$this->assertContains( $dependency, $script->deps, $dependency );
 		}
 	}

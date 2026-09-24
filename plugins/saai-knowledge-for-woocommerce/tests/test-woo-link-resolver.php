@@ -441,6 +441,28 @@ class Test_Woo_Link_Resolver extends WP_UnitTestCase {
 	}
 
 	/**
+	 * With product_cat unregistered — WooCommerce inactive — category
+	 * resolution degrades to "no categories" instead of erroring.
+	 */
+	public function test_category_resolution_degrades_without_the_taxonomy() {
+		if ( ! $this->registered_taxonomy ) {
+			$this->markTestSkipped( 'product_cat is registered by a real WooCommerce install here.' );
+		}
+
+		$category   = $this->create_category( 'Apparel' );
+		$product_id = $this->create_product( array( $category ) );
+		$kb_id      = $this->create_content( 'saai_kb', array(), array(), array( $category ) );
+
+		$this->assertSame( array( $kb_id ), $this->resolver->content_ids_for_product( $product_id ) );
+
+		unregister_taxonomy( Link_Resolver::PRODUCT_TAXONOMY );
+		$this->registered_taxonomy = false;
+
+		$this->assertSame( array(), $this->resolver->category_ids_for_product( $product_id ) );
+		$this->assertSame( array(), $this->resolver->content_ids_for_product( $product_id ) );
+	}
+
+	/**
 	 * Only the three content types count as linkable content.
 	 */
 	public function test_is_content_post_recognizes_the_content_types() {

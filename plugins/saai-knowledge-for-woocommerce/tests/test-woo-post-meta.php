@@ -88,7 +88,10 @@ class Test_Woo_Post_Meta extends WP_UnitTestCase {
 	}
 
 	/**
-	 * The sanitize callback coerces each stored row to a non-negative integer.
+	 * The sanitize callback coerces each stored row to a non-negative integer,
+	 * and a negative value collapses to 0 rather than flipping sign.
+	 *
+	 * Using absint() would turn -3 into 3 — a different, perfectly valid ID.
 	 */
 	public function test_values_are_sanitized_per_row() {
 		$post_id = self::factory()->post->create( array( 'post_type' => 'saai_kb' ) );
@@ -96,7 +99,32 @@ class Test_Woo_Post_Meta extends WP_UnitTestCase {
 		add_post_meta( $post_id, Post_Meta::LINKED_PRODUCTS, '12abc' );
 		add_post_meta( $post_id, Post_Meta::LINKED_PRODUCTS, -3 );
 
-		$this->assertSame( array( '12', '3' ), get_post_meta( $post_id, Post_Meta::LINKED_PRODUCTS, false ) );
+		$this->assertSame( array( '12', '0' ), get_post_meta( $post_id, Post_Meta::LINKED_PRODUCTS, false ) );
+	}
+
+	/**
+	 * The sanitizer handles every shape a meta write can carry.
+	 */
+	public function test_sanitize_id_rejects_unusable_values() {
+		$this->assertSame( 7, $this->meta->sanitize_id( '7' ) );
+		$this->assertSame( 0, $this->meta->sanitize_id( -3 ) );
+		$this->assertSame( 0, $this->meta->sanitize_id( 'not a number' ) );
+		$this->assertSame( 0, $this->meta->sanitize_id( array( 5 ) ) );
+		$this->assertSame( 0, $this->meta->sanitize_id( null ) );
+	}
+
+	/**
+	 * Every content type supports custom-fields.
+	 *
+	 * This is a cross-plugin contract, not a local detail: WP_REST_Posts_Controller
+	 * only exposes the `meta` field when the post type supports custom-fields, so
+	 * if the free plugin ever dropped it from Post_Types::shared_args() the editor
+	 * sidebar panel would silently stop saving links with no error anywhere.
+	 */
+	public function test_content_types_support_custom_fields() {
+		foreach ( Post_Meta::POST_TYPES as $post_type ) {
+			$this->assertTrue( post_type_supports( $post_type, 'custom-fields' ), $post_type );
+		}
 	}
 
 	/**
