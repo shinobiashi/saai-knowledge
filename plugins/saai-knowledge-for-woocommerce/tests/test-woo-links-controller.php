@@ -852,6 +852,45 @@ class Test_Woo_Links_Controller extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Editable matches are not crowded out by uneditable ones.
+	 *
+	 * Because posts_per_page becomes a SQL LIMIT, filtering by capability
+	 * after the query would return an empty list whenever enough of another
+	 * author's posts sort first — the user could never link their own
+	 * (Codex review).
+	 */
+	public function test_content_search_is_not_truncated_by_uneditable_matches() {
+		$owner_id    = self::factory()->user->create( array( 'role' => 'author' ) );
+		$stranger_id = self::factory()->user->create( array( 'role' => 'author' ) );
+
+		// Sort ahead of the owner's post and more than fill one page.
+		for ( $i = 0; $i < 25; $i++ ) {
+			self::factory()->post->create(
+				array(
+					'post_type'   => 'saai_faq',
+					'post_title'  => sprintf( 'Aaa zephyr %02d', $i ),
+					'post_author' => $stranger_id,
+				)
+			);
+		}
+
+		$mine = self::factory()->post->create(
+			array(
+				'post_type'   => 'saai_faq',
+				'post_title'  => 'Zzz zephyr mine',
+				'post_author' => $owner_id,
+			)
+		);
+
+		wp_set_current_user( $owner_id );
+
+		$request = new WP_REST_Request( 'GET', '/' . Links_Controller::NAMESPACE_ROUTE . '/content-search' );
+		$request->set_param( 'search', 'zephyr' );
+
+		$this->assertSame( array( $mine ), wp_list_pluck( $this->server->dispatch( $request )->get_data(), 'id' ) );
+	}
+
+	/**
 	 * An empty search term is rejected rather than listing everything.
 	 */
 	public function test_content_search_rejects_an_empty_term() {

@@ -317,11 +317,24 @@ final class Links_Controller {
 			array(
 				'post_type'           => $post_types,
 				// Drafts and pending posts are included on purpose: linking a
-				// product to content that isn't published yet is a normal
-				// step while preparing a launch. visible_items() then drops
-				// anything the current user may not read.
-				'post_status'         => 'any',
+				// product to content that isn't published yet is a normal step
+				// while preparing a launch.
+				//
+				// Spelled out rather than 'any' so that `perm` below takes
+				// effect: WP_Query's 'any' branch only emits "status is not X"
+				// exclusions and never reaches the clause that applies `perm`
+				// (class-wp-query.php:2666-2696).
+				'post_status'         => array( 'publish', 'future', 'draft', 'pending', 'private' ),
 				's'                   => (string) $request->get_param( 'search' ),
+				// Pushes the "may edit" restriction into the WHERE clause
+				// instead of leaving it to visible_items() below: posts_per_page
+				// becomes a SQL LIMIT, so filtering afterwards can return fewer
+				// results than asked for — or none — when other authors' posts
+				// sort first. Core adds `post_author = <user>` here for anyone
+				// without edit_others_posts (class-wp-query.php:2694). The
+				// per-post check still runs, since `perm` only covers that one
+				// dimension (Codex review).
+				'perm'                => 'editable',
 				// Titles only. ComboboxControl re-filters the options it is given
 				// against the typed text (wp-includes/js/dist/components.js), so a
 				// body-only match is invisible in the UI anyway — and worse, it
