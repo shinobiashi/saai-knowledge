@@ -185,3 +185,4 @@ npx wp-env run tests-cli --env-cwd=saai-monorepo bash -c "composer test"
 
 - 無料版: readme.txt の Stable tag 更新 → WordPress.org SVN（GitHub Actions からデプロイ）。
 - 有料版: WooCommerce.com Marketplace（ライセンス・更新配信は Marketplace 任せ。自前ライセンス実装は行わない）。
+- 無料版のバージョン番号は3箇所を必ず揃える: `saai-knowledge.php` の `Version:` ヘッダー / 同ファイルの `SAAI_KNOWLEDGE_VERSION` / `readme.txt` の `Stable tag`。`Version:` ヘッダーだけ上げて定数を忘れると、`maybe_flush_rewrite_rules_on_upgrade()` が `get_option()` の保存値と `SAAI_KNOWLEDGE_VERSION` を比較する実装のため、WordPress.org 自動更新時の rewrite flush が無言でスキップされる。`deploy-wporg.yml` が検証するのは `Stable tag` とタグ名の一致だけなので、この不整合は CI では捕まらない。逆に `phpstan-bootstrap.php` の同名定数（静的解析用スタブ）と `SAAI_WOO_MIN_BASE_VERSION`（アドオンが要求する無料版の最低バージョン）は据え置く。
