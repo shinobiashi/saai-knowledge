@@ -151,7 +151,7 @@ M1〜M5 の全タスクは GitHub Issues #1〜#27（マイルストーン M1〜M
 - [ ] 紐づけメタ（`saai_linked_products` / `saai_linked_product_cats`、1値1行保存）+ 解決ロジック（商品 ∪ 所属カテゴリー祖先、重複排除）
 - [ ] コンテンツ側 UI: エディターサイドバーで商品・商品カテゴリー検索選択
 - [ ] 商品側 UI: 商品編集画面の逆引きメタボックス（一覧・追加・解除）
-- [ ] 商品ページ表示: FAQ セクション（クラシック: `woocommerce_product_tabs` / blockified: `hooked_block_types` で `woocommerce/accordion-group` に `last_child` フック）、関連 KB セクション、商品説明への用語ツールチップ注入（`saai_autolink_dictionary`）— 各自動挿入は設定で on/off
+- [ ] 商品ページ表示: FAQ セクション（**主経路は両テーマとも `woocommerce_product_tabs`**。未カスタマイズの blockified テンプレートは legacy タブを描画するため。保存済みテンプレート向けに Woo 公式の `woocommerce_product_details_hooked_blocks` を併用するかは着手時に実機検証して決める。DESIGN.md §6.2 参照）、関連 KB セクション、商品説明への用語ツールチップ注入（`saai_autolink_dictionary`）— 各自動挿入は設定で on/off
 - [ ] 手動配置ブロック: `product-faq` / `product-docs` / `product-glossary` + ショートコード
 - [ ] RAG エクスポートへの商品メタデータ付与（`saai_export_record` で商品ID / SKU / 商品カテゴリーを注入 — 商品対応サポートAI構築用）
 - [ ] 紐づけ解決ロジックのユニットテスト、商品ページの E2E テスト
