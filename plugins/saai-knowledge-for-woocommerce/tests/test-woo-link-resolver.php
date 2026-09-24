@@ -385,6 +385,31 @@ class Test_Woo_Link_Resolver extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A duplicate row — which concurrent POSTs could create, since the
+	 * idempotency check is a read followed by a write and wp_postmeta has no
+	 * uniqueness constraint to lean on — changes no result and is cleared by a
+	 * single unlink (Copilot review).
+	 */
+	public function test_duplicate_rows_are_harmless_and_self_healing() {
+		$product_id = $this->create_product();
+		$faq_id     = $this->create_content( 'saai_faq' );
+
+		add_post_meta( $faq_id, Post_Meta::LINKED_PRODUCTS, $product_id );
+		add_post_meta( $faq_id, Post_Meta::LINKED_PRODUCTS, $product_id );
+
+		$this->assertCount( 2, get_post_meta( $faq_id, Post_Meta::LINKED_PRODUCTS, false ) );
+
+		// Every read path collapses them.
+		$this->assertSame( array( $product_id ), $this->resolver->product_ids_for_content( $faq_id ) );
+		$this->assertSame( array( $faq_id ), $this->resolver->content_ids_for_product( $product_id ) );
+		$this->assertFalse( $this->resolver->link_product( $faq_id, $product_id ) );
+
+		// And one unlink removes every matching row, not just the first.
+		$this->assertTrue( $this->resolver->unlink_product( $faq_id, $product_id ) );
+		$this->assertSame( array(), get_post_meta( $faq_id, Post_Meta::LINKED_PRODUCTS, false ) );
+	}
+
+	/**
 	 * Unlinking removes that one product row and nothing else.
 	 */
 	public function test_unlink_product_removes_only_that_row() {

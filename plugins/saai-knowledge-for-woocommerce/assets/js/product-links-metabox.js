@@ -246,35 +246,38 @@
 						'ul',
 						{ className: 'saai-woo-product-links__list' },
 						data.direct.map( function ( item ) {
-							return createElement(
-								'li',
-								{ key: item.id },
-								ItemLabel( item ),
-								createElement(
-									Button,
-									{
-										variant: 'tertiary',
-										isDestructive: true,
-										disabled: busy,
-										label: sprintf(
-											/* translators: %s: title of the linked content. */
-											__( 'Unlink %s', 'saai-knowledge-for-woocommerce' ),
-											item.title
-										),
-										onClick: function () {
-											mutate(
-												{ path: basePath + '/' + item.id, method: 'DELETE' },
-												sprintf(
-													/* translators: %s: title of the content that was unlinked. */
-													__( '%s is no longer linked to this product.', 'saai-knowledge-for-woocommerce' ),
-													item.title
-												)
-											);
+							// No unlink button for content the user cannot edit:
+							// the listing deliberately shows what applies to the
+							// product even when it is only readable, and the
+							// request would answer 403.
+							var unlink = ! item.can_edit
+								? null
+								: createElement(
+										Button,
+										{
+											variant: 'tertiary',
+											isDestructive: true,
+											disabled: busy,
+											label: sprintf(
+												/* translators: %s: title of the linked content. */
+												__( 'Unlink %s', 'saai-knowledge-for-woocommerce' ),
+												item.title
+											),
+											onClick: function () {
+												mutate(
+													{ path: basePath + '/' + item.id, method: 'DELETE' },
+													sprintf(
+														/* translators: %s: title of the content that was unlinked. */
+														__( '%s is no longer linked to this product.', 'saai-knowledge-for-woocommerce' ),
+														item.title
+													)
+												);
+											},
 										},
-									},
-									__( 'Unlink', 'saai-knowledge-for-woocommerce' )
-								)
-							);
+										__( 'Unlink', 'saai-knowledge-for-woocommerce' )
+								  );
+
+							return createElement( 'li', { key: item.id }, ItemLabel( item ), unlink );
 						} )
 				  ),
 			createElement( ComboboxControl, {

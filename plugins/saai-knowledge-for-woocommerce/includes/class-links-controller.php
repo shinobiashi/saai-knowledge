@@ -346,7 +346,11 @@ final class Links_Controller {
 		// result.
 		_prime_post_caches( $ids, false, false );
 
-		return rest_ensure_response( array_map( array( $this, 'content_item' ), $this->visible_items( $ids ) ) );
+		// `edit_post`, not `read_post`: every suggestion exists to be linked,
+		// and linking writes to that post's meta. Offering a readable but
+		// uneditable post — another author's published FAQ, say — would put an
+		// entry in the list that can only ever answer 403 (Codex review).
+		return rest_ensure_response( array_map( array( $this, 'content_item' ), $this->visible_items( $ids, 'edit_post' ) ) );
 	}
 
 	/**
@@ -393,21 +397,24 @@ final class Links_Controller {
 	}
 
 	/**
-	 * Drops the posts the current user may not read.
+	 * Drops the posts the current user fails the given capability for.
 	 *
 	 * `post_status => 'any'` is what surfaces drafts and private content in
 	 * the meta box, so the capability has to be re-checked per post rather
-	 * than left to the query.
+	 * than left to the query. The listing uses `read_post` (you should see
+	 * what applies to the product even if you cannot change it); the search
+	 * uses `edit_post`, because every suggestion is there to be linked.
 	 *
-	 * @param int[] $post_ids Post IDs.
+	 * @param int[]  $post_ids   Post IDs.
+	 * @param string $capability Meta capability to check against each post.
 	 * @return int[]
 	 */
-	private function visible_items( array $post_ids ): array {
+	private function visible_items( array $post_ids, string $capability = 'read_post' ): array {
 		return array_values(
 			array_filter(
 				$post_ids,
-				static function ( $post_id ) {
-					return current_user_can( 'read_post', (int) $post_id );
+				static function ( $post_id ) use ( $capability ) {
+					return current_user_can( $capability, (int) $post_id );
 				}
 			)
 		);
@@ -459,6 +466,10 @@ final class Links_Controller {
 			// else: a protected post is still `publish`, and the title no
 			// longer carries the "Protected: " prefix (Codex review).
 			'protected'       => '' !== (string) get_post_field( 'post_password', $post_id ),
+			// The listing deliberately shows content the user can read but not
+			// edit, so the client needs this to avoid offering an unlink
+			// button that could only ever answer 403 (Codex review).
+			'can_edit'        => current_user_can( 'edit_post', $post_id ),
 			'edit_link'       => (string) get_edit_post_link( $post_id, 'raw' ),
 		);
 	}
@@ -657,6 +668,11 @@ final class Links_Controller {
 				),
 				'protected'       => array(
 					'description' => __( 'Whether the content is password protected.', 'saai-knowledge-for-woocommerce' ),
+					'type'        => 'boolean',
+					'context'     => array( 'view', 'edit' ),
+				),
+				'can_edit'        => array(
+					'description' => __( 'Whether the current user may change this content\'s links.', 'saai-knowledge-for-woocommerce' ),
 					'type'        => 'boolean',
 					'context'     => array( 'view', 'edit' ),
 				),

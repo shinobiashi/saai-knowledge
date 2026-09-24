@@ -636,6 +636,64 @@ class Test_Woo_Links_Controller extends WP_UnitTestCase {
 
 		$this->assertSame( array( $published ), wp_list_pluck( $data['direct'], 'id' ) );
 		$this->assertSame( '', $data['direct'][0]['edit_link'] );
+		// Reported so the meta box can leave out an unlink button that could
+		// only ever answer 403 (Codex review).
+		$this->assertFalse( $data['direct'][0]['can_edit'] );
+	}
+
+	/**
+	 * Content the user can edit is flagged as such.
+	 */
+	public function test_editable_content_is_flagged_can_edit() {
+		$this->login_as_admin();
+
+		$product = $this->create_product();
+		$faq     = self::factory()->post->create( array( 'post_type' => 'saai_faq' ) );
+
+		add_post_meta( $faq, Post_Meta::LINKED_PRODUCTS, $product );
+
+		$data = $this->server->dispatch( new WP_REST_Request( 'GET', $this->base_path( $product ) ) )->get_data();
+
+		$this->assertTrue( $data['direct'][0]['can_edit'] );
+	}
+
+	/**
+	 * The search only suggests content the user could actually link.
+	 *
+	 * A published post by another author is readable — so it belongs in the
+	 * listing — but linking it writes to its meta, which needs edit_post. It
+	 * must not appear as a suggestion that can only fail (Codex review).
+	 */
+	public function test_content_search_only_suggests_editable_content() {
+		$owner_id    = self::factory()->user->create( array( 'role' => 'author' ) );
+		$stranger_id = self::factory()->user->create( array( 'role' => 'author' ) );
+
+		$theirs = self::factory()->post->create(
+			array(
+				'post_type'   => 'saai_faq',
+				'post_title'  => 'Zephyr published by someone else',
+				'post_author' => $stranger_id,
+			)
+		);
+		$mine   = self::factory()->post->create(
+			array(
+				'post_type'   => 'saai_faq',
+				'post_title'  => 'Zephyr published by me',
+				'post_author' => $owner_id,
+			)
+		);
+
+		wp_set_current_user( $owner_id );
+
+		// Readable, so it would pass the listing's filter...
+		$this->assertTrue( current_user_can( 'read_post', $theirs ) );
+		$this->assertFalse( current_user_can( 'edit_post', $theirs ) );
+
+		$request = new WP_REST_Request( 'GET', '/' . Links_Controller::NAMESPACE_ROUTE . '/content-search' );
+		$request->set_param( 'search', 'Zephyr' );
+
+		// ...but not the search's.
+		$this->assertSame( array( $mine ), wp_list_pluck( $this->server->dispatch( $request )->get_data(), 'id' ) );
 	}
 
 	/**
