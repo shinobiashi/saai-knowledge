@@ -30,6 +30,13 @@ final class Plugin {
 	private $base;
 
 	/**
+	 * The product <-> content link resolver.
+	 *
+	 * @var Link_Resolver|null
+	 */
+	private $link_resolver = null;
+
+	/**
 	 * Registers services once Bootstrap has confirmed every requirement is met.
 	 *
 	 * @param mixed $base The booted free-plugin instance (SAAI\Knowledge\Plugin).
@@ -64,10 +71,23 @@ final class Plugin {
 	/**
 	 * Registers the add-on's internal services.
 	 *
-	 * No concrete services exist yet; they are added incrementally starting
-	 * with the product-linking meta in M5-2 (Issue #21).
+	 * Services are added incrementally per milestone; product page output
+	 * follows in M5-3 (Issue #22).
 	 */
 	private function register_services(): void {
+		( new Post_Meta() )->register();
+
+		$this->link_resolver = new Link_Resolver();
+
+		// Not inside the is_admin() branch: the routes are registered on
+		// `rest_api_init`, which a REST request reaches without is_admin()
+		// being true.
+		( new Links_Controller( $this->link_resolver ) )->register();
+
+		if ( is_admin() ) {
+			( new Content_Editor() )->register();
+			( new Product_Metabox() )->register();
+		}
 	}
 
 	/**
@@ -80,5 +100,25 @@ final class Plugin {
 	 */
 	public function base() {
 		return $this->base;
+	}
+
+	/**
+	 * The product <-> content link resolver.
+	 *
+	 * The supported entry point for the add-on's own later milestones (the
+	 * product page output in M5-3, the export metadata in M5-5) so the
+	 * resolution rule in docs/DESIGN.md section 6.1 has one implementation.
+	 *
+	 * @return Link_Resolver
+	 */
+	public function link_resolver(): Link_Resolver {
+		if ( null === $this->link_resolver ) {
+			// register_services() always constructs this before boot()
+			// returns; this branch only exists to satisfy static analysis,
+			// not any real call path.
+			$this->link_resolver = new Link_Resolver();
+		}
+
+		return $this->link_resolver;
 	}
 }

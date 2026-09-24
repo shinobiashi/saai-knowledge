@@ -174,10 +174,31 @@ CPT 登録変更時のみ `flush_rewrite_rules()`（有効化時 + スラッグ�
 
 ### 6.1 紐づけ UI（双方向）
 
-1. **コンテンツ側**（FAQ / KB / 用語の編集画面）: サイドバーパネルで商品・商品カテゴリーを検索して複数選択（Woo の商品検索 REST を利用）。→ `saai_linked_products` / `saai_linked_product_cats` に保存。
-2. **商品側**（商品編集画面）: メタボックス「SAAI Knowledge」で、この商品（＋所属カテゴリー）に紐づく FAQ/KB/用語を一覧表示・その場で追加/解除（実体はコンテンツ側メタを更新する逆引きUI）。
+1. **コンテンツ側**（FAQ / KB / 用語の編集画面）: サイドバーパネル「Linked Products」で商品・商品カテゴリーを検索して複数選択。→ `saai_linked_products` / `saai_linked_product_cats` に保存。
+2. **商品側**（商品編集画面）: メタボックス「SAAI Knowledge」で、この商品（＋所属カテゴリー）に紐づく FAQ/KB/用語を一覧表示・その場で追加/解除（実体はコンテンツ側メタを更新する逆引きUI）。カテゴリー経由の紐づけは「そのカテゴリーの全商品に効く」ため商品側では読み取り専用で表示し、経由カテゴリー名を添える。
 
-「商品に対する表示対象」の解決ルール: `商品IDに直接紐づくもの ∪ 商品の所属カテゴリー（祖先含む）に紐づくもの`。重複排除・`menu_order` 順。
+「商品に対する表示対象」の解決ルール: `商品IDに直接紐づくもの ∪ 商品の所属カテゴリー（祖先含む）に紐づくもの`。重複排除・`menu_order` 順（同値は title 順）。祖先方向にのみ辿るので、親カテゴリーへの紐づけは子孫カテゴリーの商品まで自動的に覆う。実装は `Link_Resolver` 単一クラスで、WooCommerce の関数（`wc_get_product()` 等）を使わず core の `wp_get_object_terms()` / `get_ancestors()` / `WP_Query` だけで組む（PHPUnit が WooCommerce 不在のまま `product` / `product_cat` のスタンドインで本番と同じ経路を検証できる）。
+
+#### 検索 API（2026-09-24 に wp-env 実機で確認して決定）
+
+商品・商品カテゴリーの検索は **core REST の `/wp/v2/product` と `/wp/v2/product_cat`**（`@wordpress/core-data` の `getEntityRecords` 経由）を使う。WooCommerce が両者を `show_in_rest: true` で登録しているため追加エンドポイントは不要。**WooCommerce 自身の `/wc/v3/products` は使わない**: 読み取り権限が `read_private_products`（既定で administrator / shop_manager のみ）なので、`edit_posts` は持つが商品権限を持たない Editor では検索が 403 になり UI が壊れる。
+
+#### 有料版の REST 名前空間
+
+`saai-knowledge-woo/v1`（無料版の `saai-knowledge/v1` とは別）。商品側メタボックス専用で、コンテンツ側パネルはこれを使わない。
+
+| ルート | 用途 | 認可 |
+| --- | --- | --- |
+| `GET /products/{id}/linked-content` | 逆引き一覧（`direct` / `inherited`。`inherited` は経由カテゴリーも返す） | 商品への `edit_post` |
+| `POST /products/{id}/linked-content` | 直接紐づけを追加（body: `content_id`）。冪等（既存なら 200、新規なら 201） | 商品への `edit_post` かつコンテンツへの `edit_post` |
+| `DELETE /products/{id}/linked-content/{content_id}` | 直接紐づけを解除 | 同上 |
+| `GET /content-search` | FAQ/KB/用語のタイトル検索（下書き含む） | `edit_posts` |
+
+書き込み系の本命の認可は**コンテンツ投稿への `edit_post`**（更新するメタ行はコンテンツ側に属するため）。商品側の一覧は `post_status: any` で下書き・非公開も拾い、`read_post` で閲覧可否を1件ずつ再確認する（`has_password` の既定除外も管理UI経路では解除する。そうしないとパスワード保護コンテンツのリンクを商品画面から解除できなくなる）。
+
+**権限境界についての注意**: 商品側ルートが要求する商品への `edit_post` は「この画面からこのルートに到達できるか」を制御するだけで、**リンクそのものの権限境界ではない**。同じメタは core の `/wp/v2/saai_faq/{id}` に `meta.saai_linked_products` を投げれば書けてしまい、そこで問われるのはコンテンツへの `edit_post` だけだからである（実機で確認済み）。つまり**このプラグインのコンテンツを編集できる者は、任意の商品に紐づけられる**。これは意図した設計で、`edit_products` を要求すると「商品権限を持たない Editor でも FAQ を商品に紐づけられる」という core REST 採用の前提と矛盾する。M5-3 以降で `edit_products` を実効的な配置権限と見なしてはならない。
+
+メタ値の規約: どちらのキーも1値1メタ行（`single: false`）で、値は正の整数。ここでいう「1値1行」は**保存形式の規約**（シリアライズ配列ではなく値ごとに行を持つ）であって、行の一意性の保証ではない。`wp_postmeta` に一意制約は無く、追加は read→add の2段階なので、同一 (投稿, 商品) への同時 POST では一時的に重複行が生まれうる。ただし読み取り経路はすべて重複を畳み（`Link_Resolver::meta_ids()` の `array_unique`、`WP_Query` の `GROUP BY`）、`unlink_product()` は一致する行を全て削除するため、状態は自然に解消する（`Test_Woo_Link_Resolver::test_duplicate_rows_are_harmless_and_self_healing()` で固定）。サニタイズは `absint` ではなく `max( 0, (int) $value )`（`absint` は `-3` を `3` という別の有効なIDに化けさせるため）で、不正値は 0 に落ちる。0 や、商品・タームが後から削除されて残った ID は「どの商品にも解決しない無害な値」として扱い、読み取り時に落とす（勝手に行を消さない）。UI 側も未解決の ID を黙って捨てず「非公開・削除済みの可能性」と表示する。
 
 ### 6.2 商品ページ表示（自動挿入 + ブロック提供の両輪）
 
