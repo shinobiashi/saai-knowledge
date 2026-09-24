@@ -1,0 +1,55 @@
+/**
+ * Styles for the "SAAI Knowledge" meta box on the product edit screen.
+ */
+
+.saai-woo-product-links__heading {
+	margin: 1em 0 0.5em;
+}
+
+.saai-woo-product-links__heading:first-child {
+	margin-top: 0;
+}
+
+.saai-woo-product-links__note,
+.saai-woo-product-links__empty {
+	color: #50575e;
+	margin: 0 0 0.5em;
+}
+
+.saai-woo-product-links__list {
+	margin: 0 0 1em;
+}
+
+.saai-woo-product-links__list li {
+	align-items: center;
+	border-bottom: 1px solid #f0f0f1;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5em;
+	margin: 0;
+	padding: 0.5em 0;
+}
+
+.saai-woo-product-links__list li > .components-button {
+	margin-inline-start: auto;
+}
+
+.saai-woo-product-links__type,
+.saai-woo-product-links__status,
+.saai-woo-product-links__via {
+	background: #f0f0f1;
+	border-radius: 2px;
+	color: #50575e;
+	font-size: 12px;
+	padding: 0 6px;
+}
+
+.saai-woo-product-links__status {
+	background: #fcf0e4;
+}
+
+/* The meta box is narrow in the two-column layout; keep the search field from
+   stretching to an unusable width in the one-column one. */
+.saai-woo-product-links .components-combobox-control {
+	max-width: 30em;
+}
