@@ -455,6 +455,10 @@ final class Links_Controller {
 			'post_type_label' => $this->post_type_label( $post_type ),
 			'status'          => $status,
 			'status_label'    => $this->status_label( $status ),
+			// Reported as its own field because it is invisible everywhere
+			// else: a protected post is still `publish`, and the title no
+			// longer carries the "Protected: " prefix (Codex review).
+			'protected'       => '' !== (string) get_post_field( 'post_password', $post_id ),
 			'edit_link'       => (string) get_edit_post_link( $post_id, 'raw' ),
 		);
 	}
@@ -649,6 +653,11 @@ final class Links_Controller {
 				'status_label'    => array(
 					'description' => __( 'Human-readable post status name.', 'saai-knowledge-for-woocommerce' ),
 					'type'        => 'string',
+					'context'     => array( 'view', 'edit' ),
+				),
+				'protected'       => array(
+					'description' => __( 'Whether the content is password protected.', 'saai-knowledge-for-woocommerce' ),
+					'type'        => 'boolean',
 					'context'     => array( 'view', 'edit' ),
 				),
 				'edit_link'       => array(

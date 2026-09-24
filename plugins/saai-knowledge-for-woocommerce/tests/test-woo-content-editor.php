@@ -138,7 +138,7 @@ class Test_Woo_Content_Editor extends WP_UnitTestCase {
 
 		$script = wp_scripts()->registered[ Content_Editor::HANDLE ];
 
-		foreach ( array( 'wp-components', 'wp-compose', 'wp-core-data', 'wp-data', 'wp-editor', 'wp-element', 'wp-html-entities', 'wp-i18n', 'wp-plugins' ) as $dependency ) {
+		foreach ( array( 'wp-components', 'wp-compose', 'wp-core-data', 'wp-data', 'wp-edit-post', 'wp-editor', 'wp-element', 'wp-html-entities', 'wp-i18n', 'wp-plugins' ) as $dependency ) {
 			$this->assertContains( $dependency, $script->deps, $dependency );
 		}
 	}

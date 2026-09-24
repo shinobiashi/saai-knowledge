@@ -70,7 +70,14 @@
 						'span',
 						{ className: 'saai-woo-product-links__status' },
 						item.status_label || item.status
+				  ),
+			item.protected
+				? createElement(
+						'span',
+						{ className: 'saai-woo-product-links__status' },
+						__( 'Password protected', 'saai-knowledge-for-woocommerce' )
 				  )
+				: null
 		);
 	}
 

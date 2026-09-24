@@ -396,6 +396,29 @@ class Test_Woo_Links_Controller extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A negative content ID is rejected, not folded into a positive one.
+	 *
+	 * The `absint` sanitize_callback would turn -3 into 3 — a different, real
+	 * post — but WP_REST_Server runs has_valid_params() before
+	 * sanitize_params(), so `minimum => 1` rejects it first. Pinned here
+	 * because the safety depends on that ordering.
+	 */
+	public function test_post_rejects_a_negative_content_id() {
+		$this->login_as_admin();
+
+		$product = $this->create_product();
+		$faq     = self::factory()->post->create( array( 'post_type' => 'saai_faq' ) );
+
+		$request = new WP_REST_Request( 'POST', $this->base_path( $product ) );
+		$request->set_body_params( array( 'content_id' => -$faq ) );
+
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
+		$this->assertSame( array(), get_post_meta( $faq, Post_Meta::LINKED_PRODUCTS, false ) );
+	}
+
+	/**
 	 * DELETE removes the product row and leaves category links alone.
 	 */
 	public function test_delete_removes_only_the_direct_link() {
@@ -669,9 +692,29 @@ class Test_Woo_Links_Controller extends WP_UnitTestCase {
 
 		$this->assertSame( array( $faq ), wp_list_pluck( $data['direct'], 'id' ) );
 		// No "Protected: " prefix: get_the_title() adds one outside the admin
-		// screens, and a REST request is not is_admin(). The status field
-		// already carries that information.
+		// screens, and a REST request is not is_admin().
 		$this->assertSame( 'Members only', $data['direct'][0]['title'] );
+		// ...so the protection has to be reported on its own. A protected post
+		// is still `publish`, so the status field cannot stand in for it
+		// (Codex review).
+		$this->assertSame( 'publish', $data['direct'][0]['status'] );
+		$this->assertTrue( $data['direct'][0]['protected'] );
+	}
+
+	/**
+	 * Unprotected content is not flagged as protected.
+	 */
+	public function test_unprotected_content_is_not_flagged() {
+		$this->login_as_admin();
+
+		$product = $this->create_product();
+		$faq     = self::factory()->post->create( array( 'post_type' => 'saai_faq' ) );
+
+		add_post_meta( $faq, Post_Meta::LINKED_PRODUCTS, $product );
+
+		$data = $this->server->dispatch( new WP_REST_Request( 'GET', $this->base_path( $product ) ) )->get_data();
+
+		$this->assertFalse( $data['direct'][0]['protected'] );
 	}
 
 	/**

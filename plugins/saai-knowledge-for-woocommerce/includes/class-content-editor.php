@@ -39,8 +39,13 @@ final class Content_Editor {
 			return;
 		}
 
-		$asset_file   = SAAI_KNOWLEDGE_WOO_DIR . 'assets/js/linked-products-panel.asset.php';
-		$dependencies = array( 'wp-components', 'wp-compose', 'wp-core-data', 'wp-data', 'wp-editor', 'wp-element', 'wp-html-entities', 'wp-i18n', 'wp-plugins' );
+		$asset_file = SAAI_KNOWLEDGE_WOO_DIR . 'assets/js/linked-products-panel.asset.php';
+		// wp-edit-post is declared because the script falls back to
+		// wp.editPost.PluginDocumentSettingPanel when wp.editor does not
+		// expose it; without the dependency that fallback could never load and
+		// the panel would silently not render. Matches the free plugin's
+		// Glossary_Editor (Copilot review).
+		$dependencies = array( 'wp-components', 'wp-compose', 'wp-core-data', 'wp-data', 'wp-edit-post', 'wp-editor', 'wp-element', 'wp-html-entities', 'wp-i18n', 'wp-plugins' );
 		$version      = SAAI_KNOWLEDGE_WOO_VERSION;
 
 		// The script is hand-written rather than bundled today (the add-on has
