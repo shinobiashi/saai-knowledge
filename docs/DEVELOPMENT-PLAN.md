@@ -128,9 +128,11 @@ M1〜M5 の全タスクは GitHub Issues #1〜#27（マイルストーン M1〜M
 - [x] i18n: POT 生成、`make-json`、日本語翻訳（WordPress.org 審査の指摘により配布ZIPには同梱せず、translate.wordpress.org の言語パック配信に任せる。`languages/saai-knowledge-ja.po` は GlotPress インポート用にリポジトリで維持）
 - [x] セキュリティ監査（`wp-security-check` を実施）
 - [x] readme.txt（タグ・説明・FAQ・スクリーンショット）、アセット（banner / icon / screenshots）
-- [ ] WordPress.org 申請 → レビュー対応 → SVN 初回デプロイ → GitHub Actions からの自動デプロイ設定
+- [x] WordPress.org 申請 → レビュー対応 → SVN 初回デプロイ → GitHub Actions からの自動デプロイ設定
   - [x] 第1回レビュー指摘への対応（ソース公開の明記・`load_plugin_textdomain()` 削除・翻訳ファイル非同梱・エスケープ再確認）— Issue #61
   - [x] v1.0.1 としてリリース準備（バージョン文字列・Stable tag・changelog）。審査対応で配布物が変わったため、初回公開版は 1.0.0 ではなく 1.0.1 になる
+  - [x] 審査承認後、リポジトリ Secrets（`SVN_USERNAME` / `SVN_PASSWORD`）を登録し、`deploy-wporg.yml` を `version=1.0.1` で手動実行して SVN の trunk / `tags/1.0.1` / assets へ初回デプロイ（2026-09-26）。以後のリリースも同ワークフローを手動実行する
+- [ ] translate.wordpress.org での日本語翻訳: `languages/saai-knowledge-ja.po` のインポートと PTE 申請（言語パック配信は Stable サブプロジェクトの翻訳率 90% 以上で開始）
 
 ### 完了条件
 
