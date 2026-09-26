@@ -132,7 +132,9 @@ M1〜M5 の全タスクは GitHub Issues #1〜#27（マイルストーン M1〜M
   - [x] 第1回レビュー指摘への対応（ソース公開の明記・`load_plugin_textdomain()` 削除・翻訳ファイル非同梱・エスケープ再確認）— Issue #61
   - [x] v1.0.1 としてリリース準備（バージョン文字列・Stable tag・changelog）。審査対応で配布物が変わったため、初回公開版は 1.0.0 ではなく 1.0.1 になる
   - [x] 審査承認後、リポジトリ Secrets（`SVN_USERNAME` / `SVN_PASSWORD`）を登録し、`deploy-wporg.yml` を `version=1.0.1` で手動実行して SVN の trunk / `tags/1.0.1` / assets へ初回デプロイ（2026-09-26）。以後のリリースも同ワークフローを手動実行する
-- [ ] translate.wordpress.org での日本語翻訳: `languages/saai-knowledge-ja.po` のインポートと PTE 申請（言語パック配信は Stable サブプロジェクトの翻訳率 90% 以上で開始）
+- [ ] translate.wordpress.org での日本語翻訳（言語パック配信は Stable サブプロジェクトの翻訳率 90% 以上で開始）
+  - [x] `languages/saai-knowledge-ja.po` のインポート
+  - [ ] PTE 申請 → インポートした訳文の承認
 
 ### 完了条件
 
