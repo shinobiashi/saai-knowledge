@@ -18,10 +18,12 @@
     },
     "env": {
         "development": {
-            "phpmyadminPort": 10004
+            "port": 10030,
+            "phpmyadminPort": 10032
         },
         "tests": {
-            "phpmyadminPort": 10005
+            "port": 10031,
+            "phpmyadminPort": 10033
         }
     },
     "lifecycleScripts": {

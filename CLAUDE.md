@@ -136,7 +136,7 @@ FAQ / Knowledge Base / 用語集を提供する WordPress プラグインのモ�
 
 - PHPUnitテストクラス（`WP_UnitTestCase` 継承）は非名前空間の `Test_*` 慣習に従う。WPCSの `PrefixAllGlobals` sniff は既知のユニットテスト基底クラスを継承したクラスを prefix 規約の対象外にするため、`saai_`/`SAAI\Knowledge` prefix は不要。
 - WP core test framework は各テスト後に `tear_down()` で登録済みメタキーを全て消去する（`unregister_all_meta_keys()`）。`register_post_meta()` に依存するテストは、ブートストラップ時の `init` 一度きりの登録に頼らず、テストクラスの `set_up()` で明示的に再登録する。
-- `composer test`（PHPUnit）を wp-env の `tests-cli` に対して実行すると、テストサイトのDBがWP coreのテストブートストラップにより再インストールされ、`saai-knowledge` プラグインの有効化状態と `permalink_structure`（パーマリンク設定）が両方ともリセットされる。同じ `tests-cli`（ポート8889）に対してPlaywright E2E（`npm run test:e2e`）を実行する場合、直前に `composer test` を走らせていたら、`wp plugin activate saai-knowledge` と `bash bin/wp-env-configure-permalinks.sh` を実行し直してからでないとCPT/タクソノミーのREST・pretty permalink URLが404/`rest_no_route`になる。
+- `composer test`（PHPUnit）を wp-env の `tests-cli` に対して実行すると、テストサイトのDBがWP coreのテストブートストラップにより再インストールされ、`saai-knowledge` プラグインの有効化状態と `permalink_structure`（パーマリンク設定）が両方ともリセットされる。同じ `tests-cli`（ポート10031）に対してPlaywright E2E（`npm run test:e2e`）を実行する場合、直前に `composer test` を走らせていたら、`wp plugin activate saai-knowledge` と `bash bin/wp-env-configure-permalinks.sh` を実行し直してからでないとCPT/タクソノミーのREST・pretty permalink URLが404/`rest_no_route`になる。
 - CI の PHPUnit ジョブは JS ビルドなしで走る（`build/` は gitignore）。`Blocks::register_blocks()` は `build/{block}/block.json` が無いブロックを黙ってスキップするため、実ブロックを `do_blocks()` で描画するテストはローカル（build あり）でだけ通り、CI の全マトリクスで落ちる。テストでは `src/<block>/render.php` を require する `render_callback`（+ `uses_context`）でブロックを登録し、finally でレジストリを復元する（test-shortcodes.php / test-faq-list.php の確立パターン）。検証は `mv build build.bak` で CI 状態を再現してから行う。
 - `WP_UnitTestCase` は各テスト後に DB を `ROLLBACK` し、次のテスト開始時（`set_up()` が呼ぶ `clean_up_global_scope()`）にオブジェクトキャッシュもフラッシュするため、`update_option()` 等のテスト内での変更は手動での復元が不要（レビューbotに誤検知として指摘された実績あり）。
 - `wp_insert_post()` はデフォルトの（`unfiltered_html` 権限を持たない）テストユーザーだと `content_save_pre` の `wp_filter_post_kses()` で `<script>`/`<style>` 等のタグを保存時に除去する（内容は残り、タグだけ消える）。これらのタグを含む生HTMLの挙動をテストする場合は投稿保存を経由せず、対象の処理関数へ直接HTML文字列を渡す。
@@ -174,7 +174,7 @@ npx wp-env run tests-cli --env-cwd=saai-monorepo bash -c "composer test"
 
 `wp-env run` はスペース区切りの複数語コマンドを直接渡すと失敗するため `bash -c "..."` で包む。`composer analyze` がメモリ不足で落ちる場合は `composer exec phpstan analyse -- --memory-limit=3G` を使う（ファイル数が増えた現状では512M/1Gでも落ちる実績あり）。
 
-他プロジェクトの wp-env がポート 8888/8889 を使用中で起動が「port is already allocated」で失敗する場合は、`WP_ENV_PORT=8890 WP_ENV_TESTS_PORT=8892 composer verify` のように環境変数でポートをずらして並行起動する（wp-env インスタンスはディレクトリ単位で独立しており、衝突するのはポートのみ。他プロジェクト側を止める必要はない）。
+wp-env のポートは `.wp-env.json` でスロット 03（dev 10030 / tests 10031 / phpMyAdmin 10032・10033）に固定している（dev-env スキル〔claude-skills〕の台帳。WordPress Studio が自動で割り当てる 8881〜8999 と、wp-env の既定 8888/8889 を避けるため）。`WP_ENV_PORT` / `WP_ENV_TESTS_PORT` でずらさない（どのファイルにも残らず、他リポジトリとの照合から見えなくなる）。起動が「port is already allocated」で失敗したら、dev-env の `ports.js check` で誰がそのポートを持っているかを確かめる（wp-env インスタンスはディレクトリ単位で独立しており、他プロジェクト側を止める必要はない）。
 
 ## CI（GitHub Actions）
 
