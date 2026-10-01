@@ -23,7 +23,7 @@ module.exports = defineConfig( {
 	retries: process.env.CI ? 2 : 0,
 	reporter: process.env.CI ? 'github' : 'list',
 	use: {
-		baseURL: process.env.WP_BASE_URL || 'http://localhost:8889',
+		baseURL: process.env.WP_BASE_URL || 'http://localhost:10031',
 		storageState: STORAGE_STATE_PATH,
 		viewport: { width: 1400, height: 1000 },
 		trace: 'retain-on-failure',
