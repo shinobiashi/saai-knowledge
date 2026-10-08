@@ -1,15 +1,16 @@
 ---
 name: saai-block-scaffold
 description: >
-  saai-knowledge プラグインに新しい saai-knowledge/* dynamic block を追加するための雛形生成スキル。
-  block.json・index.js・view.js・render.php・style.scss/editor.scss・PHPサービスクラス・
-  includes/class-blocks.php への登録・PHPUnitテスト骨格までを、kb-sidebar ブロック（Issue #6）で
-  確立した規約に沿って一括生成する。「新しいブロックを作って」「kb-toc ブロックを実装」
-  「breadcrumbs ブロックの雛形」「faq-list ブロックを作成」「glossary-index ブロック」
-  「block scaffold」といった依頼で使う。DEVELOPMENT-PLAN.md の M2〜M4 に列挙された
-  saai-knowledge/* ブロック（kb-toc, breadcrumbs, faq-list, glossary-index, search）を
-  実装する際は積極的にこのスキルを使うこと。一般的な WordPress ブロック開発の作法は
-  `wp-block-development` を参照するが、こちらはこのプロジェクト固有の規約・落とし穴の適用を担う。
+  saai-knowledge モノレポに新しい dynamic block を追加するための雛形生成スキル。
+  無料版 saai-knowledge/*（src/{name}/ の block.json・index.js・view.js・render.php・
+  style.scss/editor.scss、PHP サービスクラス、includes/class-blocks.php への登録、PHPUnit
+  テスト骨格）を kb-sidebar / kb-toc / faq-list / search で確立した規約どおりに一括生成する。
+  有料版 saai-knowledge-for-woocommerce の商品ブロック（M5-4 / Issue #23: product-faq /
+  product-docs / product-glossary）もこのスキルで作る（namespace・text domain・初回のビルド
+  導入の差分は本文「有料版にブロックを追加する場合」節）。「新しいブロックを作って」
+  「product-faq ブロックを実装」「ブロックの雛形」「block scaffold」といった依頼で使う。
+  一般的な WordPress ブロック開発の作法は `wp-block-development` を参照し、こちらは
+  このプロジェクト固有の規約・落とし穴の適用を担う。
 ---
 
 # saai-knowledge ブロック雛形生成
@@ -17,6 +18,14 @@ description: >
 新規 `saai-knowledge/*` dynamic block を、kb-sidebar（Issue #6, PR #33）と kb-toc
 （Issue #7, PR #34）で確立した規約通りにスキャフォールドする。両PRのレビューで
 見つかった落とし穴を**あらかじめ踏まないための**チェックリストも兼ねる。
+
+無料版のブロック（kb-sidebar / kb-toc / breadcrumbs / faq-list / glossary-index / search）は
+すべて実装済み（2026-10 時点）。その後の faq-list / glossary-index / search / tooltip で
+見つかった落とし穴（SSR の `open` 属性、投機的レンダリングと JSON-LD のスロット、
+`wp_footer` での late-enqueue 優先度、`withScope` と generator、`@container` の対象など）は
+`CLAUDE.md` の「ブロック / テンプレート / フロントエンド」「レンダリング文脈・キャッシュ」節に
+蒸留済みなので、§6 のチェックリストと**併せて**読む（ここには重複して書かない）。
+次に作るブロックは有料版の商品ブロック（Issue #23）で、差分は末尾の節にまとめてある。
 
 ## 前提として押さえること
 
@@ -91,6 +100,12 @@ PHPサービスクラスを直接ユニットテストする（render.php 自体
 関数が定義されないため、直接テストしにくい — kb-sidebar でも render.php のテストは無く、
 `Sidebar_Tree` だけをテストしている。この設計を踏襲する）。
 
+CI の PHPUnit は JS ビルドなしで走り、`Blocks::register_blocks()` は `build/{name}/block.json`
+が無いブロックを黙ってスキップする。`do_blocks()` で実ブロックを描画するテストは、
+`src/{name}/render.php` を `require` する `render_callback`（+ `uses_context`）で自前登録し、
+`finally` でレジストリを復元する（test-faq-list.php の確立パターン。`mv build build.bak` で
+CI 状態を再現して確認する）。
+
 フィルターを `add_filter()` するテストは、既存の `remove_filter()` ペアリング規約
 （`test-template-loader.php`, `test-kb-sidebar.php`）に合わせる。`find_node()` 的な
 ID探索ヘルパーを書く場合、**タームIDと投稿IDなど別テーブルの自動採番は衝突しうる**ため、
@@ -98,8 +113,9 @@ ID探索ヘルパーを書く場合、**タームIDと投稿IDなど別テーブ
 
 ### 5. 検証する
 
-- `vendor/bin/phpcs` / `vendor/bin/phpstan analyse --memory-limit=512M`（PHPStanが
-  `apply_filters()` 直前のdocblockから戻り値型を推論する仕様に注意。§6参照）。
+- `composer lint` / `composer analyze`（メモリ不足で落ちる場合は
+  `composer exec phpstan analyse -- --memory-limit=3G`。PHPStanが `apply_filters()` 直前の
+  docblockから戻り値型を推論する仕様に注意。§6参照）。
 - `npm run build`（`WP_EXPERIMENTAL_MODULES=true` は package.json 側で `cross-env` 済みなので
   ブロック単位での追加設定は不要。ビルド後 `plugins/saai-knowledge/build/{name}/` に
   `view.js`/`style-view.css` が出力されているか確認 — 出ていなければ `viewScriptModule` の
@@ -162,6 +178,44 @@ ID探索ヘルパーを書く場合、**タームIDと投稿IDなど別テーブ
 14. **view.js のブラウザグローバル**（`document`、`IntersectionObserver` 等）は
     `plugins/saai-knowledge/.eslintrc.js` の `src/**/view.js` override で許可済み。
     lint-js が no-undef を出したらコード側ではなくこの override の対象パターンを確認する。
+
+## 有料版（saai-knowledge-for-woocommerce）にブロックを追加する場合
+
+Issue #23 の `product-faq` / `product-docs` / `product-glossary` が対象。上の手順はそのまま使えるが、
+次の差分がある（2026-10-09 時点の実態。着手時に `plugins/saai-knowledge-for-woocommerce/` を確認する）:
+
+- **置き場所と命名**: `plugins/saai-knowledge-for-woocommerce/src/{name}/`。PHP namespace は
+  `SAAI\KnowledgeWoo\`、定数は `SAAI_KNOWLEDGE_WOO_DIR` / `_URL` / `_VERSION`。block.json の
+  `name` は DESIGN.md §6.2 どおり `saai-knowledge/{name}`（ブロック名前空間は無料版と共通）だが、
+  `textdomain` は `saai-knowledge-for-woocommerce`。翻訳関数の text domain もリテラルで同じ値。
+- **無料版の内部クラスを `use` しない**。FAQ 一覧や用語辞書が必要でも、公開フック
+  （`saai_*` filters/actions、docs/DESIGN-HOOKS-API.md）経由で取る（CLAUDE.md の基本方針）。
+  紐づけの解決は有料版自身の `Link_Resolver` を使う。
+- **ビルド基盤が無い（初回のみ）**: 有料版には `package.json` / `build/` / `.eslintrc.js` /
+  `Blocks` クラスが無く、既存の管理画面 JS（`assets/js/*.js`）はビルドなしの手書きで、
+  そのまま残す（ブロック用の `src/` だけをビルド対象にする）。最初のブロックで次を入れる:
+  1. `package.json` — 無料版のものを写し、`start`/`build` は `cross-env WP_EXPERIMENTAL_MODULES=true`
+     付き、`lint:js` / `lint:css`、`files` 配列に実行時ディレクトリ（`assets`, `build`, `includes` と
+     メイン PHP ファイル等）を列挙する。ルートの workspaces（`plugins/*`）が自動で拾うので、
+     ルートの `npm run build` / `lint:js` に追加設定は不要。これで backlog R1-B2（有料版 JS が
+     lint 対象外）も解消する。
+  2. `.eslintrc.js` — 無料版と同じ内容（`src/**/view.js` に browser env）。
+  3. `includes/class-blocks.php` — 無料版の `Blocks` を写し、`SAAI_KNOWLEDGE_WOO_DIR . "build/{$block}"`
+     から登録。`Plugin::register_services()` から `( new Blocks() )->register()` する。
+  4. `package-lock.json` が変わるので、push 前に
+     `docker run --rm -v "$(pwd)":/work -w /work node:24 bash -c "npm ci && npm run lint:js"`
+     で Linux CI 相当を通す（CLAUDE.md の fsevents の罠）。
+  5. `ci-js.yml` の Build ジョブと ZIP 検証は `plugins/saai-knowledge` 決め打ち。有料版の ZIP を
+     組む段階（M5-5）で同じ検証を有料版にも足す。
+- **商品コンテキスト**: `usesContext: [ "postId" ]` で商品 ID を取り、`is_singular( 'product' )`
+  をフォールバックにする。通常ページに置く場合のために `productId` 属性でも指定できるようにする
+  （Issue #23 の受け入れ条件）。Product Details の hooked block は空判定のため**1回余分に描画される**
+  ので、render.php は副作用なしで複数回呼べること（DESIGN.md §6.2）。
+- **テスト**: `plugins/saai-knowledge-for-woocommerce/tests/test-{name}.php`。PHPUnit の
+  ブートストラップは WooCommerce を読み込まないので、`product` / `product_cat` は
+  `Test_Woo_Link_Resolver` と同じくスタンドイン登録で用意する。`wc_get_product()` 等の
+  WooCommerce 関数をサービスクラスに持ち込まない（PHPUnit で踏めなくなる）。
+- **実機確認**: `verify-block` スキルの「有料版ブロック」節（商品の作成と紐づけメタの投入）。
 
 ## 出力スタイル
 

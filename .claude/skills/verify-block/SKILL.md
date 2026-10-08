@@ -1,12 +1,13 @@
 ---
 name: verify-block
 description: >
-  saai-knowledge/* ブロックを wp-env 実機で検証するスキル。テストデータ作成 →
+  saai-knowledge/* ブロック（無料版、および有料版の product-faq / product-docs /
+  product-glossary）を wp-env 実機で検証するスキル。テストデータ作成 →
   フロントエンド curl でのマークアップ確認 → REST block-renderer（エディターの
   ServerSideRender プレビュー経路）確認 → テストデータ削除までを一気通貫で行う。
   「ブロックの動作確認」「実機確認」「レンダリング確認」「verify block」
   「エディタープレビューの確認」といった依頼、および saai-block-scaffold での
-  ブロック実装後の検証ステップで使う。引数: ブロック名（例: kb-toc）。
+  ブロック実装後の検証ステップで使う。引数: ブロック名（例: kb-toc、product-faq）。
 ---
 
 # saai-knowledge ブロック実機検証
@@ -21,7 +22,12 @@ ServerSideRender（REST block-renderer）経路はユニットテストでは踏
 - 事前に `npm run build` 済みであること（`build/{name}/` にビルド成果物が無いと
   ブロック未登録のまま検証して空振りする）。
 - wp-env が未起動なら `npx wp-env start`（このスキルが起動した場合は最後に stop する。
-  元から起動していた場合は起動したままにする）。
+  元から起動していた場合は起動したままにする）。ポートは `.wp-env.json` に固定済み
+  （dev 10030 / tests 10031）。`WP_ENV_PORT` 等で変えない（CLAUDE.md）。
+- 本スキルは development 環境（`npx wp-env run cli`）を使う。tests 環境（`tests-cli`）で
+  確認する場合は、直前に `composer test` を走らせているとプラグインの有効化とパーマリンク
+  設定がリセットされているので、`wp plugin activate saai-knowledge` と
+  `bash bin/wp-env-configure-permalinks.sh` を先に実行する（CLAUDE.md）。
 
 ## 手順
 
@@ -82,6 +88,26 @@ npx wp-env run cli bash -c "wp eval-file saai-monorepo/tmp-renderer-check.php"
 
 `rendered` が空文字列なら、render.php が `is_singular()` / queried object に依存して
 プレビューを描画できていないサイン（saai-block-scaffold §6-10 参照）。
+
+### 3b. 有料版ブロック（product-faq / product-docs / product-glossary）の場合
+
+コンテキストは商品なので、題材として WooCommerce 商品と紐づけメタが要る
+（有料版は `.wp-env.json` でマウント済み。`wp wc` コマンドは `--user` が必須）:
+
+```sh
+npx wp-env run cli bash -c "wp wc product create --name='Verify Product' --type=simple --regular_price=1000 --status=publish --user=admin --porcelain"
+npx wp-env run cli bash -c "wp post create --post_type=saai_faq --post_title='Verify FAQ' --post_status=publish --post_content='<p>Answer</p>' --porcelain"
+npx wp-env run cli bash -c "wp post meta add <FAQ_ID> saai_linked_products <PRODUCT_ID>"
+```
+
+- フロント確認は商品ページ URL（`wp post list --post_type=product --field=url`）で行う。
+  自動挿入（Issue #22）と手動配置ブロック（Issue #23）の両方が有効な商品で**二重表示に
+  なっていないか**も見る。
+- block-renderer 経路の `post_id` には商品 ID を渡す。通常ページに `productId` 属性で置く
+  パターンも確認する（`<!-- wp:saai-knowledge/{name} {"productId":<ID>} /-->` を含む固定
+  ページを作って curl）。
+- 紐づけの無い商品では何も出ないこと（空出力）も1件確認する（M5 の受け入れ条件）。
+- 片付けでは商品（`wp post delete <PRODUCT_ID> --force`）とメタ行も削除する。
 
 ### 4. 片付ける
 

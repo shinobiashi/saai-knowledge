@@ -172,7 +172,7 @@ M1〜M5 の全タスクは GitHub Issues #1〜#27（マイルストーン M1〜M
 
 `wc-block-development`, `wp-block-development`, `wp-phpunit`, `wp-e2e-playwright`
 
-Marketplace 申請はプロジェクトスキル（`.claude/skills/`、saai-ten4wc から移植・2026-07-06）を使用する:
+Marketplace 申請は共有スキル（`~/.claude/skills/`。元本は <https://github.com/shinobiashi/claude-skills>、`install.sh` で配置）を使用する:
 
 - `woo-marketplace-extension` — 拡張の技術要件
 - `woo-marketplace-qit` — QIT テスト対応
@@ -180,7 +180,7 @@ Marketplace 申請はプロジェクトスキル（`.claude/skills/`、saai-ten4
 - `woo-marketplace-content` — 製品ページ・ドキュメント・ビジュアルアセット
 - `woo-marketplace-pricing` — 価格設定・競合分析
 
-※スキル内容は saai-ten4wc 側の知見が正。向こうで更新したらこちらへも同期すること。
+※スキルの更新は claude-skills 側で行う。本リポジトリの `.claude/skills/` には、このプロジェクトでしか使わない `saai-block-scaffold` / `verify-block` だけを置く。2026-07 時点のコピーが残っていた共有スキル6件（`ci-triage` と `woo-marketplace-*`）は 2026-10-09 に削除し、元本側に一本化した。
 
 ---
 
