@@ -57,6 +57,13 @@ final class Link_Resolver {
 	 * walks *up* from the product, which is why linking never has to be
 	 * repeated for each descendant category.
 	 *
+	 * Reads through get_the_terms() rather than wp_get_object_terms(): the
+	 * former serves from the `product_cat_relationships` object-term cache,
+	 * which core and WooCommerce have already primed by the time a single
+	 * product page reaches this (it's called several times per page from
+	 * the FAQ tab, the related-KB section, and the dictionary filter), while
+	 * the latter always queries.
+	 *
 	 * @param int $product_id Product post ID.
 	 * @return int[] Deduplicated term IDs. Empty if the product has no
 	 *               categories, or if product_cat isn't registered (i.e.
@@ -67,16 +74,22 @@ final class Link_Resolver {
 			return array();
 		}
 
-		$term_ids = wp_get_object_terms( $product_id, self::PRODUCT_TAXONOMY, array( 'fields' => 'ids' ) );
+		$terms = get_the_terms( $product_id, self::PRODUCT_TAXONOMY );
 
-		if ( is_wp_error( $term_ids ) || ! is_array( $term_ids ) ) {
+		// false when the product has no categories; a WP_Error for an
+		// unregistered taxonomy (already excluded above).
+		if ( ! is_array( $terms ) ) {
 			return array();
 		}
 
 		$resolved = array();
 
-		foreach ( $term_ids as $term_id ) {
-			$term_id = (int) $term_id;
+		foreach ( $terms as $term ) {
+			if ( ! $term instanceof \WP_Term ) {
+				continue;
+			}
+
+			$term_id = (int) $term->term_id;
 
 			if ( $term_id <= 0 ) {
 				continue;
