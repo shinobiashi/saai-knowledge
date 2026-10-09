@@ -129,6 +129,7 @@ add_action( 'saai_loaded', function ( $plugin ) {
 | 商品説明への用語ツールチップ | `$plugin->autolinker()->process()`（長い説明は自前の `the_content` フック、短い説明は `woocommerce_short_description` / `render_block_*` から。`$context` に紐づけ用語 ID の指紋 `saai_woo_terms` を含める）, `saai_autolink_dictionary`, `saai_autolink_post_types`（`product` を取り除く側） |
 | 商品タブに FAQ | 公開ブロック `saai-knowledge/faq-list` を `render_block()` で描画し、`saai_faq_query_args` で紐づけ FAQ の `post__in` に絞る（紐づけ解決は有料版側のクエリ）。挿入先は WooCommerce の `woocommerce_product_tabs` |
 | 関連 KB セクション | 無料版 API 不要（有料版側のマークアップ。`get_permalink()` / `get_the_title()` のみ）。挿入先は WooCommerce の `woocommerce_after_single_product_summary` |
+| 手動配置ブロック（`product-faq` / `product-docs` / `product-glossary`）+ ショートコード | `product-faq` は商品タブと同じく公開ブロック `saai-knowledge/faq-list` + `saai_faq_query_args`（`category` に商品ごとのマーカーを渡して FAQPage の署名を分ける）。`product-docs` / `product-glossary` は無料版 API 不要（`get_permalink()` / `get_the_title()` / `get_the_excerpt()` のみ）。ブロック名前空間 `saai-knowledge/*` は §6 のとおり無料版と共通 |
 | 設定タブ追加（自動挿入 on/off） | `saai_settings_sections`, `saai_default_settings`。読み取りは `saai_knowledge_settings` オプション（§6） |
 | RAG エクスポートへの商品メタ付与 | `saai_export_record` |
 

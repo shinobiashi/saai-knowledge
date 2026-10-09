@@ -1,0 +1,28 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "saai-knowledge/product-faq",
+	"title": "Product FAQ",
+	"category": "woocommerce",
+	"icon": "editor-help",
+	"description": "The FAQs linked to a product, as an accordion with FAQPage structured data. Uses the product being displayed unless one is chosen.",
+	"keywords": [ "product", "faq", "questions" ],
+	"textdomain": "saai-knowledge-for-woocommerce",
+	"usesContext": [ "postId", "queryId" ],
+	"attributes": {
+		"productId": {
+			"type": "number",
+			"default": 0
+		},
+		"showTitle": {
+			"type": "boolean",
+			"default": true
+		}
+	},
+	"editorScript": "file:./index.js",
+	"render": "file:./render.php",
+	"supports": {
+		"html": false,
+		"align": [ "wide", "full" ]
+	}
+}

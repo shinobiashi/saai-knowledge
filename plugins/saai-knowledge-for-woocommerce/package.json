@@ -1,0 +1,22 @@
+{
+    "name": "saai-knowledge-for-woocommerce",
+    "private": true,
+    "description": "SAAI Knowledge for WooCommerce — links FAQs, docs, and glossary terms to WooCommerce products.",
+    "license": "GPL-2.0-or-later",
+    "files": [
+        "assets",
+        "build",
+        "includes",
+        "saai-knowledge-for-woocommerce.php"
+    ],
+    "scripts": {
+        "start": "cross-env WP_EXPERIMENTAL_MODULES=true wp-scripts start",
+        "build": "cross-env WP_EXPERIMENTAL_MODULES=true wp-scripts build",
+        "lint:js": "wp-scripts lint-js src",
+        "lint:css": "wp-scripts lint-style \"assets/css/**/*.css\""
+    },
+    "devDependencies": {
+        "@wordpress/scripts": "^30.0.0",
+        "cross-env": "^10.1.0"
+    }
+}

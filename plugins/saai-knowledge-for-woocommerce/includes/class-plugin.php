@@ -97,6 +97,12 @@ final class Plugin {
 		( new Product_Page( $this->link_resolver, $settings ) )->register();
 		( new Product_Autolink( $this->base, $this->link_resolver, $settings ) )->register();
 
+		// Manual-placement product blocks and their shortcodes (M5-4).
+		// Registered everywhere: the editor, its REST block-renderer
+		// previews, and the front end all need the block types.
+		( new Blocks() )->register();
+		( new Shortcodes() )->register();
+
 		if ( is_admin() ) {
 			( new Content_Editor() )->register();
 			( new Product_Metabox() )->register();

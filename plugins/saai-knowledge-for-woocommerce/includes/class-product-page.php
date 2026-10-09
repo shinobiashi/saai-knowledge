@@ -45,7 +45,7 @@ final class Product_Page {
 	 *
 	 * @var string
 	 */
-	public const FAQ_BLOCK = 'saai-knowledge/faq-list';
+	public const FAQ_BLOCK = Product_Sections::FAQ_BLOCK;
 
 	/**
 	 * The product tab key; becomes WooCommerce's `#tab-saai_faq` panel ID.
@@ -91,11 +91,11 @@ final class Product_Page {
 	public const FAQ_TAB_CATEGORY_MARKER = 'saai-woo-product-tab';
 
 	/**
-	 * The product <-> content link resolver.
+	 * What the sections show, shared with the manual-placement blocks.
 	 *
-	 * @var Link_Resolver
+	 * @var Product_Sections
 	 */
-	private $links;
+	private $sections;
 
 	/**
 	 * The add-on's settings.
@@ -111,7 +111,7 @@ final class Product_Page {
 	 * @param Settings      $settings The add-on's settings.
 	 */
 	public function __construct( Link_Resolver $links, Settings $settings ) {
-		$this->links    = $links;
+		$this->sections = new Product_Sections( $links );
 		$this->settings = $settings;
 	}
 
@@ -146,7 +146,7 @@ final class Product_Page {
 
 		$product_id = Product_Context::current_product_id();
 
-		if ( $product_id <= 0 || ! $this->faq_tab_enabled() || array() === $this->faq_ids( $product_id ) ) {
+		if ( $product_id <= 0 || ! $this->faq_tab_enabled() || array() === $this->sections->faq_ids( $product_id ) ) {
 			return $tabs;
 		}
 
@@ -178,17 +178,13 @@ final class Product_Page {
 	}
 
 	/**
-	 * Renders the free plugin's FAQ list block for the FAQs linked to a
-	 * product.
+	 * Renders the FAQ tab's list: the free plugin's FAQ list block for the
+	 * FAQs linked to a product.
 	 *
-	 * The `saai_faq_query_args` callback is attached only around this one
-	 * render_block() call, so any other faq-list block or [saai_faq]
-	 * shortcode on the page (a merchant's own, in the description, say)
-	 * keeps its own query. `post__in` carries the resolver's order
-	 * (menu_order, then title) through `orderby => post__in`, and the
-	 * block's own `publish` / `has_password => false` constraints stay in
-	 * place, so a linked FAQ that was since unpublished or protected drops
-	 * out here too.
+	 * The rendering itself (the query restriction, the WooCommerce product
+	 * global's snapshot) lives in Product_Sections, shared with the
+	 * product-faq block; this adds the tab's settings toggle and its own
+	 * FAQPage JSON-LD marker.
 	 *
 	 * @param int $product_id Product post ID.
 	 * @return string Rendered HTML, or '' when nothing applies.
@@ -198,88 +194,7 @@ final class Product_Page {
 			return '';
 		}
 
-		// Resolved exactly once here (not re-checked through a separate
-		// availability call): the IDs feed `post__in` below, and WP_Query
-		// treats an EMPTY post__in as "no constraint" — so the empty case has
-		// to return before the closure can ever see it.
-		$faq_ids = $this->faq_ids( $product_id );
-
-		if ( array() === $faq_ids ) {
-			return '';
-		}
-
-		$restrict = static function ( $args ) use ( $faq_ids, &$restrict ) {
-			// Exactly once. The first saai_faq_query_args pass inside the
-			// render_block() below is the tab's own list; a faq-list nested in
-			// an answer never gets this far (the free plugin's reentrancy
-			// guard renders it empty before querying), but detaching here
-			// keeps the restriction from reaching any other consumer that
-			// might run before the render returns.
-			remove_filter( 'saai_faq_query_args', $restrict, 20 );
-
-			if ( ! is_array( $args ) ) {
-				// An earlier callback handed down something unusable. The
-				// free plugin's Faq_List::query_args() would then fall back
-				// to its own UNRESTRICTED defaults, which here would list
-				// every FAQ on the store in this product's tab — so rebuild
-				// a complete query (the block's own constraints) instead of
-				// passing the junk along.
-				$args = array(
-					'post_type'           => 'saai_faq',
-					'post_status'         => 'publish',
-					'has_password'        => false,
-					'no_found_rows'       => true,
-					'ignore_sticky_posts' => true,
-				);
-			}
-
-			$args['post__in']       = $faq_ids;
-			$args['orderby']        = 'post__in';
-			$args['posts_per_page'] = -1;
-			unset( $args['order'], $args['tax_query'] );
-
-			return $args;
-		};
-
-		// WooCommerce keeps the displayed product in $GLOBALS['product'] and
-		// maintains it from the `the_post` action: wc_setup_product_data()
-		// unsets it outright for any non-product post. Rendering an FAQ
-		// answer makes that FAQ the current post for the duration (the free
-		// plugin's Faq_List calls setup_postdata() on it), which fires
-		// `the_post` and so wipes the product global. The free plugin
-		// restores WordPress's own postdata globals afterwards but cannot
-		// know about WooCommerce's. Without this snapshot the Reviews tab,
-		// rendered right after this one from the same tabs template, fatals
-		// on `$product->get_review_count()` (seen in wp-env).
-		$had_product      = array_key_exists( 'product', $GLOBALS );
-		$previous_product = $GLOBALS['product'] ?? null;
-
-		// Priority 20: later than a default-priority third-party callback,
-		// so the restriction to the linked FAQs is what the query ends up
-		// with.
-		add_filter( 'saai_faq_query_args', $restrict, 20 );
-
-		try {
-			return render_block(
-				array(
-					'blockName'    => self::FAQ_BLOCK,
-					'attrs'        => array( 'category' => self::FAQ_TAB_CATEGORY_MARKER ),
-					'innerBlocks'  => array(),
-					'innerHTML'    => '',
-					'innerContent' => array(),
-				)
-			);
-		} finally {
-			// Normally already detached by the closure itself; this covers a
-			// render that never reached the query (block output short-cut).
-			remove_filter( 'saai_faq_query_args', $restrict, 20 );
-
-			if ( $had_product ) {
-				$GLOBALS['product'] = $previous_product; // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- restoring WooCommerce's own global to the exact value saved above.
-			} else {
-				unset( $GLOBALS['product'] );
-			}
-		}
+		return $this->sections->faq_html( $product_id, self::FAQ_TAB_CATEGORY_MARKER );
 	}
 
 	/**
@@ -307,45 +222,13 @@ final class Product_Page {
 			return '';
 		}
 
-		$kb_ids = $this->links->content_ids_for_product( $product_id, array( 'post_type' => 'saai_kb' ) );
-
-		if ( array() === $kb_ids ) {
-			return '';
-		}
-
-		// The resolver returns IDs only (`fields => 'ids'` primes nothing), so
-		// without this every get_permalink()/get_the_title() below would be
-		// its own get_post() query — one per linked article. Posts only: the
-		// KB permalink is `/{kb slug}/{article slug}/` with no taxonomy in it,
-		// and nothing below reads meta, so priming either would just be an
-		// extra query.
-		_prime_post_caches( $kb_ids, false, false );
-
 		$items = '';
 
-		foreach ( $kb_ids as $kb_id ) {
-			$url = get_permalink( $kb_id );
-
-			// Judge the URL AFTER escaping: esc_url() reduces a disallowed
-			// protocol (a `post_type_link` filter returning javascript: or
-			// data:, say) to '', and that must drop the item rather than
-			// print an <a href=""> around the title.
-			$url = is_string( $url ) ? esc_url( $url ) : '';
-
-			if ( '' === $url ) {
-				continue;
-			}
-
-			$title = get_the_title( $kb_id );
-
-			if ( '' === $title ) {
-				$title = __( '(no title)', 'saai-knowledge-for-woocommerce' );
-			}
-
+		foreach ( $this->sections->kb_links( $product_id ) as $link ) {
 			$items .= sprintf(
 				'<li class="saai-woo-related-kb__item"><a href="%1$s">%2$s</a></li>',
-				$url, // Already esc_url()'d above.
-				esc_html( $title )
+				esc_url( $link['url'] ),
+				esc_html( $link['title'] )
 			);
 		}
 
@@ -373,17 +256,6 @@ final class Product_Page {
 	 * link lookup is the expensive part, and each caller does it once.
 	 */
 	private function faq_tab_enabled(): bool {
-		return $this->settings->is_enabled( Settings::FAQ_TAB )
-			&& \WP_Block_Type_Registry::get_instance()->is_registered( self::FAQ_BLOCK );
-	}
-
-	/**
-	 * The published FAQs linked to a product, in the resolver's order.
-	 *
-	 * @param int $product_id Product post ID.
-	 * @return int[]
-	 */
-	private function faq_ids( int $product_id ): array {
-		return $this->links->content_ids_for_product( $product_id, array( 'post_type' => 'saai_faq' ) );
+		return $this->settings->is_enabled( Settings::FAQ_TAB ) && $this->sections->faq_block_available();
 	}
 }
