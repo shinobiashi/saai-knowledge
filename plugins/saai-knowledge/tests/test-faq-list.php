@@ -353,6 +353,62 @@ class Test_Faq_List extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The post set up again after an answer is the one that was current
+	 * right before the render — a Query Loop item, say — not the main
+	 * query's post that wp_reset_postdata() would return to. The postdata
+	 * snapshot is written back after that re-run, so the globals it
+	 * recalculates ($page, $numpages) keep their exact pre-render values.
+	 */
+	public function test_items_restores_the_previous_post_rather_than_the_main_query_post() {
+		$faq_id  = $this->create_faq();
+		$page_id = self::factory()->post->create( array( 'post_type' => 'page' ) );
+		$item_id = self::factory()->post->create( array( 'post_type' => 'page' ) );
+
+		$this->go_to( get_permalink( $page_id ) );
+
+		// A Query Loop item is current while the main query still holds the
+		// page; the sentinels differ from anything setup_postdata() computes.
+		$GLOBALS['post'] = get_post( $item_id ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- arranging a Query Loop item as the current post.
+		setup_postdata( $GLOBALS['post'] );
+		$GLOBALS['page']     = 7; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- sentinel the snapshot must restore.
+		$GLOBALS['numpages'] = 9; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- sentinel the snapshot must restore.
+
+		$seen     = array();
+		$callback = static function ( $post ) use ( &$seen ) {
+			$seen[] = $post->ID;
+			unset( $GLOBALS['saai_test_the_post_state'] );
+
+			if ( 'page' === $post->post_type ) {
+				$GLOBALS['saai_test_the_post_state'] = $post->ID;
+			}
+		};
+
+		$GLOBALS['saai_test_the_post_state'] = $item_id;
+		add_action( 'the_post', $callback );
+
+		try {
+			// Any cookie keeps the answer off the cache, on the path that
+			// calls setup_postdata() for the FAQ.
+			$_COOKIE['saai_test_session'] = '1';
+
+			$this->faq_list->items( array() );
+
+			$state    = $GLOBALS['saai_test_the_post_state'] ?? null;
+			$page     = $GLOBALS['page'];
+			$numpages = $GLOBALS['numpages'];
+		} finally {
+			remove_action( 'the_post', $callback );
+			unset( $_COOKIE['saai_test_session'], $GLOBALS['saai_test_the_post_state'] );
+		}
+
+		$this->assertSame( array( $faq_id, $item_id ), $seen );
+		$this->assertSame( $item_id, $state );
+		$this->assertSame( $item_id, get_the_ID() );
+		$this->assertSame( 7, $page );
+		$this->assertSame( 9, $numpages );
+	}
+
+	/**
 	 * The orderBy/order attributes should control the item order.
 	 */
 	public function test_items_ordering_by_title() {
