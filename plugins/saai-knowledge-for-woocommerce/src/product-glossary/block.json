@@ -1,0 +1,28 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "saai-knowledge/product-glossary",
+	"title": "Product Glossary",
+	"category": "woocommerce",
+	"icon": "book-alt",
+	"description": "The glossary terms linked to a product, with their definitions. Uses the product being displayed unless one is chosen.",
+	"keywords": [ "product", "glossary", "terms" ],
+	"textdomain": "saai-knowledge-for-woocommerce",
+	"usesContext": [ "postId", "queryId" ],
+	"attributes": {
+		"productId": {
+			"type": "number",
+			"default": 0
+		},
+		"showTitle": {
+			"type": "boolean",
+			"default": true
+		}
+	},
+	"editorScript": "file:./index.js",
+	"render": "file:./render.php",
+	"supports": {
+		"html": false,
+		"align": [ "wide", "full" ]
+	}
+}

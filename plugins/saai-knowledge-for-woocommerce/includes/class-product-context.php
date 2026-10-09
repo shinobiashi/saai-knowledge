@@ -50,4 +50,53 @@ final class Product_Context {
 
 		return (int) $post->ID;
 	}
+
+	/**
+	 * The product a manual-placement block or shortcode is about.
+	 *
+	 * In order: the block's own `productId` attribute (a normal page naming
+	 * its product), the `postId` block context (the Single Product template,
+	 * a Product Collection / Query Loop item, the editor's preview of a
+	 * product), and finally the single product page being viewed. Whatever
+	 * wins has to be a product; anything else resolves to nothing.
+	 *
+	 * The `postId` context is ignored for a block at the root of an archive,
+	 * search, or posts-page view: WordPress primes the global post — and
+	 * with it render_block()'s default context — to the FIRST result before
+	 * any block renders, so the shop page would otherwise present its first
+	 * product's FAQ as if it were the page's. A `queryId` context marks a
+	 * block inside a Query Loop / Product Collection, whose `postId` is the
+	 * item being rendered. (`queryId` only proves "some descendant of a
+	 * query block", not "inside its item template" — the free plugin's
+	 * known limitation, accepted here too.)
+	 *
+	 * Only the product's ID matters downstream: what gets listed is the
+	 * published, unprotected content linked to it, so the product's own
+	 * status isn't checked.
+	 *
+	 * @param mixed               $product_id_attr The block's `productId` attribute (0 or absent: resolve from context).
+	 * @param array<string,mixed> $context         The block's context (`postId`, `queryId`).
+	 * @return int The product post ID, or 0.
+	 */
+	public static function for_block( $product_id_attr, array $context ): int {
+		$product_id = is_numeric( $product_id_attr ) ? (int) $product_id_attr : 0;
+
+		if ( $product_id <= 0 ) {
+			if ( isset( $context['postId'] ) && is_numeric( $context['postId'] ) ) {
+				if ( ( is_archive() || is_search() || is_home() ) && ! isset( $context['queryId'] ) ) {
+					return 0;
+				}
+
+				$product_id = (int) $context['postId'];
+			} else {
+				return self::current_product_id();
+			}
+		}
+
+		if ( $product_id <= 0 || Link_Resolver::PRODUCT_POST_TYPE !== get_post_type( $product_id ) ) {
+			return 0;
+		}
+
+		return $product_id;
+	}
 }
