@@ -310,6 +310,49 @@ class Test_Faq_List extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Rendering an answer fires `the_post` for the FAQ entry (via
+	 * setup_postdata()), so third-party state kept from that action —
+	 * WooCommerce's $GLOBALS['product'], which wc_setup_product_data() unsets
+	 * for any non-product post — has to be re-established for the containing
+	 * post afterward, the way wp_reset_postdata() does. Otherwise whatever
+	 * renders next on that page sees the state left by the FAQ instead (#68).
+	 */
+	public function test_items_refires_the_post_for_the_containing_post() {
+		$faq_id  = $this->create_faq();
+		$page_id = self::factory()->post->create( array( 'post_type' => 'page' ) );
+
+		$this->go_to( get_permalink( $page_id ) );
+
+		$seen = array();
+
+		// Shaped like wc_setup_product_data(): the state only exists while a
+		// "product" (a page, here) is the current post.
+		$callback = static function ( $post ) use ( &$seen ) {
+			$seen[] = $post->ID;
+			unset( $GLOBALS['saai_test_the_post_state'] );
+
+			if ( 'page' === $post->post_type ) {
+				$GLOBALS['saai_test_the_post_state'] = $post->ID;
+			}
+		};
+
+		$GLOBALS['saai_test_the_post_state'] = $page_id;
+		add_action( 'the_post', $callback );
+
+		try {
+			$this->faq_list->items( array() );
+			$state = $GLOBALS['saai_test_the_post_state'] ?? null;
+		} finally {
+			remove_action( 'the_post', $callback );
+			unset( $GLOBALS['saai_test_the_post_state'] );
+		}
+
+		$this->assertSame( array( $faq_id, $page_id ), $seen );
+		$this->assertSame( $page_id, $state );
+		$this->assertSame( $page_id, get_the_ID() );
+	}
+
+	/**
 	 * The orderBy/order attributes should control the item order.
 	 */
 	public function test_items_ordering_by_title() {
@@ -841,11 +884,13 @@ class Test_Faq_List extends WP_UnitTestCase {
 	/**
 	 * When no global post exists before the render, the complete postdata
 	 * state — not just $GLOBALS['post'] — must be back to its prior values
-	 * afterward, not left describing the last FAQ.
+	 * afterward, not left describing the last FAQ. With no previous post
+	 * there is nothing to re-establish, so `the_post` fires only for the
+	 * FAQ's own render.
 	 */
 	public function test_items_restores_prior_state_when_no_previous_post_exists() {
 		$author_id = self::factory()->user->create();
-		$this->create_faq(
+		$faq_id    = $this->create_faq(
 			array(
 				'post_title'  => 'Postless question',
 				'post_author' => $author_id,
@@ -856,10 +901,22 @@ class Test_Faq_List extends WP_UnitTestCase {
 		$GLOBALS['id']         = 0; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- arranging the postless pre-render state under test.
 		$GLOBALS['authordata'] = null; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- arranging the postless pre-render state under test.
 
-		$this->faq_list->items( array() );
+		$seen     = array();
+		$callback = static function ( $post ) use ( &$seen ) {
+			$seen[] = $post->ID;
+		};
+
+		add_action( 'the_post', $callback );
+
+		try {
+			$this->faq_list->items( array() );
+		} finally {
+			remove_action( 'the_post', $callback );
+		}
 
 		$this->assertNull( $GLOBALS['post'] );
 		$this->assertSame( 0, $GLOBALS['id'] );
 		$this->assertNull( $GLOBALS['authordata'] );
+		$this->assertSame( array( $faq_id ), $seen );
 	}
 }
