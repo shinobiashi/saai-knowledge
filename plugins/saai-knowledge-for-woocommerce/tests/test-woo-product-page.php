@@ -473,6 +473,88 @@ class Test_Woo_Product_Page extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The free plugin's FAQPage JSON-LD slot re-admits a matching signature,
+	 * so the tab must not share its signature with a default-attribute
+	 * faq-list elsewhere on the page — or both would print a FAQPage with
+	 * different question sets. With its own signature, the page's single
+	 * FAQPage goes to whichever rendered first.
+	 */
+	public function test_faq_tab_json_ld_yields_to_a_faq_list_rendered_earlier_on_the_page() {
+		$this->register_src_faq_list_block();
+
+		$product = $this->create_product();
+		$linked  = $this->create_content( 'saai_faq', 'Linked question?' );
+		$other   = $this->create_content( 'saai_faq', 'Other question?' );
+		$this->link( $linked, $product );
+
+		$default_block = array(
+			'blockName'    => Product_Page::FAQ_BLOCK,
+			'attrs'        => array(),
+			'innerBlocks'  => array(),
+			'innerHTML'    => '',
+			'innerContent' => array(),
+		);
+
+		// Alone on the page, the tab prints the FAQPage for the linked FAQs.
+		$this->go_to_product( $product );
+		$alone = $this->page->faq_list_html( $product );
+		$this->assertStringContainsString( '"@type":"FAQPage"', $alone );
+		$this->assertStringContainsString( 'Linked question?', $alone );
+		$this->assertStringNotContainsString( 'Other question?', $alone );
+
+		// A new request (go_to() runs a new main query, which resets the
+		// slot): the description's default faq-list renders first and takes
+		// the slot; the tab still lists its FAQs but prints no second schema.
+		$this->go_to_product( $product );
+		$description = render_block( $default_block );
+		$this->assertStringContainsString( '"@type":"FAQPage"', $description );
+		$this->assertStringContainsString( 'Other question?', $description, 'Precondition: the description-side block lists every FAQ.' );
+
+		$tab = $this->page->faq_list_html( $product );
+		$this->assertStringContainsString( 'Linked question?', $tab );
+		$this->assertStringNotContainsString( 'FAQPage', $tab, 'The slot belongs to a different signature now; the tab must not print a second FAQPage.' );
+		$this->assertGreaterThan( 0, $other );
+	}
+
+	/**
+	 * The query restriction applies to the tab's own query only: once it has
+	 * run, a nested consumer of `saai_faq_query_args` during the same render
+	 * gets unrestricted args.
+	 */
+	public function test_faq_tab_query_restriction_applies_exactly_once_per_render() {
+		$this->register_src_faq_list_block();
+
+		$product = $this->create_product();
+		$linked  = $this->create_content( 'saai_faq', 'Linked question?' );
+		$this->link( $linked, $product );
+
+		$seen  = array();
+		$probe = static function ( $args ) use ( &$seen ) {
+			$seen[] = is_array( $args ) && isset( $args['post__in'] );
+
+			if ( 1 === count( $seen ) ) {
+				// A nested consumer asking for its own args while the tab
+				// is still rendering.
+				apply_filters( 'saai_faq_query_args', array( 'post_type' => 'saai_faq' ), array() );
+			}
+
+			return $args;
+		};
+		add_filter( 'saai_faq_query_args', $probe, 30 );
+
+		try {
+			$this->go_to_product( $product );
+			$html = $this->page->faq_list_html( $product );
+		} finally {
+			remove_filter( 'saai_faq_query_args', $probe, 30 );
+		}
+
+		$this->assertStringContainsString( 'Linked question?', $html );
+		$this->assertSame( array( true, false ), $seen, 'Restricted for the tab\'s own query, untouched for the nested one.' );
+		$this->assertFalse( has_filter( 'saai_faq_query_args', $probe ) );
+	}
+
+	/**
 	 * Rendering an FAQ answer fires `the_post` for the FAQ, which WooCommerce
 	 * answers by unsetting its $GLOBALS['product']; the tab must put the
 	 * product back so the Reviews tab rendered right after still has it.

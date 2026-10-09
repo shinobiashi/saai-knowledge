@@ -71,6 +71,26 @@ final class Product_Page {
 	public const KB_LINKS_PRIORITY = 12;
 
 	/**
+	 * The `category` attribute the tab renders the faq-list block with.
+	 *
+	 * Not a real category — the query restriction drops the `tax_query` it
+	 * would produce. It exists for the free plugin's FAQPage JSON-LD slot,
+	 * which is claimed per "normalized attributes + context post" and
+	 * re-admits a matching signature (so a speculative pre-render can't use
+	 * it up). A default-attribute faq-list block or [saai_faq] shortcode in
+	 * the product's own description would therefore share the tab's
+	 * signature, and both would print a FAQPage with different question
+	 * sets. With this marker the signatures differ and the slot works as
+	 * designed: whichever renders first (the description precedes the tabs)
+	 * prints the page's one FAQPage (Codex review, PR #67). `category` is
+	 * the one public attribute whose value leaves the rendered list alone
+	 * once its tax_query is removed.
+	 *
+	 * @var string
+	 */
+	public const FAQ_TAB_CATEGORY_MARKER = 'saai-woo-product-tab';
+
+	/**
 	 * The product <-> content link resolver.
 	 *
 	 * @var Link_Resolver
@@ -188,7 +208,15 @@ final class Product_Page {
 			return '';
 		}
 
-		$restrict = static function ( $args ) use ( $faq_ids ) {
+		$restrict = static function ( $args ) use ( $faq_ids, &$restrict ) {
+			// Exactly once. The first saai_faq_query_args pass inside the
+			// render_block() below is the tab's own list; a faq-list nested in
+			// an answer never gets this far (the free plugin's reentrancy
+			// guard renders it empty before querying), but detaching here
+			// keeps the restriction from reaching any other consumer that
+			// might run before the render returns.
+			remove_filter( 'saai_faq_query_args', $restrict, 20 );
+
 			if ( ! is_array( $args ) ) {
 				// An earlier callback handed down something unusable. The
 				// free plugin's Faq_List::query_args() would then fall back
@@ -235,13 +263,15 @@ final class Product_Page {
 			return render_block(
 				array(
 					'blockName'    => self::FAQ_BLOCK,
-					'attrs'        => array(),
+					'attrs'        => array( 'category' => self::FAQ_TAB_CATEGORY_MARKER ),
 					'innerBlocks'  => array(),
 					'innerHTML'    => '',
 					'innerContent' => array(),
 				)
 			);
 		} finally {
+			// Normally already detached by the closure itself; this covers a
+			// render that never reached the query (block output short-cut).
 			remove_filter( 'saai_faq_query_args', $restrict, 20 );
 
 			if ( $had_product ) {
