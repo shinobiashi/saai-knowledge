@@ -49,7 +49,7 @@
 
 ## 品質ゲート
 
-- CI: 9bce3af で PHP Quality（https://github.com/shinobiashi/saai-knowledge/actions/runs/37955254613）・JS Quality（https://github.com/shinobiashi/saai-knowledge/actions/runs/37955254713）とも green（12 チェック）。以降は docs のみのコミット
+- CI: 9bce3af で PHP Quality（<https://github.com/shinobiashi/saai-knowledge/actions/runs/37955254613>）・JS Quality（<https://github.com/shinobiashi/saai-knowledge/actions/runs/37955254713>）とも green（12 チェック）。以降は docs のみのコミット
 - 品質チェック: PHPCS / PHPStan / ESLint / Stylelint green、PHPUnit 576 件 green（ビルドあり・ビルド無しの CI 状態の両方）、E2E 22 件 green（wp-env tests）
 - 実機（wp-env dev、WP 7.1.3 / WC 11.2.0）: TT5・Storefront、REST block-renderer、Editor ロールでの REST 403/200 を確認
 
