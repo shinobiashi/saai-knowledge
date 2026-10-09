@@ -12,6 +12,7 @@ use SAAI\KnowledgeWoo\Product_Context;
 use SAAI\KnowledgeWoo\Product_Page;
 use SAAI\KnowledgeWoo\Product_Sections;
 use SAAI\KnowledgeWoo\Settings;
+use SAAI\KnowledgeWoo\Shortcodes;
 
 /**
  * Class Test_Woo_Product_Blocks.
@@ -114,6 +115,10 @@ class Test_Woo_Product_Blocks extends WP_UnitTestCase {
 
 		$this->original_blocks = array();
 		unset( $GLOBALS['product'] );
+
+		foreach ( array_keys( Shortcodes::SHORTCODE_BLOCKS ) as $tag ) {
+			remove_shortcode( $tag );
+		}
 
 		if ( $this->registered_taxonomy ) {
 			unregister_taxonomy( Link_Resolver::PRODUCT_TAXONOMY );
@@ -447,5 +452,79 @@ class Test_Woo_Product_Blocks extends WP_UnitTestCase {
 		$this->assertStringNotContainsString( '<script>', $html );
 		$this->assertStringContainsString( '&lt;script&gt;alert(1)&lt;/script&gt;</a></dt>', $html );
 		$this->assertStringContainsString( '<dd class="saai-woo-product-glossary__definition">Uses &lt;script&gt; tags.</dd>', $html );
+	}
+
+	/**
+	 * The shortcodes are registered under their documented tags.
+	 */
+	public function test_shortcodes_are_registered() {
+		( new Shortcodes() )->register_shortcodes();
+
+		foreach ( array( 'saai_product_faq', 'saai_product_docs', 'saai_product_glossary' ) as $tag ) {
+			$this->assertTrue( shortcode_exists( $tag ), $tag );
+		}
+	}
+
+	/**
+	 * A shortcode in a product's description resolves that product, like
+	 * the block; on a regular page `product_id` picks it and `show_title`
+	 * drops the heading.
+	 */
+	public function test_shortcodes_render_their_blocks() {
+		( new Shortcodes() )->register_shortcodes();
+
+		$product = $this->create_linked_product();
+		$page    = self::factory()->post->create( array( 'post_type' => 'page' ) );
+
+		$this->go_to( get_permalink( $product ) );
+
+		$faq = do_shortcode( '[saai_product_faq]' );
+		$this->assertStringContainsString( 'wp-block-saai-knowledge-product-faq', $faq );
+		$this->assertStringContainsString( 'Linked question?', $faq );
+
+		$this->go_to( get_permalink( $page ) );
+
+		$this->assertSame( '', do_shortcode( '[saai_product_docs]' ), 'A page is no product.' );
+
+		$docs = do_shortcode( '[saai_product_docs product_id="' . $product . '" show_title="false" unknown="1"]' );
+		$this->assertStringContainsString( '>Linked guide</a>', $docs );
+		$this->assertStringNotContainsString( '<h2', $docs );
+
+		$glossary = do_shortcode( '[saai_product_glossary product_id="' . $product . '" show_title="yes"]' );
+		$this->assertStringContainsString( 'Glossary</h2>', $glossary );
+		$this->assertStringContainsString( '>Linked term</a>', $glossary );
+	}
+
+	/**
+	 * A negative or non-numeric `product_id` counts as no ID at all (the
+	 * block then resolves its product from the context, as without the
+	 * attribute) — never as a different product, which absint() would make
+	 * of -N.
+	 */
+	public function test_shortcodes_treat_unusable_product_ids_as_absent() {
+		( new Shortcodes() )->register_shortcodes();
+
+		$product = $this->create_linked_product();
+		$page    = self::factory()->post->create( array( 'post_type' => 'page' ) );
+
+		$this->go_to( get_permalink( $page ) );
+		$this->assertSame( '', do_shortcode( '[saai_product_docs product_id="-' . $product . '"]' ) );
+
+		$this->go_to( get_permalink( $product ) );
+		$this->assertStringContainsString( '>Linked guide</a>', do_shortcode( '[saai_product_docs product_id="abc"]' ) );
+	}
+
+	/**
+	 * Without the block registered (no JS build), a shortcode renders
+	 * nothing instead of failing.
+	 */
+	public function test_shortcodes_render_nothing_without_their_block() {
+		( new Shortcodes() )->register_shortcodes();
+
+		$product = $this->create_linked_product();
+
+		\WP_Block_Type_Registry::get_instance()->unregister( 'saai-knowledge/product-docs' );
+
+		$this->assertSame( '', do_shortcode( '[saai_product_docs product_id="' . $product . '"]' ) );
 	}
 }
