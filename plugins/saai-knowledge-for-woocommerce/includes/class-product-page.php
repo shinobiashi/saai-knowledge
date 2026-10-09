@@ -126,7 +126,7 @@ final class Product_Page {
 
 		$product_id = Product_Context::current_product_id();
 
-		if ( $product_id <= 0 || ! $this->faq_tab_available( $product_id ) ) {
+		if ( $product_id <= 0 || ! $this->faq_tab_enabled() || array() === $this->faq_ids( $product_id ) ) {
 			return $tabs;
 		}
 
@@ -174,15 +174,35 @@ final class Product_Page {
 	 * @return string Rendered HTML, or '' when nothing applies.
 	 */
 	public function faq_list_html( int $product_id ): string {
-		if ( ! $this->faq_tab_available( $product_id ) ) {
+		if ( $product_id <= 0 || ! $this->faq_tab_enabled() ) {
 			return '';
 		}
 
+		// Resolved exactly once here (not re-checked through a separate
+		// availability call): the IDs feed `post__in` below, and WP_Query
+		// treats an EMPTY post__in as "no constraint" — so the empty case has
+		// to return before the closure can ever see it.
 		$faq_ids = $this->faq_ids( $product_id );
+
+		if ( array() === $faq_ids ) {
+			return '';
+		}
 
 		$restrict = static function ( $args ) use ( $faq_ids ) {
 			if ( ! is_array( $args ) ) {
-				return $args;
+				// An earlier callback handed down something unusable. The
+				// free plugin's Faq_List::query_args() would then fall back
+				// to its own UNRESTRICTED defaults, which here would list
+				// every FAQ on the store in this product's tab — so rebuild
+				// a complete query (the block's own constraints) instead of
+				// passing the junk along.
+				$args = array(
+					'post_type'           => 'saai_faq',
+					'post_status'         => 'publish',
+					'has_password'        => false,
+					'no_found_rows'       => true,
+					'ignore_sticky_posts' => true,
+				);
 			}
 
 			$args['post__in']       = $faq_ids;
@@ -263,6 +283,13 @@ final class Product_Page {
 			return '';
 		}
 
+		// The resolver returns IDs only (`fields => 'ids'` primes nothing), so
+		// without this every get_permalink()/get_the_title() below would be
+		// its own get_post() query — one per linked article. Terms are primed
+		// too because the KB permalink structure embeds the article's
+		// category.
+		_prime_post_caches( $kb_ids, true, false );
+
 		$items = '';
 
 		foreach ( $kb_ids as $kb_id ) {
@@ -289,28 +316,28 @@ final class Product_Page {
 			return '';
 		}
 
+		// A unique heading id: a theme firing the summary hook twice, or the
+		// manual-placement block landing on the same page later, must not
+		// produce duplicate ids for aria-labelledby to point at.
+		$title_id = wp_unique_id( 'saai-woo-related-kb-title-' );
+
 		return sprintf(
-			'<section class="saai-woo-related-kb" aria-labelledby="saai-woo-related-kb-title"><h2 id="saai-woo-related-kb-title" class="saai-woo-related-kb__title">%1$s</h2><ul class="saai-woo-related-kb__list">%2$s</ul></section>',
+			'<section class="saai-woo-related-kb" aria-labelledby="%1$s"><h2 id="%1$s" class="saai-woo-related-kb__title">%2$s</h2><ul class="saai-woo-related-kb__list">%3$s</ul></section>',
+			esc_attr( $title_id ),
 			esc_html__( 'Related documentation', 'saai-knowledge-for-woocommerce' ),
 			$items
 		);
 	}
 
 	/**
-	 * Whether the FAQ tab has everything it needs for a product.
+	 * Whether the FAQ tab is switched on and the block that renders it exists.
 	 *
-	 * @param int $product_id Product post ID.
+	 * Deliberately says nothing about a particular product: the per-product
+	 * link lookup is the expensive part, and each caller does it once.
 	 */
-	private function faq_tab_available( int $product_id ): bool {
-		if ( $product_id <= 0 || ! $this->settings->is_enabled( Settings::FAQ_TAB ) ) {
-			return false;
-		}
-
-		if ( ! \WP_Block_Type_Registry::get_instance()->is_registered( self::FAQ_BLOCK ) ) {
-			return false;
-		}
-
-		return array() !== $this->faq_ids( $product_id );
+	private function faq_tab_enabled(): bool {
+		return $this->settings->is_enabled( Settings::FAQ_TAB )
+			&& \WP_Block_Type_Registry::get_instance()->is_registered( self::FAQ_BLOCK );
 	}
 
 	/**

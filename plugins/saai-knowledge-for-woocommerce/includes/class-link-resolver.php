@@ -15,7 +15,7 @@ defined( 'ABSPATH' ) || exit;
  * content linked to the product ID, union content linked to any of the
  * product's categories (ancestors included), deduplicated, in menu_order.
  *
- * Deliberately built on core APIs only — wp_get_object_terms(),
+ * Deliberately built on core APIs only — get_the_terms(),
  * get_ancestors(), WP_Query — and never on wc_get_product() or any other
  * WooCommerce function. WooCommerce is absent from the PHPUnit bootstrap
  * (tests/bootstrap.php loads only the two SAAI plugins), so this keeps the

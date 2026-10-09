@@ -30,10 +30,14 @@ defined( 'ABSPATH' ) || exit;
  *   also ships its own `woocommerce/product-summary` block), so those two
  *   are caught through their `render_block_{name}` filters.
  *
- * Every entry point checks Product_Context::current_product_id() so nothing
- * runs outside a single product page — not in REST (the editor's previews),
- * not in admin, and not for the other products a Product Collection block
- * loops through further down the same page.
+ * The short-description entry points check Product_Context::current_product_id()
+ * and so only act on a single product page, for the displayed product — not
+ * in REST (the editor's previews), not in admin, and not for the other
+ * products a Product Collection block loops through further down the same
+ * page. The long-description route has no gate of its own: it is the free
+ * plugin's `the_content` pass, which already skips admin/REST/feeds and runs
+ * wherever WordPress renders a product's content, each time narrowed to that
+ * product's own linked terms.
  */
 final class Product_Autolink {
 
@@ -168,10 +172,20 @@ final class Product_Autolink {
 	 *
 	 * The `woocommerce_short_description` callback, at priority 20 so it
 	 * sees the HTML after WooCommerce's own do_blocks()/wptexturize()
-	 * formatting (priorities 9 and 10). WooCommerce applies this same
-	 * filter to variation descriptions it embeds for the variations
-	 * script; those are confined to the single product page by the
-	 * context check as well.
+	 * formatting (priorities 9 and 10).
+	 *
+	 * WooCommerce reaches this filter from two kinds of places. The
+	 * short-description template applies it to the displayed product's own
+	 * excerpt — the case this is for. Its generic formatter
+	 * wc_format_content() applies it as well, to text that is NOT that:
+	 * variation descriptions (embedded as JSON for the variations script
+	 * and inserted later by jQuery, where the anchors' Interactivity API
+	 * directives are never hydrated, so the tooltip wouldn't open while
+	 * has_rendered_links() would still make the free plugin load it), the
+	 * Featured Product / Featured Category / Category Description blocks
+	 * (another object's text, which would be linked against THIS product's
+	 * dictionary), cart item data, and so on. Those are skipped — see
+	 * is_inside_wc_format_content().
 	 *
 	 * @param mixed $html The formatted short description.
 	 * @return mixed
@@ -183,11 +197,35 @@ final class Product_Autolink {
 
 		$product_id = Product_Context::current_product_id();
 
-		if ( $product_id <= 0 ) {
+		if ( $product_id <= 0 || $this->is_inside_wc_format_content() ) {
 			return $html;
 		}
 
 		return $this->process( $html, $product_id );
+	}
+
+	/**
+	 * Whether WooCommerce's wc_format_content() is on the current call stack.
+	 *
+	 * `doing_filter( 'woocommerce_format_content' )` cannot tell this: that
+	 * function evaluates the inner `woocommerce_short_description` filter
+	 * before the outer one starts, so the outer name isn't on the filter
+	 * stack yet when this runs. Checking the stack by function name is the
+	 * same approach the free plugin's Autolinker takes for
+	 * wp_trim_excerpt(). Only reached on single product pages (after the
+	 * Product_Context check), a handful of times per page.
+	 *
+	 * @return bool
+	 */
+	private function is_inside_wc_format_content(): bool {
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_debug_backtrace -- Not leftover debug code: used at runtime to detect wc_format_content() on the call stack, see this method's own docblock.
+		foreach ( debug_backtrace( DEBUG_BACKTRACE_IGNORE_ARGS ) as $frame ) {
+			if ( 'wc_format_content' === $frame['function'] && ! isset( $frame['class'] ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**

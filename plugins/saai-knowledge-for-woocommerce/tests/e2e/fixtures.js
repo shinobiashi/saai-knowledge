@@ -65,6 +65,11 @@ async function createProductPageFixtures( requestUtils ) {
 	} );
 
 	const faqs = [];
+	// Alphabetical on purpose: `saai_faq` doesn't support page-attributes,
+	// so core REST silently drops `menu_order` and both FAQs share 0; the
+	// resolver's title tiebreak is what orders them on the page. The
+	// menu_order ordering itself is covered by PHPUnit
+	// (Test_Woo_Product_Page::test_faq_tab_body_lists_only_the_linked_faqs_in_resolver_order).
 	const questions = [ 'How do I install it?', 'Is it waterproof?' ];
 
 	for ( const [ index, question ] of questions.entries() ) {
@@ -75,7 +80,6 @@ async function createProductPageFixtures( requestUtils ) {
 				data: {
 					title: question,
 					status: 'publish',
-					menu_order: index + 1,
 					content: `<!-- wp:paragraph --><p>Answer ${
 						index + 1
 					} for the E2E suite.</p><!-- /wp:paragraph -->`,

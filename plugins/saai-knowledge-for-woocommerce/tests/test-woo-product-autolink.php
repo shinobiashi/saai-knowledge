@@ -44,6 +44,10 @@ class Test_Woo_Product_Autolink extends WP_UnitTestCase {
 	public function set_up() {
 		parent::set_up();
 
+		// WooCommerce's wc_format_content(), which one test needs on the call
+		// stack; see the stub's own docblock for why it lives there.
+		require_once dirname( __DIR__, 3 ) . '/tests/stubs/wc-format-content.php';
+
 		// The core test framework unregisters every meta key after each test.
 		( new Post_Meta() )->register_post_meta();
 		delete_option( Settings::OPTION_KEY );
@@ -365,6 +369,24 @@ class Test_Woo_Product_Autolink extends WP_UnitTestCase {
 
 		$this->assertSame( '', $this->service->filter_short_description( '' ) );
 		$this->assertNull( $this->service->filter_short_description( null ) );
+	}
+
+	/**
+	 * Text WooCommerce formats through wc_format_content() — variation
+	 * descriptions, Featured Product / Category blocks, cart item data — is
+	 * not the displayed short description and stays untouched even on the
+	 * product page, while the template's direct filter call is linked.
+	 */
+	public function test_short_description_is_left_alone_inside_wc_format_content() {
+		$alpha   = $this->create_term( 'Alpha' );
+		$product = $this->create_product( 'Linked' );
+		$this->link( $alpha, $product );
+		$this->go_to( get_permalink( $product ) );
+
+		$input = '<p>Alpha inside.</p>';
+
+		$this->assertStringContainsString( 'data-saai-term-id="' . $alpha . '"', apply_filters( 'woocommerce_short_description', $input ), 'Precondition: the direct filter call is linked.' );
+		$this->assertSame( $input, wc_format_content( $input ) );
 	}
 
 	/**

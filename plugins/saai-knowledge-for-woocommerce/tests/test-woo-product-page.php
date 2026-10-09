@@ -308,6 +308,13 @@ class Test_Woo_Product_Page extends WP_UnitTestCase {
 		$this->go_to( add_query_arg( 'post_type', Link_Resolver::PRODUCT_POST_TYPE, home_url( '/' ) ) );
 		$this->assertFalse( is_singular() );
 		$this->assertSame( 0, Product_Context::current_product_id() );
+
+		// The editor's block-renderer preview: a REST request whose global
+		// post has been primed with the product, but no singular main query.
+		$this->go_to( add_query_arg( 'rest_route', '/wp/v2/posts', home_url( '/' ) ) );
+		$GLOBALS['post'] = get_post( $product ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- simulating the REST block renderer priming the global post.
+		$this->assertFalse( is_singular() );
+		$this->assertSame( 0, Product_Context::current_product_id() );
 	}
 
 	/**
@@ -427,6 +434,37 @@ class Test_Woo_Product_Page extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A third-party `saai_faq_query_args` callback that returns garbage must
+	 * not widen the tab to every FAQ on the store: the free plugin falls
+	 * back to its unrestricted defaults for a non-array result, so the
+	 * restriction rebuilds the query itself in that case.
+	 */
+	public function test_faq_tab_body_stays_restricted_when_another_callback_breaks_the_query_args() {
+		$this->register_src_faq_list_block();
+
+		$product  = $this->create_product();
+		$linked   = $this->create_content( 'saai_faq', 'Linked question?' );
+		$unlinked = $this->create_content( 'saai_faq', 'Unlinked question?' );
+		$this->link( $linked, $product );
+
+		$break = static function () {
+			return 'not an array';
+		};
+		add_filter( 'saai_faq_query_args', $break, 10 );
+
+		try {
+			$this->go_to_product( $product );
+			$html = $this->page->faq_list_html( $product );
+		} finally {
+			remove_filter( 'saai_faq_query_args', $break, 10 );
+		}
+
+		$this->assertStringContainsString( 'Linked question?', $html );
+		$this->assertStringNotContainsString( 'Unlinked question?', $html );
+		$this->assertGreaterThan( 0, $unlinked );
+	}
+
+	/**
 	 * Rendering an FAQ answer fires `the_post` for the FAQ, which WooCommerce
 	 * answers by unsetting its $GLOBALS['product']; the tab must put the
 	 * product back so the Reviews tab rendered right after still has it.
@@ -525,13 +563,23 @@ class Test_Woo_Product_Page extends WP_UnitTestCase {
 		};
 		add_filter( 'the_title', $inject, 10, 2 );
 
+		// Evict the articles so the render has to prime them itself.
+		wp_cache_delete( $alpha, 'posts' );
+		wp_cache_delete( $bravo, 'posts' );
+
 		try {
 			$html = $this->page->kb_links_html( $product );
 		} finally {
 			remove_filter( 'the_title', $inject, 10 );
 		}
 
+		// Both articles were primed in one go rather than fetched one by one
+		// through get_permalink()/get_the_title().
+		$this->assertNotFalse( wp_cache_get( $alpha, 'posts' ) );
+		$this->assertNotFalse( wp_cache_get( $bravo, 'posts' ) );
+
 		$this->assertStringStartsWith( '<section class="saai-woo-related-kb"', $html );
+		$this->assertMatchesRegularExpression( '/<section class="saai-woo-related-kb" aria-labelledby="(saai-woo-related-kb-title-\d+)"><h2 id="\1"/', $html, 'The heading id is unique per render and referenced by aria-labelledby.' );
 		$this->assertStringContainsString( 'Related documentation', $html );
 		$this->assertStringContainsString( 'href="' . esc_url( get_permalink( $alpha ) ) . '"', $html );
 		$this->assertStringContainsString( 'Alpha &lt;script&gt;alert(1)&lt;/script&gt; &amp; guide', $html );
@@ -599,6 +647,11 @@ class Test_Woo_Product_Page extends WP_UnitTestCase {
 		$output = ob_get_clean();
 
 		$this->assertStringContainsString( 'Setup guide', $output );
-		$this->assertSame( $this->page->kb_links_html( $product ), $output );
+
+		// The heading id is unique per render; everything else must match.
+		$normalize = static function ( string $html ): string {
+			return (string) preg_replace( '/saai-woo-related-kb-title-\d+/', 'saai-woo-related-kb-title-N', $html );
+		};
+		$this->assertSame( $normalize( $this->page->kb_links_html( $product ) ), $normalize( $output ) );
 	}
 }

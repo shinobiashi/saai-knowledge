@@ -177,7 +177,7 @@ CPT 登録変更時のみ `flush_rewrite_rules()`（有効化時 + スラッグ�
 1. **コンテンツ側**（FAQ / KB / 用語の編集画面）: サイドバーパネル「Linked Products」で商品・商品カテゴリーを検索して複数選択。→ `saai_linked_products` / `saai_linked_product_cats` に保存。
 2. **商品側**（商品編集画面）: メタボックス「SAAI Knowledge」で、この商品（＋所属カテゴリー）に紐づく FAQ/KB/用語を一覧表示・その場で追加/解除（実体はコンテンツ側メタを更新する逆引きUI）。カテゴリー経由の紐づけは「そのカテゴリーの全商品に効く」ため商品側では読み取り専用で表示し、経由カテゴリー名を添える。
 
-「商品に対する表示対象」の解決ルール: `商品IDに直接紐づくもの ∪ 商品の所属カテゴリー（祖先含む）に紐づくもの`。重複排除・`menu_order` 順（同値は title 順）。祖先方向にのみ辿るので、親カテゴリーへの紐づけは子孫カテゴリーの商品まで自動的に覆う。実装は `Link_Resolver` 単一クラスで、WooCommerce の関数（`wc_get_product()` 等）を使わず core の `wp_get_object_terms()` / `get_ancestors()` / `WP_Query` だけで組む（PHPUnit が WooCommerce 不在のまま `product` / `product_cat` のスタンドインで本番と同じ経路を検証できる）。
+「商品に対する表示対象」の解決ルール: `商品IDに直接紐づくもの ∪ 商品の所属カテゴリー（祖先含む）に紐づくもの`。重複排除・`menu_order` 順（同値は title 順）。祖先方向にのみ辿るので、親カテゴリーへの紐づけは子孫カテゴリーの商品まで自動的に覆う。実装は `Link_Resolver` 単一クラスで、WooCommerce の関数（`wc_get_product()` 等）を使わず core の `get_the_terms()`（オブジェクトタームキャッシュ経由。M5-3 で `wp_get_object_terms()` から変更）/ `get_ancestors()` / `WP_Query` だけで組む（PHPUnit が WooCommerce 不在のまま `product` / `product_cat` のスタンドインで本番と同じ経路を検証できる）。
 
 #### 検索 API（2026-09-24 に wp-env 実機で確認して決定）
 
@@ -219,7 +219,7 @@ CPT 登録変更時のみ `flush_rewrite_rules()`（有効化時 + スラッグ�
 
 | 機能 | クラシックテーマ | ブロックテーマ（blockified） |
 | --- | --- | --- |
-| FAQセクション | `woocommerce_product_tabs` で「FAQ」タブ（priority 25: Additional information と Reviews の間）。本文は無料版の公開ブロック `saai-knowledge/faq-list` を `render_block()` に渡し、`saai_faq_query_args` で紐づけ FAQ の `post__in`（`Link_Resolver` の順序）に絞る | 同じフック。未カスタマイズなら legacy タブとして、アコーディオン化済みなら互換レイヤーが accordion item に変換して描画 |
+| FAQセクション | `woocommerce_product_tabs` で「FAQ」タブ（priority 25: legacy タブでは Additional information と Reviews の間。アコーディオン化済みテンプレートでは互換レイヤーが変換したタブをネイティブ項目の後ろへ追記するため、FAQ は Reviews の後になる）。本文は無料版の公開ブロック `saai-knowledge/faq-list` を `render_block()` に渡し、`saai_faq_query_args` で紐づけ FAQ の `post__in`（`Link_Resolver` の順序）に絞る | 同じフック。未カスタマイズなら legacy タブとして、アコーディオン化済みなら互換レイヤーが accordion item に変換して描画 |
 | 関連KBセクション | `woocommerce_after_single_product_summary`（priority 12: タブ 10 とアップセル 15 の間）に「Related documentation」見出し + リンク一覧（`<section class="saai-woo-related-kb">`。CSS は持たずテーマに任せる） | 同左フック（`SingleProductTemplateCompatibility` が `product-details` の直後へマップ）+ 専用ブロック（Issue #23） |
 | 用語ツールチップ | `saai_autolink_post_types` に `product` を追加（priority 20、無料版の設定フィルターの後）、`saai_autolink_dictionary` で紐づけ用語だけに絞る。長い説明は `the_content`、短い説明は `woocommerce_short_description`（priority 20） | 同左。短い説明は `core/post-excerpt` / `woocommerce/product-summary` の `render_block_{name}` で描画後 HTML に掛ける（経路の詳細は DESIGN-AUTOLINK.md §6） |
 
