@@ -258,18 +258,22 @@ test.describe( 'Product blocks (Twenty Twenty-Five)', () => {
 		// picker asks for `view`.
 		const username = `e2e-editor-${ Date.now() }`;
 		const password = `e2e-${ Math.random().toString( 36 ).slice( 2 ) }`;
-		const user = await requestUtils.createUser( {
-			username,
-			email: `${ username }@example.com`,
-			password,
-			roles: [ 'editor' ],
-		} );
-		const context = await browser.newContext( {
-			baseURL: process.env.WP_BASE_URL,
-		} );
-		const editorPage = await context.newPage();
+		let user;
+		let context;
 
 		try {
+			user = await requestUtils.createUser( {
+				username,
+				email: `${ username }@example.com`,
+				password,
+				roles: [ 'editor' ],
+			} );
+			context = await browser.newContext( {
+				baseURL: process.env.WP_BASE_URL,
+			} );
+
+			const editorPage = await context.newPage();
+
 			await editorPage.goto( '/wp-login.php' );
 			await editorPage.locator( '#user_login' ).fill( username );
 			await editorPage.locator( '#user_pass' ).fill( password );
@@ -290,12 +294,19 @@ test.describe( 'Product blocks (Twenty Twenty-Five)', () => {
 			await editor.insertBlock( { name: 'saai-knowledge/product-docs' } );
 			await editor.openDocumentSettingsSidebar();
 
-			await editorPage
-				.getByRole( 'combobox', { name: 'Product' } )
-				.fill( fixtures.linkedProduct.name );
+			const picker = editorPage.getByRole( 'combobox', {
+				name: 'Product',
+			} );
+
+			await picker.fill( fixtures.linkedProduct.name );
 			await editorPage
 				.getByRole( 'option', { name: fixtures.linkedProduct.name } )
 				.click();
+
+			// Once picked, the search is cleared and the name shown comes from
+			// the picker's own lookup of the chosen ID — which also has to ask
+			// for the `view` context, or an Editor sees "Product #<ID>".
+			await expect( picker ).toHaveValue( fixtures.linkedProduct.name );
 
 			await expect(
 				editor.canvas
@@ -303,12 +314,16 @@ test.describe( 'Product blocks (Twenty Twenty-Five)', () => {
 					.getByRole( 'link', { name: fixtures.kb.title.rendered } )
 			).toBeVisible();
 		} finally {
-			await context.close();
-			await requestUtils.rest( {
-				method: 'DELETE',
-				path: `/wp/v2/users/${ user.id }`,
-				params: { force: true, reassign: 1 },
-			} );
+			await context?.close();
+
+			if ( user ) {
+				// Without `reassign`, the Editor's auto-draft goes with them.
+				await requestUtils.rest( {
+					method: 'DELETE',
+					path: `/wp/v2/users/${ user.id }`,
+					params: { force: true, reassign: false },
+				} );
+			}
 		}
 	} );
 } );
