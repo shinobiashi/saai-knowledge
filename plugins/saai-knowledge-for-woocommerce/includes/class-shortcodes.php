@@ -119,10 +119,19 @@ final class Shortcodes {
 
 			if ( 'int' === $spec['type'] ) {
 				// Not absint(): it would turn "-3" into 3, a different and
-				// possibly real product; a negative ID resolves to nothing.
+				// possibly real product. 0 leaves the block to resolve its
+				// product from the context, as without the attribute.
 				$value = max( 0, (int) $value );
 			} else {
-				$value = rest_sanitize_boolean( (string) $value );
+				// Hand-typed by merchants, so "no" and "off" have to work as
+				// well as "false" (rest_sanitize_boolean() would read both
+				// as true). A value that is no boolean at all keeps the
+				// block's default.
+				$value = filter_var( $value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE );
+
+				if ( null === $value ) {
+					continue;
+				}
 			}
 
 			$block_attrs[ $spec['attr'] ] = $value;

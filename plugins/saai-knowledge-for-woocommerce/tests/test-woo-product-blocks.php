@@ -496,6 +496,24 @@ class Test_Woo_Product_Blocks extends WP_UnitTestCase {
 	}
 
 	/**
+	 * `show_title` takes the usual hand-typed spellings of a boolean; a
+	 * value that is none keeps the block's default (heading shown).
+	 */
+	public function test_shortcode_show_title_accepts_common_boolean_spellings() {
+		( new Shortcodes() )->register_shortcodes();
+
+		$product = $this->create_linked_product();
+
+		foreach ( array( 'false', '0', 'no', 'off', 'NO' ) as $off ) {
+			$this->assertStringNotContainsString( '<h2', do_shortcode( '[saai_product_docs product_id="' . $product . '" show_title="' . $off . '"]' ), $off );
+		}
+
+		foreach ( array( 'true', '1', 'yes', 'on', 'maybe' ) as $on ) {
+			$this->assertStringContainsString( 'Related documentation</h2>', do_shortcode( '[saai_product_docs product_id="' . $product . '" show_title="' . $on . '"]' ), $on );
+		}
+	}
+
+	/**
 	 * A negative or non-numeric `product_id` counts as no ID at all (the
 	 * block then resolves its product from the context, as without the
 	 * attribute) — never as a different product, which absint() would make
