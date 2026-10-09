@@ -22,6 +22,7 @@
 | 7eb45cc | docs: record review-loop round 1 for issue #23 |
 | 91ec8d6 | test: pin the product picker's chosen-name lookup for editors |
 | 9bce3af | docs: record review-loop round 2 for issue #23 |
+| af075ec | test: log the Editor in through a request context in the product blocks E2E |
 
 - 設計ドキュメントからの逸脱: なし（DESIGN.md §6.2 に「手動配置ブロック」節、§6.1 に `context: 'view'` の明示を追記。計画承認時の判断 — 手書き管理画面 JS は lint 対象外のまま〔backlog R1-B2〕、見出し文言は固定、配布 ZIP の CI 検証は #24 — を反映済み）
 
@@ -49,7 +50,8 @@
 
 ## 品質ゲート
 
-- CI: 9bce3af で PHP Quality（<https://github.com/shinobiashi/saai-knowledge/actions/runs/37955254613>）・JS Quality（<https://github.com/shinobiashi/saai-knowledge/actions/runs/37955254713>）とも green（12 チェック）。以降は docs のみのコミット
+- CI: 最終のコード変更 af075ec で PHP Quality（<https://github.com/shinobiashi/saai-knowledge/actions/runs/37957756704>）・JS Quality（<https://github.com/shinobiashi/saai-knowledge/actions/runs/37957756362>）とも green（12 チェック。E2E 22 件はリトライなし）
+- G1 後の docs のみのコミット 2 回で、Editor ロールの E2E が CI で 3 回の試行すべてタイムアウトした（9bce3af・aea3a8a では green）。トレースでは「Log In」のクリック後に `wp-login.php` への POST が無く、ページ読み込み直後のクリックがフォーム送信にならないことがあった。ログインを `RequestUtils`（グローバルセットアップと同じ方式）に変え、テストのタイムアウトを 120 秒にして解消（af075ec。ローカルで 4 回連続 green）。テストだけの修正で、両 bot は収束済みのため再依頼はしていない
 - 品質チェック: PHPCS / PHPStan / ESLint / Stylelint green、PHPUnit 576 件 green（ビルドあり・ビルド無しの CI 状態の両方）、E2E 22 件 green（wp-env tests）
 - 実機（wp-env dev、WP 7.1.3 / WC 11.2.0）: TT5・Storefront、REST block-renderer、Editor ロールでの REST 403/200 を確認
 

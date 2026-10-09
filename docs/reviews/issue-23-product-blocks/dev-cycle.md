@@ -22,3 +22,4 @@
 | 2026-10-10 00:54 | 4 | 初回 push（`9bce3af`、T=2026-10-09T15:54:47Z）+ PR #70 作成 |
 | 2026-10-10 01:04 | 6-7 | G1: CI 12 チェック green 後に両 bot へ依頼。Copilot「Approval recommended / 0 open findings」、Codex「Didn't find any major issues」→ 両 bot 収束、修正なし |
 | 2026-10-10 | 8 | 最終報告を作成し完了 |
+| 2026-10-10 01:15 | 5 | docs のみの push（`f621d01`・`0498300`）の CI で Editor ロールの E2E が全試行タイムアウト。トレースでログイン POST が送信されていないことを確認し、`RequestUtils` でのログインに変更（`af075ec`）。CI 12 チェック green（E2E 22 件、リトライなし）。bot には再依頼しない（収束済み・テストのみの修正） |
