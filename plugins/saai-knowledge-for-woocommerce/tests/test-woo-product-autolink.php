@@ -364,9 +364,11 @@ class Test_Woo_Product_Autolink extends WP_UnitTestCase {
 	}
 
 	/**
-	 * End to end through the free plugin's own `the_content` pass: on a
-	 * product page only the linked term is linked, a product with no links
-	 * gets nothing, and the toggle switches it all off.
+	 * End to end through the `the_content` filter chain — where the add-on's
+	 * own filter_long_description() does the work, the free engine's pass
+	 * having been told to leave `product` alone: on a product page only the
+	 * linked term is linked, a product with no links gets nothing, and the
+	 * toggle switches it all off.
 	 */
 	public function test_the_content_links_only_the_linked_terms_on_a_product_page() {
 		$alpha   = $this->create_term( 'Alpha' );
