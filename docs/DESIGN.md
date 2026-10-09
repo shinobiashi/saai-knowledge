@@ -220,7 +220,7 @@ CPT 登録変更時のみ `flush_rewrite_rules()`（有効化時 + スラッグ�
 | 機能 | クラシックテーマ | ブロックテーマ（blockified） |
 | --- | --- | --- |
 | FAQセクション | `woocommerce_product_tabs` で「FAQ」タブ（priority 25: legacy タブでは Additional information と Reviews の間。アコーディオン化済みテンプレートでは互換レイヤーが変換したタブをネイティブ項目の後ろへ追記するため、FAQ は Reviews の後になる）。本文は無料版の公開ブロック `saai-knowledge/faq-list` を `render_block()` に渡し、`saai_faq_query_args` で紐づけ FAQ の `post__in`（`Link_Resolver` の順序）に絞る | 同じフック。未カスタマイズなら legacy タブとして、アコーディオン化済みなら互換レイヤーが accordion item に変換して描画 |
-| 関連KBセクション | `woocommerce_after_single_product_summary`（priority 12: タブ 10 とアップセル 15 の間）に「Related documentation」見出し + リンク一覧（`<section class="saai-woo-related-kb">`。CSS は持たずテーマに任せる） | 同左フック（`SingleProductTemplateCompatibility` が `product-details` の直後へマップ）+ 専用ブロック（Issue #23） |
+| 関連KBセクション | `woocommerce_after_single_product_summary`（priority 12: タブ 10 とアップセル 15 の間）に「Related documentation」見出し + リンク一覧（`<section class="saai-woo-related-kb">`。CSS は持たずテーマに任せる） | 同左フック（`SingleProductTemplateCompatibility` が `product-details` の直後へマップ）。任意の位置に置くなら手動配置ブロック `product-docs`（下記） |
 | 用語ツールチップ | 有料版が自前の `the_content` フック（priority 50）と `woocommerce_short_description`（priority 20）から `$plugin->autolinker()->process()` を呼び、`saai_autolink_dictionary` で紐づけ用語だけに絞る。`$context` に紐づけ用語 ID の指紋を入れてキャッシュを正しくミスさせる（`saai_autolink_post_types` に `product` は加えない。理由は DESIGN-AUTOLINK.md §6） | 同左。短い説明は `core/post-excerpt` / `woocommerce/product-summary` の `render_block_{name}` で描画後 HTML に掛ける |
 
 実装上の注意:
@@ -232,8 +232,25 @@ CPT 登録変更時のみ `flush_rewrite_rules()`（有効化時 + スラッグ�
 - ※ Product Details の hooked block は `content` が `init` 時に固定される静的マークアップなので、将来併用する場合は商品ごとに内容が変わるものを dynamic block で指定する。また空判定（`hide_empty_accordion_items()`）のため panel が1回余分にレンダーされるので、その dynamic block は副作用なしで複数回描画できる必要がある。
 - ※ `@woocommerce/product-editor`（管理画面のブロック製品エディター）は WC 11.0 で削除済みのため**一切依存しない**（管理UIは従来のメタボックス/エディターサイドバーで実装）。
 
-自動挿入は**設定でそれぞれ on/off 可能**（無料版の設定画面に `saai_settings_sections` で「WooCommerce」セクションを追加: `wc_product_faq_tab` / `wc_product_kb_links` / `wc_product_tooltips`、既定はすべて on。値は無料版の `saai_knowledge_settings` オプションに同居し、有料版は読み取り専用で扱う — DESIGN-HOOKS-API.md §6）。加えて手動配置用ブロックを提供:
-`saai-knowledge/product-faq`, `saai-knowledge/product-docs`, `saai-knowledge/product-glossary`（コンテキストの商品IDを自動解決、属性で商品指定も可）+ 同等ショートコード（Issue #23）。
+自動挿入は**設定でそれぞれ on/off 可能**（無料版の設定画面に `saai_settings_sections` で「WooCommerce」セクションを追加: `wc_product_faq_tab` / `wc_product_kb_links` / `wc_product_tooltips`、既定はすべて on。値は無料版の `saai_knowledge_settings` オプションに同居し、有料版は読み取り専用で扱う — DESIGN-HOOKS-API.md §6）。加えて手動配置用ブロック + 同等ショートコードを提供する（次節）。
+
+#### 手動配置ブロック（M5-4 / Issue #23）
+
+| ブロック | ショートコード | 出力 |
+| --- | --- | --- |
+| `saai-knowledge/product-faq` | `[saai_product_faq]` | 紐づけ FAQ を無料版の公開ブロック `faq-list` で描画（アコーディオン・FAQPage JSON-LD を再実装しない。FAQ タブと同じ `render_block()` + `saai_faq_query_args` 経路） |
+| `saai-knowledge/product-docs` | `[saai_product_docs]` | 紐づけ KB 記事のリンク一覧（`<ul class="saai-woo-product-docs__list">`） |
+| `saai-knowledge/product-glossary` | `[saai_product_glossary]` | 紐づけ用語のリンク + 定義の `<dl class="saai-woo-product-glossary__list">` |
+
+- **属性**: `productId`（number、既定 0 = 文脈から解決。ショートコードは `product_id`）、`showTitle`（boolean、既定 true。ショートコードは `show_title` で `true/false`・`yes/no`・`on/off`・`1/0` を受け付け、それ以外は既定値）。見出しは h2 固定で文言は翻訳可能な既定値（FAQ / Related documentation / Glossary）。v1 では文言の編集属性は持たない。ブロックカテゴリーは `woocommerce`。
+- **商品の解決順**（`Product_Context::for_block()`）: `productId` 属性 → ブロック文脈の `postId`（単一商品テンプレート、Product Collection / Query Loop の各商品、エディターの商品プレビュー）→ 表示中の単一商品ページ（`Product_Context::current_product_id()`）。いずれも `product` 投稿タイプでなければ何も出さない（属性が商品以外を指すときは文脈へフォールバックしない）。アーカイブ・検索・投稿ページのルートに置いたブロックは、WordPress が先頭の結果をグローバル `$post`（＝既定の `postId` 文脈）へプライムする罠があるため、`queryId` 文脈が無い限り `postId` を使わない（無料版のブロックと同じ既知の制約: `queryId` は「query ブロックの子孫」しか証明しない）。
+- **紐づけ 0 件なら見出しごと何も出さない**。単一商品テンプレートは全商品で共有されるため、空の見出しを残さない。エディターでは ServerSideRender の `EmptyResponsePlaceholder` で「どの商品の何を表示するか」を説明する（サイトエディターのテンプレート編集は `post_id` を渡さないので常にこちら）。
+- **自動挿入の設定トグルとは独立**（手動配置は明示的な意思）。同じ商品ページで自動挿入と併用すると二重表示になるため、ブロックの設定パネルに設定画面での無効化を案内する。描画内容は `Product_Sections` に集約し、自動挿入（`Product_Page`）と同じものを出す。
+- **FAQPage JSON-LD**: faq-list の `category` に商品ごとのマーカー `saai-woo-product-faq-{商品ID}` を渡し、FAQ タブ（`saai-woo-product-tab`）・他商品の product-faq と署名を分ける。同じページでは先に描画された 1 つだけが FAQPage を出す（比較ページで複数商品の product-faq を並べても 1 つ）。同じ商品の product-faq を同じページに 2 回置いた場合は同一署名なので両方が出す（無料版の faq-list を同じ属性で 2 回置いたときと同じ扱い）。
+- **用語の定義**はプレーンテキストで、無料版ツールチップと同じ規則（手動抜粋、無ければ本文先頭 55 語）に `strip_shortcodes()` を加えたもの。`the_content` は通さない（定義内のブロック・ショートコードを商品ページで実行しない）。ツールチップで既に公開している文と同じなので新たな露出は無い。ページ本文に置いた場合、定義文中の用語は無料版の自動リンクの対象になる（通常の本文と同じ挙動）。
+- 出力は公開・パスワードなしのコンテンツのみ（`Link_Resolver` の既定）。商品自体は ID しか寄与しないので、商品の公開状態は問わない。
+- フロント用 JS/CSS は持たない（関連 KB セクションと同じくテーマに任せる。FAQ のアコーディオンは core/accordion の資材がそのまま読み込まれる）。Product Details の hooked block として将来使う場合の「副作用なしで複数回描画できる」要件は満たす（FAQPage は同一署名の再クレームで 1 つに収まる）。
+- ビルド: 有料版も `@wordpress/scripts` でビルドする（`plugins/saai-knowledge-for-woocommerce/package.json`。ルートの workspaces が拾う）。lint 対象は `src/` と `assets/css/`。既存の手書き管理画面 JS（`assets/js/`）は lint 対象外のまま（review-backlog R1-B2）。
 
 ### 6.3 Marketplace 要件
 
