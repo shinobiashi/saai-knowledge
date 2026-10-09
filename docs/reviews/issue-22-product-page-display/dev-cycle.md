@@ -2,8 +2,8 @@
 
 - タスク: Issue #22 / M5-3 — 商品ページ表示（FAQ タブ・関連 KB・用語ツールチップ）+ 設定 on/off + E2E
 - 開始: 2026-10-09
-- PR: 未作成
-- 現在のステップ: 4（push・PR 作成）
+- PR: #67 https://github.com/shinobiashi/saai-knowledge/pull/67
+- 現在のステップ: 5（CI 待ち → G1 依頼）
 - Copilot: 依頼 0 回 / 未収束
 - Codex: 依頼 0 回 / 未収束（push で自動レビュー。`--request-codex` 不要）
 
@@ -19,3 +19,4 @@
 | 2026-10-09 | 2 | PHPUnit（有料版スイート 105 件）・PHPCS・PHPStan green。E2E（Storefront + TT5 ×2 テンプレート）を追加し wp-env tests で実行 |
 | 2026-10-09 | 3 | review-loop R1: Medium 4 / Low 9（+対象外 2）→ Medium 4 + Low 3 を修正（`77ca9ec`）、Low 3 + 対象外 2 を backlog へ。独立サブエージェント併用、WC ソースで裏取り |
 | 2026-10-09 | 3 | review-loop R2: **APPROVE**。R1 の全指摘解消をミューテーション実測で確認（R1-1 の当初テストはトートロジーだったため書き換え）、新規はテスト・文言のみ 4 件を修正（`98f603c`）。PHPUnit 全体 543 件 / E2E 17 件 green |
+| 2026-10-09 17:35 | 4 | 初回 push（`f764a4f`）+ PR #67 作成 |
