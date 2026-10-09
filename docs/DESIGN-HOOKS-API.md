@@ -37,7 +37,7 @@ add_action( 'saai_loaded', function ( $plugin ) {
 
 | フック | シグネチャ | 用途 |
 | --- | --- | --- |
-| `saai_autolink_post_types` | `( string[] $post_types ): string[]` | 自動リンク対象 post type の追加/削除。有料版が `product` を追加 |
+| `saai_autolink_post_types` | `( string[] $post_types ): string[]` | 自動リンク対象 post type の追加/削除。有料版は `product` を**追加しない**（自前の `the_content` フックから `process()` を呼ぶ。理由は DESIGN-AUTOLINK.md §6）— 逆にツールチップが ON の間は `product` を取り除く |
 | `saai_autolink_dictionary` | `( array $entries, array $context ): array` | 辞書の差し替え/絞り込み。entry 形状は `DESIGN-AUTOLINK.md` §2.1。`$context = [ 'post_id' => int, 'post_type' => string ]` |
 | `saai_autolink_enabled` | `( bool $enabled, WP_Post $post ): bool` | 投稿単位の最終有効判定 |
 | `saai_autolink_match_rejected` | `( bool $rejected, array $match ): bool` | スクリプト境界判定の上書き。`$match = [ 'pattern', 'text', 'offset', 'before_char', 'after_char' ]` |
@@ -126,7 +126,7 @@ add_action( 'saai_loaded', function ( $plugin ) {
 | 有料版の機能 | 使用する公開API |
 | --- | --- |
 | 起動・依存チェック | `saai_loaded`, `SAAI_KNOWLEDGE_VERSION` |
-| 商品説明への用語ツールチップ | `saai_autolink_post_types`, `saai_autolink_dictionary`, `$plugin->autolinker()` |
+| 商品説明への用語ツールチップ | `$plugin->autolinker()->process()`（長い説明は自前の `the_content` フック、短い説明は `woocommerce_short_description` / `render_block_*` から。`$context` に紐づけ用語 ID の指紋 `saai_woo_terms` を含める）, `saai_autolink_dictionary`, `saai_autolink_post_types`（`product` を取り除く側） |
 | 商品タブに FAQ | 公開ブロック `saai-knowledge/faq-list` を `render_block()` で描画し、`saai_faq_query_args` で紐づけ FAQ の `post__in` に絞る（紐づけ解決は有料版側のクエリ）。挿入先は WooCommerce の `woocommerce_product_tabs` |
 | 関連 KB セクション | 無料版 API 不要（有料版側のマークアップ。`get_permalink()` / `get_the_title()` のみ）。挿入先は WooCommerce の `woocommerce_after_single_product_summary` |
 | 設定タブ追加（自動挿入 on/off） | `saai_settings_sections`, `saai_default_settings`。読み取りは `saai_knowledge_settings` オプション（§6） |

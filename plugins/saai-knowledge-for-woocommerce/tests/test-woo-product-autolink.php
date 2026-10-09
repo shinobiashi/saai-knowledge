@@ -135,7 +135,8 @@ class Test_Woo_Product_Autolink extends WP_UnitTestCase {
 	 * @param Product_Autolink $service The registered service.
 	 */
 	private function unregister( Product_Autolink $service ): void {
-		remove_filter( 'saai_autolink_post_types', array( $service, 'filter_post_types' ), 20 );
+		remove_filter( 'the_content', array( $service, 'filter_long_description' ), 50 );
+		remove_filter( 'saai_autolink_post_types', array( $service, 'filter_post_types' ), PHP_INT_MAX );
 		remove_filter( 'saai_autolink_dictionary', array( $service, 'filter_dictionary' ), 10 );
 		remove_filter( 'woocommerce_short_description', array( $service, 'filter_short_description' ), 20 );
 		remove_filter( 'render_block_core/post-excerpt', array( $service, 'filter_summary_block' ), 10 );
@@ -230,7 +231,8 @@ class Test_Woo_Product_Autolink extends WP_UnitTestCase {
 	 * The register() method attaches every hook at its documented priority.
 	 */
 	public function test_register_attaches_the_documented_hooks() {
-		$this->assertSame( 20, has_filter( 'saai_autolink_post_types', array( $this->service, 'filter_post_types' ) ), 'After the free plugin\'s own priority-10 settings callback.' );
+		$this->assertSame( 50, has_filter( 'the_content', array( $this->service, 'filter_long_description' ) ), 'Same priority as the free engine\'s own pass.' );
+		$this->assertSame( PHP_INT_MAX, has_filter( 'saai_autolink_post_types', array( $this->service, 'filter_post_types' ) ), 'The last word on whether the free engine sees product.' );
 		$this->assertSame( 10, has_filter( 'saai_autolink_dictionary', array( $this->service, 'filter_dictionary' ) ) );
 		$this->assertSame( 20, has_filter( 'woocommerce_short_description', array( $this->service, 'filter_short_description' ) ), 'After WooCommerce\'s own formatting callbacks at 9 and 10.' );
 		$this->assertSame( 10, has_filter( 'render_block_core/post-excerpt', array( $this->service, 'filter_summary_block' ) ) );
@@ -238,20 +240,34 @@ class Test_Woo_Product_Autolink extends WP_UnitTestCase {
 	}
 
 	/**
-	 * The `product` type becomes an auto-link post type while the toggle is on —
-	 * once, even when it's already there — and the list is left alone
-	 * otherwise.
+	 * While tooltips are on, product content is this add-on's business:
+	 * `product` is kept out of the free engine's own post types even when
+	 * someone else added it; with the toggle off the list is left alone.
 	 */
-	public function test_product_joins_the_autolink_post_types_only_while_tooltips_are_on() {
-		$types = apply_filters( 'saai_autolink_post_types', array( 'post', 'page' ) );
-		$this->assertContains( Link_Resolver::PRODUCT_POST_TYPE, $types );
+	public function test_product_is_kept_out_of_the_free_engines_post_types_while_tooltips_are_on() {
+		$this->assertSame( array( 'post', 'page' ), $this->service->filter_post_types( array( 'post', Link_Resolver::PRODUCT_POST_TYPE, 'page' ) ) );
 
-		$with_product = apply_filters( 'saai_autolink_post_types', array( 'post', Link_Resolver::PRODUCT_POST_TYPE ) );
-		$this->assertSame( 1, count( array_keys( $with_product, Link_Resolver::PRODUCT_POST_TYPE, true ) ) );
+		// Through the real filter chain, with someone else adding `product`
+		// after the free plugin's own priority-10 settings callback (which
+		// replaces the incoming list with its saved value): the add-on still
+		// has the last word.
+		$add = static function ( $types ) {
+			$types[] = Link_Resolver::PRODUCT_POST_TYPE;
+			return $types;
+		};
+		add_filter( 'saai_autolink_post_types', $add, 20 );
+
+		try {
+			$types = apply_filters( 'saai_autolink_post_types', array( 'post' ) );
+		} finally {
+			remove_filter( 'saai_autolink_post_types', $add, 20 );
+		}
+
+		$this->assertNotContains( Link_Resolver::PRODUCT_POST_TYPE, $types );
+		$this->assertContains( 'post', $types );
 
 		update_option( Settings::OPTION_KEY, array( Settings::TOOLTIPS => false ) );
-		$this->assertNotContains( Link_Resolver::PRODUCT_POST_TYPE, apply_filters( 'saai_autolink_post_types', array( 'post', 'page' ) ) );
-		$this->assertContains( Link_Resolver::PRODUCT_POST_TYPE, $this->service->filter_post_types( array( Link_Resolver::PRODUCT_POST_TYPE ) ), 'Someone else\'s product entry is not removed.' );
+		$this->assertContains( Link_Resolver::PRODUCT_POST_TYPE, $this->service->filter_post_types( array( 'post', Link_Resolver::PRODUCT_POST_TYPE ) ), 'Off: someone else\'s product entry is not removed.' );
 
 		$this->assertSame( 'broken', $this->service->filter_post_types( 'broken' ) );
 	}
@@ -309,6 +325,45 @@ class Test_Woo_Product_Autolink extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A fingerprint process() put into the context is what the dictionary
+	 * is narrowed to — resolved once for the cache key, not again here.
+	 */
+	public function test_dictionary_trusts_the_term_fingerprint_in_the_context() {
+		$alpha   = $this->create_term( 'Alpha' );
+		$bravo   = $this->create_term( 'Bravo' );
+		$product = $this->create_product( 'Linked' );
+		$this->link( $alpha, $product );
+
+		$entries = array( $this->entry( $alpha, 'Alpha' ), $this->entry( $bravo, 'Bravo' ) );
+
+		// The meta says Alpha only; the context says Bravo only — the context wins.
+		$narrowed = apply_filters(
+			'saai_autolink_dictionary',
+			$entries,
+			array(
+				'post_id'                       => $product,
+				'post_type'                     => Link_Resolver::PRODUCT_POST_TYPE,
+				Product_Autolink::CONTEXT_TERMS => array( (string) $bravo, 'junk', -1 ),
+			)
+		);
+		$this->assertSame( array( $entries[1] ), $narrowed );
+
+		$this->assertSame(
+			array(),
+			apply_filters(
+				'saai_autolink_dictionary',
+				$entries,
+				array(
+					'post_id'                       => $product,
+					'post_type'                     => Link_Resolver::PRODUCT_POST_TYPE,
+					Product_Autolink::CONTEXT_TERMS => array(),
+				)
+			),
+			'An empty fingerprint is an empty dictionary, not a fallback to the meta.'
+		);
+	}
+
+	/**
 	 * End to end through the free plugin's own `the_content` pass: on a
 	 * product page only the linked term is linked, a product with no links
 	 * gets nothing, and the toggle switches it all off.
@@ -329,6 +384,78 @@ class Test_Woo_Product_Autolink extends WP_UnitTestCase {
 
 		update_option( Settings::OPTION_KEY, array( Settings::TOOLTIPS => false ) );
 		$this->assertStringNotContainsString( 'saai-term', $this->render_content_on( $product, '<p>Alpha meets Bravo.</p>' ) );
+	}
+
+	/**
+	 * The free engine caches a render under a key that folds in the
+	 * $context but not what the dictionary filter returned — so the linked
+	 * term set has to be IN the context, or a link added/removed through
+	 * the product meta box (meta rows only, no post save, no dictionary
+	 * generation bump) would keep serving the old HTML for up to an hour.
+	 */
+	public function test_changing_the_links_changes_the_engine_context_and_defeats_the_stale_cache() {
+		$alpha   = $this->create_term( 'Alpha' );
+		$bravo   = $this->create_term( 'Bravo' );
+		$product = $this->create_product( 'Linked' );
+		$this->link( $alpha, $product );
+
+		$content = '<p>Alpha meets Bravo.</p>';
+
+		// One request: go_to() flushes the object cache, so the renders after
+		// the first must NOT go through it again — the point is to hit the
+		// engine's cache with the same post, html, and generation, exactly as
+		// a persistent object cache would across requests.
+		$this->go_to( get_permalink( $product ) );
+		$this->assertTrue( is_singular( Link_Resolver::PRODUCT_POST_TYPE ) );
+		the_post();
+
+		$first = apply_filters( 'the_content', $content );
+		$this->assertStringContainsString( 'data-saai-term-id="' . $alpha . '"', $first );
+		$this->assertStringNotContainsString( 'data-saai-term-id="' . $bravo . '"', $first, 'Precondition: only Alpha is linked at first.' );
+
+		// Exactly what the product-side meta box does: one meta row, nothing else.
+		$this->link( $bravo, $product );
+
+		$second = apply_filters( 'the_content', $content );
+		$this->assertStringContainsString( 'data-saai-term-id="' . $bravo . '"', $second, 'The new link must show up although the product and the dictionary generation are unchanged.' );
+
+		delete_post_meta( $alpha, Post_Meta::LINKED_PRODUCTS, $product );
+
+		$third = apply_filters( 'the_content', $content );
+		$this->assertStringNotContainsString( 'data-saai-term-id="' . $alpha . '"', $third, 'A removed link must disappear as well.' );
+		$this->assertStringContainsString( 'data-saai-term-id="' . $bravo . '"', $third );
+	}
+
+	/**
+	 * The long-description route carries the free engine's own request
+	 * guards: nothing happens in admin or in a feed.
+	 */
+	public function test_long_description_is_left_alone_in_admin_and_feeds() {
+		$alpha   = $this->create_term( 'Alpha' );
+		$product = $this->create_product( 'Linked' );
+		$this->link( $alpha, $product );
+
+		$content = '<p>Alpha here.</p>';
+
+		$this->assertStringContainsString( 'saai-term', $this->render_content_on( $product, $content ), 'Precondition: linked on the front end.' );
+
+		$this->go_to( add_query_arg( 'feed', 'rss2', get_permalink( $product ) ) );
+		$this->assertTrue( is_feed() );
+		$GLOBALS['post'] = get_post( $product ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- the feed loop's current item.
+		$this->assertStringNotContainsString( 'saai-term', $this->service->filter_long_description( $content ) );
+
+		$this->go_to( get_permalink( $product ) );
+		set_current_screen( 'edit-post' );
+
+		try {
+			$this->assertTrue( is_admin() );
+			$this->assertStringNotContainsString( 'saai-term', $this->service->filter_long_description( $content ) );
+		} finally {
+			set_current_screen( 'front' );
+		}
+
+		$this->assertSame( '', $this->service->filter_long_description( '' ) );
+		$this->assertNull( $this->service->filter_long_description( null ) );
 	}
 
 	/**

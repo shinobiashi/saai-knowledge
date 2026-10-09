@@ -14,32 +14,51 @@ defined( 'ABSPATH' ) || exit;
  * descriptions, restricted to the glossary terms linked to the product
  * (docs/DESIGN-AUTOLINK.md section 6, docs/DESIGN-HOOKS-API.md section 7).
  *
- * Three public touch points of the free plugin do all the work:
+ * Every product description — long and short, on either theme kind — is
+ * handed to `$base->autolinker()->process()` by this class itself, never by
+ * the free plugin's own `the_content` pass. The reason is the engine's
+ * render cache: its key folds in the post, the dictionary generation, and
+ * the `$context` array, but not what the `saai_autolink_dictionary` filter
+ * returned — and here that filter narrows the dictionary to the product's
+ * linked terms, a set that changes without touching the product or any
+ * glossary post (the product-side meta box writes the link rows with
+ * add_post_meta()/delete_post_meta() alone). Calling process() ourselves
+ * lets us put a fingerprint of that set into `$context`, so a changed link
+ * set is a cache miss instead of up to an hour of stale HTML on sites with
+ * a persistent object cache (Codex review, PR #67).
  *
- * - `saai_autolink_post_types` adds `product`, which makes the engine's own
- *   `the_content` pass cover the long description on both theme kinds
- *   (WooCommerce's Description tab calls the_content()).
+ * The routes:
+ *
+ * - `the_content` (priority 50, like the engine's own pass) for the long
+ *   description, wherever WordPress renders a product's content (the
+ *   Description tab on both theme kinds, a `core/post-content` block in a
+ *   Product Collection, search results), each time narrowed to that
+ *   product's own linked terms. Skipped in admin, feeds, and REST, as the
+ *   engine's pass is. `product` is kept OUT of `saai_autolink_post_types`
+ *   while the toggle is on, so the engine's pass never processes product
+ *   content with a fingerprint-less key behind this class's back.
+ * - `woocommerce_short_description` (classic templates) and the
+ *   `render_block_{name}` filters of `core/post-excerpt` /
+ *   `woocommerce/product-summary` (block themes) for the short description.
+ *   These check Product_Context::current_product_id() and so only act on a
+ *   single product page, for the displayed product — not in REST (the
+ *   editor's previews), not in admin, and not for the other products a
+ *   Product Collection block loops through further down the same page.
  * - `saai_autolink_dictionary` narrows the dictionary to the linked terms
- *   whenever the context is a product. A product with no linked terms gets
- *   an empty dictionary, so the engine returns the HTML untouched and the
- *   free plugin's Tooltip service never enqueues its assets for that page.
- * - `$base->autolinker()->process()` is called directly for the short
- *   description, which the_content never sees. Its route differs by theme:
- *   classic templates apply `woocommerce_short_description`, while the
- *   bundled block template renders it with `core/post-excerpt` (WooCommerce
- *   also ships its own `woocommerce/product-summary` block), so those two
- *   are caught through their `render_block_{name}` filters.
- *
- * The short-description entry points check Product_Context::current_product_id()
- * and so only act on a single product page, for the displayed product — not
- * in REST (the editor's previews), not in admin, and not for the other
- * products a Product Collection block loops through further down the same
- * page. The long-description route has no gate of its own: it is the free
- * plugin's `the_content` pass, which already skips admin/REST/feeds and runs
- * wherever WordPress renders a product's content, each time narrowed to that
- * product's own linked terms.
+ *   whenever the context is a product. A product with no linked terms
+ *   never reaches the engine at all, so the free plugin's Tooltip service
+ *   never enqueues its assets for that page.
  */
 final class Product_Autolink {
+
+	/**
+	 * The `$context` key carrying the fingerprint of the product's linked
+	 * glossary term IDs (sorted ints) into the engine, and back out to
+	 * filter_dictionary(); see the class docblock.
+	 *
+	 * @var string
+	 */
+	public const CONTEXT_TERMS = 'saai_woo_terms';
 
 	/**
 	 * The free plugin instance this add-on extends.
@@ -79,13 +98,15 @@ final class Product_Autolink {
 	/**
 	 * Hooks into the free plugin's engine and WooCommerce's description output.
 	 *
-	 * Priority 20 on `saai_autolink_post_types`: the free plugin's own
-	 * Settings service replaces the list with its saved "auto-link post
-	 * types" value at the default priority 10, so `product` has to be
-	 * appended after that or it would be overwritten.
+	 * `saai_autolink_post_types` at PHP_INT_MAX: the free plugin's own
+	 * Settings service replaces the list with its saved value at the
+	 * default priority 10, and anything else adding `product` has to be
+	 * seen too — this class wants the last word on it (see
+	 * filter_post_types()).
 	 */
 	public function register(): void {
-		add_filter( 'saai_autolink_post_types', array( $this, 'filter_post_types' ), 20 );
+		add_filter( 'the_content', array( $this, 'filter_long_description' ), 50 );
+		add_filter( 'saai_autolink_post_types', array( $this, 'filter_post_types' ), PHP_INT_MAX );
 		add_filter( 'saai_autolink_dictionary', array( $this, 'filter_dictionary' ), 10, 2 );
 		add_filter( 'woocommerce_short_description', array( $this, 'filter_short_description' ), 20 );
 		add_filter( 'render_block_core/post-excerpt', array( $this, 'filter_summary_block' ), 10, 3 );
@@ -93,12 +114,45 @@ final class Product_Autolink {
 	}
 
 	/**
-	 * Adds `product` to the auto-link post types while tooltips are on.
+	 * Auto-links a product's long description.
 	 *
-	 * The `saai_autolink_post_types` callback. Purely additive: when the
-	 * toggle is off this leaves the list exactly as it arrived, so a
-	 * `product` entry some other code put there is neither duplicated nor
-	 * removed.
+	 * The `the_content` callback, at the same priority 50 as the engine's
+	 * own pass and with the same request guards (admin, feeds, REST) and
+	 * post-type check — only this one calls process() through this class,
+	 * so the linked-term fingerprint reaches the engine's cache key.
+	 *
+	 * @param mixed $content Rendered post content.
+	 * @return mixed
+	 */
+	public function filter_long_description( $content ) {
+		if ( ! is_string( $content ) || '' === $content ) {
+			return $content;
+		}
+
+		if ( is_admin() || is_feed() || ( defined( 'REST_REQUEST' ) && REST_REQUEST ) ) {
+			return $content;
+		}
+
+		$post = get_post();
+
+		if ( ! $post instanceof \WP_Post || Link_Resolver::PRODUCT_POST_TYPE !== $post->post_type ) {
+			return $content;
+		}
+
+		return $this->process( $content, (int) $post->ID );
+	}
+
+	/**
+	 * Keeps `product` out of the engine's own `the_content` pass while
+	 * tooltips are on.
+	 *
+	 * The `saai_autolink_post_types` callback. This class processes product
+	 * content itself (see the class docblock); if some other code added
+	 * `product` here, the engine's pass would also run on it — doing the
+	 * work twice, and caching the result under a key without the
+	 * linked-term fingerprint. With the toggle off the list is left exactly
+	 * as it arrived: product content is then nobody's business here, and
+	 * whoever added `product` gets the engine's normal behaviour.
 	 *
 	 * @param mixed $post_types Post type slugs.
 	 * @return mixed
@@ -108,11 +162,14 @@ final class Product_Autolink {
 			return $post_types;
 		}
 
-		if ( ! in_array( Link_Resolver::PRODUCT_POST_TYPE, $post_types, true ) ) {
-			$post_types[] = Link_Resolver::PRODUCT_POST_TYPE;
-		}
-
-		return $post_types;
+		return array_values(
+			array_filter(
+				$post_types,
+				static function ( $post_type ): bool {
+					return Link_Resolver::PRODUCT_POST_TYPE !== $post_type;
+				}
+			)
+		);
 	}
 
 	/**
@@ -122,11 +179,16 @@ final class Product_Autolink {
 	 * The `saai_autolink_dictionary` callback. Only a product context is
 	 * touched; every other post type keeps the full dictionary. With the
 	 * toggle off the dictionary is returned as-is as well — this add-on
-	 * then isn't the one that made `product` eligible, and whoever did
-	 * should get the engine's normal behaviour.
+	 * then isn't the one rendering product content, and whoever is should
+	 * get the engine's normal behaviour.
+	 *
+	 * The linked term IDs come from the context when process() put them
+	 * there (CONTEXT_TERMS — resolved moments earlier for the cache key, no
+	 * second query), and are resolved here otherwise, for a third party
+	 * calling the engine with a product context of its own.
 	 *
 	 * @param mixed $entries Dictionary entries (docs/DESIGN-AUTOLINK.md section 2.1).
-	 * @param mixed $context [ 'post_id' => int, 'post_type' => string ].
+	 * @param mixed $context [ 'post_id' => int, 'post_type' => string, CONTEXT_TERMS => int[] (optional) ].
 	 * @return mixed
 	 */
 	public function filter_dictionary( $entries, $context ) {
@@ -142,13 +204,12 @@ final class Product_Autolink {
 			return $entries;
 		}
 
-		$product_id = isset( $context['post_id'] ) && is_numeric( $context['post_id'] ) ? (int) $context['post_id'] : 0;
-
-		if ( $product_id <= 0 ) {
-			return array();
+		if ( isset( $context[ self::CONTEXT_TERMS ] ) && is_array( $context[ self::CONTEXT_TERMS ] ) ) {
+			$term_ids = $this->normalize_ids( $context[ self::CONTEXT_TERMS ] );
+		} else {
+			$product_id = isset( $context['post_id'] ) && is_numeric( $context['post_id'] ) ? (int) $context['post_id'] : 0;
+			$term_ids   = $product_id > 0 ? $this->linked_term_ids( $product_id ) : array();
 		}
-
-		$term_ids = $this->links->content_ids_for_product( $product_id, array( 'post_type' => 'saai_glossary' ) );
 
 		if ( array() === $term_ids ) {
 			return array();
@@ -205,30 +266,6 @@ final class Product_Autolink {
 	}
 
 	/**
-	 * Whether WooCommerce's wc_format_content() is on the current call stack.
-	 *
-	 * `doing_filter( 'woocommerce_format_content' )` cannot tell this: that
-	 * function evaluates the inner `woocommerce_short_description` filter
-	 * before the outer one starts, so the outer name isn't on the filter
-	 * stack yet when this runs. Checking the stack by function name is the
-	 * same approach the free plugin's Autolinker takes for
-	 * wp_trim_excerpt(). Only reached on single product pages (after the
-	 * Product_Context check), a handful of times per page.
-	 *
-	 * @return bool
-	 */
-	private function is_inside_wc_format_content(): bool {
-		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_debug_backtrace -- Not leftover debug code: used at runtime to detect wc_format_content() on the call stack, see this method's own docblock.
-		foreach ( debug_backtrace( DEBUG_BACKTRACE_IGNORE_ARGS ) as $frame ) {
-			if ( 'wc_format_content' === $frame['function'] && ! isset( $frame['class'] ) ) {
-				return true;
-			}
-		}
-
-		return false;
-	}
-
-	/**
 	 * Auto-links the short description on block-theme product pages.
 	 *
 	 * The `render_block_core/post-excerpt` and
@@ -262,7 +299,37 @@ final class Product_Autolink {
 	}
 
 	/**
-	 * Runs the free plugin's auto-link engine over product HTML.
+	 * Whether WooCommerce's wc_format_content() is on the current call stack.
+	 *
+	 * `doing_filter( 'woocommerce_format_content' )` cannot tell this: that
+	 * function evaluates the inner `woocommerce_short_description` filter
+	 * before the outer one starts, so the outer name isn't on the filter
+	 * stack yet when this runs. Checking the stack by function name is the
+	 * same approach the free plugin's Autolinker takes for
+	 * wp_trim_excerpt(). Only reached on single product pages (after the
+	 * Product_Context check), a handful of times per page.
+	 *
+	 * @return bool
+	 */
+	private function is_inside_wc_format_content(): bool {
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_debug_backtrace -- Not leftover debug code: used at runtime to detect wc_format_content() on the call stack, see this method's own docblock.
+		foreach ( debug_backtrace( DEBUG_BACKTRACE_IGNORE_ARGS ) as $frame ) {
+			if ( 'wc_format_content' === $frame['function'] && ! isset( $frame['class'] ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Runs the free plugin's auto-link engine over product HTML, with the
+	 * product's linked-term fingerprint in the context.
+	 *
+	 * A product with no linked terms returns the HTML untouched without
+	 * calling the engine: there is nothing to link against, and not
+	 * calling it keeps the engine's has_rendered_links() — and with it the
+	 * tooltip assets — off for such a page.
 	 *
 	 * Type-guarded rather than typed: `$base` is the untyped instance the
 	 * `saai_loaded` action hands over (docs/DESIGN-HOOKS-API.md section 2),
@@ -287,14 +354,57 @@ final class Product_Autolink {
 			return $html;
 		}
 
+		$term_ids = $this->linked_term_ids( $product_id );
+
+		if ( array() === $term_ids ) {
+			return $html;
+		}
+
 		$result = $autolinker->process(
 			$html,
 			array(
-				'post_id'   => $product_id,
-				'post_type' => Link_Resolver::PRODUCT_POST_TYPE,
+				'post_id'           => $product_id,
+				'post_type'         => Link_Resolver::PRODUCT_POST_TYPE,
+				self::CONTEXT_TERMS => $term_ids,
 			)
 		);
 
 		return is_string( $result ) ? $result : $html;
+	}
+
+	/**
+	 * The published glossary terms linked to a product, as a stable
+	 * fingerprint: sorted ascending, so the same set always yields the same
+	 * context (and so the same engine cache key) whatever order the resolver
+	 * happened to return it in.
+	 *
+	 * @param int $product_id Product post ID.
+	 * @return int[]
+	 */
+	private function linked_term_ids( int $product_id ): array {
+		return $this->normalize_ids(
+			$this->links->content_ids_for_product( $product_id, array( 'post_type' => 'saai_glossary' ) )
+		);
+	}
+
+	/**
+	 * Positive, unique, ascending integer IDs out of whatever list came in.
+	 *
+	 * @param array<mixed> $ids Candidate IDs.
+	 * @return int[]
+	 */
+	private function normalize_ids( array $ids ): array {
+		$clean = array();
+
+		foreach ( $ids as $id ) {
+			if ( is_numeric( $id ) && (int) $id > 0 ) {
+				$clean[] = (int) $id;
+			}
+		}
+
+		$clean = array_values( array_unique( $clean ) );
+		sort( $clean );
+
+		return $clean;
 	}
 }
