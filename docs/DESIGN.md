@@ -202,27 +202,37 @@ CPT 登録変更時のみ `flush_rewrite_rules()`（有効化時 + スラッグ�
 
 ### 6.2 商品ページ表示（自動挿入 + ブロック提供の両輪）
 
-前提（2026-09-24 に WooCommerce 11.1.2 のソースと wp-env 実機で再確認し、2026-07 時点の記述を訂正）:
+前提（2026-09-24 に WooCommerce 11.1.2 のソースと wp-env 実機で再確認して 2026-07 時点の記述を訂正し、2026-10-09 の M5-3 着手時に WC 11.2.0 / WP 7.1.3 で再検証してサイトエディターの挙動をさらに訂正）:
 
 - Woo 同梱の blockified テンプレート `templates/templates/blockified/single-product.html` の `wp:woocommerce/product-details` は**自己終了形＝innerBlocks 無し**。`ProductDetails::render()` は innerBlocks が空なら `render_legacy_block()` へ落ち、`woocommerce_output_product_data_tabs()` 経由で**クラシックのタブを描画する**。つまり**未カスタマイズのブロックテーマでもアコーディオンは出ない**。
-- アコーディオンになるのは、マーチャントがサイトエディターで単一商品テンプレートを開いて保存し、`product-details` が innerBlocks へ展開された後だけ。
+- **サイトエディターで単一商品テンプレートを開いて保存しただけではアコーディオンにならない。** `ProductDetails` のエディター側（`edit.tsx`）は `hasInnerBlocks || wasBlockJustInserted` のときだけ innerBlocks テンプレート（`core/accordion` の item として `woocommerce/product-description` / `product-specifications` / `product-reviews`）を適用し、それ以外は legacy タブのプレビューを表示するだけ（実機でも開いただけでは保存ボタンが活性化しない）。アコーディオンになるのは、マーチャントが Product Details ブロックを**新しく挿入**（既存ブロックを削除して入れ直す、独自テンプレートに配置する）して保存した場合。2026-09-24 の「保存すると展開される」は誤りだった。
 - 展開後のアコーディオンのブロック名は **WP 6.9 以上では `core/accordion`**。`woocommerce/accordion-group` は WP 6.8 以下向けのフォールバックで、6.9+ ではインサーターから外れ、エディターに非推奨バナーが出る（WC 10.5〜10.6 の変更）。本プラグインは WP 6.9+ 必須なので anchor は `core/accordion` 側になる。
 - Product Details への項目追加には Woo 公式の専用フィルター **`woocommerce_product_details_hooked_blocks`**（@since WC 10.0）がある。`[ [ 'title' => ..., 'content' => ブロックマークアップ ], ... ]` を返すと、Woo 側が両 anchor 名の `last_child` へ Block Hooks を張り、item マークアップの差異も吸収する。**自前で `hooked_block_types` を書かない。**
 
+**決定（M5-3 / Issue #22、2026-10-09）: FAQ セクションは `woocommerce_product_tabs` のみで実装する**（当初の選択肢 (A)）。理由:
+
+1. 1 実装で 3 ケース全部に届く。クラシック = `single-product/tabs/tabs.php`、未カスタマイズのブロックテーマ = `render_legacy_block()` → `woocommerce_output_product_data_tabs()`、アコーディオン化済みテンプレート = `ProductDetails::inject_compatible_tabs()` がサードパーティのタブを `core/accordion-item` へ変換して差し込む（互換レイヤー）。wp-env で 3 ケースとも FAQ が**ちょうど 1 回**出ることを確認済み。
+2. hooked block はアコーディオン化済みテンプレートにしか効かず、商品ごとに内容が変わるので動的ブロック（Issue #23 の `product-faq`）が前提になる。
+3. 両方へ登録すると 1. の互換レイヤーと二重表示になる。
+
+サイトエディターで FAQ 項目を並べ替え・削除したい要望が出たら、Issue #23 のブロックを前提に `woocommerce_product_details_hooked_blocks` 併用（互換レイヤー側のタブを抑止する排他制御付き）を別 Issue で検討する。
+
 | 機能 | クラシックテーマ | ブロックテーマ（blockified） |
 | --- | --- | --- |
-| FAQセクション | `woocommerce_product_tabs` フィルターで「FAQ」タブ追加 | **主経路は同じ `woocommerce_product_tabs`**（未カスタマイズなら legacy タブとして、保存済みテンプレートなら互換レイヤー `inject_compatible_tabs()` がアコーディオン item に変換して描画）。サイトエディターでの並べ替え・削除を可能にするなら `woocommerce_product_details_hooked_blocks` を併用 |
-| 関連KBセクション | `woocommerce_after_single_product_summary` に「関連ドキュメント」リンク一覧 | 同左フック（`SingleProductTemplateCompatibility` が `product-details` の直後へマップ）+ 専用ブロック |
-| 用語ツールチップ | 商品説明・詳細説明にも自動リンク適用（`saai_autolink_dictionary` に商品紐づけ用語を注入 + Woo コンテンツフィルター対応） | 同左 |
+| FAQセクション | `woocommerce_product_tabs` で「FAQ」タブ（priority 25: Additional information と Reviews の間）。本文は無料版の公開ブロック `saai-knowledge/faq-list` を `render_block()` に渡し、`saai_faq_query_args` で紐づけ FAQ の `post__in`（`Link_Resolver` の順序）に絞る | 同じフック。未カスタマイズなら legacy タブとして、アコーディオン化済みなら互換レイヤーが accordion item に変換して描画 |
+| 関連KBセクション | `woocommerce_after_single_product_summary`（priority 12: タブ 10 とアップセル 15 の間）に「Related documentation」見出し + リンク一覧（`<section class="saai-woo-related-kb">`。CSS は持たずテーマに任せる） | 同左フック（`SingleProductTemplateCompatibility` が `product-details` の直後へマップ）+ 専用ブロック（Issue #23） |
+| 用語ツールチップ | `saai_autolink_post_types` に `product` を追加（priority 20、無料版の設定フィルターの後）、`saai_autolink_dictionary` で紐づけ用語だけに絞る。長い説明は `the_content`、短い説明は `woocommerce_short_description`（priority 20） | 同左。短い説明は `core/post-excerpt` / `woocommerce/product-summary` の `render_block_{name}` で描画後 HTML に掛ける（経路の詳細は DESIGN-AUTOLINK.md §6） |
 
-**未決（M5-3 / Issue #22 の着手時に実機検証して決める）**: 保存済みテンプレートでは互換レイヤーと hooked block の両方が生きるため、FAQ を両方へ登録すると二重表示になりうる（コード読解による推測。実機未検証）。(A) `woocommerce_product_tabs` のみで「クラシック / 未カスタマイズ blockified / 保存済み blockified」の3ケースを1実装で賄う、(B) 両方を排他制御付きで併用、のいずれかを選ぶ。
+実装上の注意:
 
-※ Product Details の hooked block は `content` が `init` 時に固定される静的マークアップなので、商品ごとに内容が変わるものは dynamic block を指定する。また空判定（`hide_empty_accordion_items()`）のため panel が1回余分にレンダーされるので、その dynamic block は副作用なしで複数回描画できる必要がある。
+- WooCommerce は表示中の商品を `$GLOBALS['product']` に保持し、`the_post` アクション（`wc_setup_product_data()`）で商品以外の投稿が来ると unset する。FAQ 回答の描画（無料版 `Faq_List` の `setup_postdata()`）がこれを踏むため、有料版はタブ本文の描画前後で `$GLOBALS['product']` をスナップショット・復元する（復元しないと同じタブ一覧の直後に描画される Reviews タブが `$product->get_review_count()` で fatal になる。実機で発生）。
+- 「紐づけのない商品では何も出ない」が受け入れ条件なので、紐づけ FAQ / KB が 0 件ならタブ・セクション自体を追加しない（空のタブは出さない）。用語も紐づけが無ければ辞書が空になり、無料版の `Tooltip` が資材を読み込まない。
+- 「単一商品ページで、かつ描画対象が表示中の商品自身」の判定は `Product_Context::current_product_id()` に集約し、3 機能すべてがそれを使う（REST の block-renderer プレビュー・管理画面・同一ページ下部の Product Collection が回す他商品を除外する）。WooCommerce 関数（`is_product()` / `wc_get_product()`）は使わず core 関数だけで組み、`Link_Resolver` と同じくスタンドインの `product` で PHPUnit できるようにする。
+- ※ Product Details の hooked block は `content` が `init` 時に固定される静的マークアップなので、将来併用する場合は商品ごとに内容が変わるものを dynamic block で指定する。また空判定（`hide_empty_accordion_items()`）のため panel が1回余分にレンダーされるので、その dynamic block は副作用なしで複数回描画できる必要がある。
+- ※ `@woocommerce/product-editor`（管理画面のブロック製品エディター）は WC 11.0 で削除済みのため**一切依存しない**（管理UIは従来のメタボックス/エディターサイドバーで実装）。
 
-※ `@woocommerce/product-editor`（管理画面のブロック製品エディター）は WC 11.0 で削除済みのため**一切依存しない**（管理UIは従来のメタボックス/エディターサイドバーで実装）。
-
-自動挿入は**設定でそれぞれ on/off 可能**。加えて手動配置用ブロックを提供:
-`saai-knowledge/product-faq`, `saai-knowledge/product-docs`, `saai-knowledge/product-glossary`（コンテキストの商品IDを自動解決、属性で商品指定も可）+ 同等ショートコード。
+自動挿入は**設定でそれぞれ on/off 可能**（無料版の設定画面に `saai_settings_sections` で「WooCommerce」セクションを追加: `wc_product_faq_tab` / `wc_product_kb_links` / `wc_product_tooltips`、既定はすべて on。値は無料版の `saai_knowledge_settings` オプションに同居し、有料版は読み取り専用で扱う — DESIGN-HOOKS-API.md §6）。加えて手動配置用ブロックを提供:
+`saai-knowledge/product-faq`, `saai-knowledge/product-docs`, `saai-knowledge/product-glossary`（コンテキストの商品IDを自動解決、属性で商品指定も可）+ 同等ショートコード（Issue #23）。
 
 ### 6.3 Marketplace 要件
 

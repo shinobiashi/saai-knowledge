@@ -133,6 +133,7 @@ the_content (priority 50)
 
 - 商品ページ（`product` post type）は無料版の対象外。有料版が `saai_autolink_post_types` フィルターで `product` を追加し、`saai_autolink_dictionary` で「その商品に紐づく用語のみ」に辞書を絞り込む（context に `post_id` / `post_type` が渡る）。
 - WooCommerce の説明文フィルター（short description 等）への適用は有料版側で該当フィルターに同エンジンを接続（エンジンは `Saai_Autolinker::process( string $html, array $context ): string` として単体で呼べる公開サービスにする）。
+- 短い説明の経路はテーマで異なる（2026-10-09 に WC 11.2 の wp-env で確認）。クラシックテンプレートは `single-product/short-description.php` の `woocommerce_short_description` フィルター。ブロックテーマの同梱テンプレートは `core/post-excerpt` ブロック（`__woocommerceNamespace` 属性はエディター側の目印で、PHP 側に対応するフィルター経路は無い）で、WC 独自の `woocommerce/product-summary` ブロックもある。有料版は前者をフィルター（priority 20、WC 自身の `do_blocks`/`wptexturize` の後）で、後者 2 つを `render_block_{name}` で描画後 HTML に対して掛ける。いずれも「単一商品ページで、かつその描画対象が表示中の商品自身」のときだけ（同じページ下部の Product Collection が回す他商品や REST・管理画面には掛けない）。長い説明は両テーマとも `the_content` を通る（WooCommerce の説明タブが `the_content()` を呼ぶ）ので `saai_autolink_post_types` に `product` を加えるだけでよい。紐づけ用語が無い商品では辞書が空になり `process()` が早期 return するため、ツールチップの資材も読み込まれない。
 
 ## 7. テスト計画（PHPUnit）
 
