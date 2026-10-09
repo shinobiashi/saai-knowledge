@@ -246,6 +246,9 @@ final class Product_Sections {
 	 * running `the_content`: shortcodes are stripped rather than rendered
 	 * and tags removed, which keeps a definition from executing a nested
 	 * block or shortcode (another product list, say) inside a product page.
+	 * What remains can still contain square brackets (a manual excerpt, or
+	 * `[[x]]`, which strip_shortcodes() unescapes to `[x]`), so the blocks
+	 * print it through Blocks::text().
 	 *
 	 * @param int $product_id Product post ID.
 	 * @return array<int, array{url: string, title: string, definition: string}>

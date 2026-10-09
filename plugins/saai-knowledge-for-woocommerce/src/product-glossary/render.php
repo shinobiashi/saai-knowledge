@@ -31,8 +31,8 @@ foreach ( ( new Product_Sections( new Link_Resolver() ) )->glossary_entries( $sa
 	$saai_woo_items .= sprintf(
 		'<div class="saai-woo-product-glossary__item"><dt class="saai-woo-product-glossary__term"><a href="%1$s">%2$s</a></dt><dd class="saai-woo-product-glossary__definition">%3$s</dd></div>',
 		esc_url( $saai_woo_entry['url'] ),
-		esc_html( $saai_woo_entry['title'] ),
-		esc_html( $saai_woo_entry['definition'] )
+		Blocks::text( $saai_woo_entry['title'] ),
+		Blocks::text( $saai_woo_entry['definition'] )
 	);
 }
 
@@ -48,4 +48,4 @@ $saai_woo_html = Blocks::section_html(
 	Blocks::show_title( $attributes )
 );
 
-echo $saai_woo_html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- wrapper attributes from get_block_wrapper_attributes(), the heading escaped in section_html(), the list built from esc_url()/esc_html()'d fragments above.
+echo $saai_woo_html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- wrapper attributes from get_block_wrapper_attributes(), the heading escaped in section_html(), the list built from esc_url()/Blocks::text()'d fragments above.

@@ -61,7 +61,7 @@ final class Blocks {
 	 * automatic related-documentation section — never duplicates it.
 	 *
 	 * @param string $class_name Base class of the block's markup (`saai-woo-product-faq`, ...).
-	 * @param string $title      Heading text (unescaped).
+	 * @param string $title      Heading text (unescaped; see text()).
 	 * @param string $body       The block's already-escaped body HTML.
 	 * @param bool   $show_title Whether to print the heading.
 	 * @return string
@@ -80,9 +80,27 @@ final class Blocks {
 			$wrapper_attributes,
 			esc_attr( $title_id ),
 			esc_attr( $class_name ),
-			esc_html( $title ),
+			self::text( $title ),
 			$body
 		);
+	}
+
+	/**
+	 * Escapes text for a product block's HTML, square brackets included.
+	 *
+	 * A block placed in post content (a product description, a page) is
+	 * rendered by do_blocks() at `the_content` priority 9, and do_shortcode()
+	 * runs over that output at priority 11. A title or glossary definition
+	 * that mentions `[some_shortcode]` — or `[[some_shortcode]]`, which
+	 * strip_shortcodes() turns back into the runnable form — would otherwise
+	 * be executed inside the list. Character references keep the text
+	 * exactly as written while giving the shortcode parser nothing to match.
+	 *
+	 * @param string $text Unescaped text.
+	 * @return string
+	 */
+	public static function text( string $text ): string {
+		return str_replace( array( '[', ']' ), array( '&#91;', '&#93;' ), esc_html( $text ) );
 	}
 
 	/**

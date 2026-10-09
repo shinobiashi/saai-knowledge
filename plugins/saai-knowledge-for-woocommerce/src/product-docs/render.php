@@ -28,7 +28,7 @@ foreach ( ( new Product_Sections( new Link_Resolver() ) )->kb_links( $saai_woo_p
 	$saai_woo_items .= sprintf(
 		'<li class="saai-woo-product-docs__item"><a href="%1$s">%2$s</a></li>',
 		esc_url( $saai_woo_link['url'] ),
-		esc_html( $saai_woo_link['title'] )
+		Blocks::text( $saai_woo_link['title'] )
 	);
 }
 
@@ -44,4 +44,4 @@ $saai_woo_html = Blocks::section_html(
 	Blocks::show_title( $attributes )
 );
 
-echo $saai_woo_html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- wrapper attributes from get_block_wrapper_attributes(), the heading escaped in section_html(), the list built from esc_url()/esc_html()'d fragments above.
+echo $saai_woo_html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- wrapper attributes from get_block_wrapper_attributes(), the heading escaped in section_html(), the list built from esc_url()/Blocks::text()'d fragments above.
