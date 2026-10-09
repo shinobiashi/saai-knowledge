@@ -2,11 +2,11 @@
 
 - タスク: Issue #23 / M5-4 — 手動配置ブロック（product-faq / product-docs / product-glossary）+ 同等ショートコード + 有料版のビルド基盤
 - 開始: 2026-10-09
-- PR: 未作成
-- 現在のステップ: 4（push・PR 作成）
+- PR: #70 https://github.com/shinobiashi/saai-knowledge/pull/70
+- 現在のステップ: **完了**（マージ待ち）
 - モード: `auto-commit`（確認ゲートなし。ラウンド報告のみ）、Codex は `--request-codex`
-- Copilot: 依頼 0 回 / 未収束
-- Codex: 依頼 0 回 / 未収束
+- Copilot: 依頼 1 回 / 収束（G1 で新規指摘なし）
+- Codex: 依頼 1 回 / 収束（G1 で新規指摘なし。`--request-codex` の手動依頼に応答）
 
 ## ログ
 
@@ -19,3 +19,6 @@
 | 2026-10-10 | 2 | E2E `product-blocks.spec.js` 4 件を追加（固定ページ・単一商品テンプレート〔REST でブロック挿入〕・エディタープレビュー）。E2E 全 21 件 green。PHPUnit 有料版の新規 3 ファイル、PHPCS・PHPStan green |
 | 2026-10-10 | 3 | review-loop R1: High 1 / Medium 4 / Low 5（+対象外 2）→ High・Medium 全件と同じ箇所の Low 2 件を修正（`cb8c8da`〜`0ccc00a`）、Low 1 件と対象外 2 件を backlog へ。独立サブエージェント（Opus。Fable 5.1 は利用枠切れで失敗）と実測で裏取り。主な発見: core-data の既定 `context=edit` で Editor が商品ピッカーを使えない（Issue #21 のパネルも同根 → backlog R1-X1） |
 | 2026-10-10 | 3 | review-loop R2: **APPROVE**（R1 の 5 件すべて解消をミューテーションで実測、新規 Critical/High/Medium なし）。Low 3 件（E2E で選択済み商品名を固定・E2E の後片付け・DESIGN の対象範囲）を修正、1 件を backlog へ |
+| 2026-10-10 00:54 | 4 | 初回 push（`9bce3af`、T=2026-10-09T15:54:47Z）+ PR #70 作成 |
+| 2026-10-10 01:04 | 6-7 | G1: CI 12 チェック green 後に両 bot へ依頼。Copilot「Approval recommended / 0 open findings」、Codex「Didn't find any major issues」→ 両 bot 収束、修正なし |
+| 2026-10-10 | 8 | 最終報告を作成し完了 |
