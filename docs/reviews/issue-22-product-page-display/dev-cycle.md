@@ -3,9 +3,9 @@
 - タスク: Issue #22 / M5-3 — 商品ページ表示（FAQ タブ・関連 KB・用語ツールチップ）+ 設定 on/off + E2E
 - 開始: 2026-10-09
 - PR: #67 https://github.com/shinobiashi/saai-knowledge/pull/67
-- 現在のステップ: 5（CI 待ち → G3 依頼・最終）
-- Copilot: 依頼 2 回 / 未収束
-- Codex: 依頼 2 回 / 未収束（G1 では push 時の自動レビューが走らず手動 `@codex review` で応答。G2 からは `--request-codex`）
+- 現在のステップ: 8（G3 修正の CI 待ち → 最終報告）
+- Copilot: 依頼 3 回 / 上限（3 回目でも新規 2 件）
+- Codex: 依頼 3 回 / 上限（3 回目でも新規 1 件。G1 では push 時の自動レビューが走らず手動 `@codex review` で応答、G2 からは `--request-codex`）
 
 ## ログ
 
@@ -22,3 +22,4 @@
 | 2026-10-09 17:35 | 4 | 初回 push（`f764a4f`）+ PR #67 作成 |
 | 2026-10-09 18:45 | 7 | G1: Copilot 2 件 / Codex 1 件（手動依頼への応答）→ 3 件すべて修正（`b78a52a`, `1ac59ba`）。G1-3 は設計変更（指紋 context）をユーザー確認のうえ採用。push `1ac59ba` |
 | 2026-10-09 19:05 | 7 | G2: Copilot 3 件 / Codex 1 件（いずれも Low の文言・コメント整合）→ 4 件修正（`cb21901` + PR 本文編集）。push `cb21901` |
+| 2026-10-09 19:32 | 7 | G3: Codex 1 件（JSON-LD スロット署名）/ Copilot 本文 2 件 → 3 件修正（`adbffe6`）。両 bot とも 3 回目で新規指摘あり＝上限。再依頼せず CI 確認後に最終報告へ |
