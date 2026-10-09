@@ -3,9 +3,9 @@
 - タスク: Issue #22 / M5-3 — 商品ページ表示（FAQ タブ・関連 KB・用語ツールチップ）+ 設定 on/off + E2E
 - 開始: 2026-10-09
 - PR: #67 https://github.com/shinobiashi/saai-knowledge/pull/67
-- 現在のステップ: 5（CI 待ち → G1 依頼）
-- Copilot: 依頼 0 回 / 未収束
-- Codex: 依頼 0 回 / 未収束（push で自動レビュー。`--request-codex` 不要）
+- 現在のステップ: 5（CI 待ち → G2 依頼）
+- Copilot: 依頼 1 回 / 未収束
+- Codex: 依頼 1 回 / 未収束（G1 では push 時の自動レビューが走らず手動 `@codex review` で応答。G2 以降は `--request-codex`）
 
 ## ログ
 
@@ -20,3 +20,4 @@
 | 2026-10-09 | 3 | review-loop R1: Medium 4 / Low 9（+対象外 2）→ Medium 4 + Low 3 を修正（`77ca9ec`）、Low 3 + 対象外 2 を backlog へ。独立サブエージェント併用、WC ソースで裏取り |
 | 2026-10-09 | 3 | review-loop R2: **APPROVE**。R1 の全指摘解消をミューテーション実測で確認（R1-1 の当初テストはトートロジーだったため書き換え）、新規はテスト・文言のみ 4 件を修正（`98f603c`）。PHPUnit 全体 543 件 / E2E 17 件 green |
 | 2026-10-09 17:35 | 4 | 初回 push（`f764a4f`）+ PR #67 作成 |
+| 2026-10-09 18:45 | 7 | G1: Copilot 2 件 / Codex 1 件（手動依頼への応答）→ 3 件すべて修正（`b78a52a`, `1ac59ba`）。G1-3 は設計変更（指紋 context）をユーザー確認のうえ採用。push `1ac59ba` |
