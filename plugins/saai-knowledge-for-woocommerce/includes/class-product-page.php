@@ -285,10 +285,11 @@ final class Product_Page {
 
 		// The resolver returns IDs only (`fields => 'ids'` primes nothing), so
 		// without this every get_permalink()/get_the_title() below would be
-		// its own get_post() query — one per linked article. Terms are primed
-		// too because the KB permalink structure embeds the article's
-		// category.
-		_prime_post_caches( $kb_ids, true, false );
+		// its own get_post() query — one per linked article. Posts only: the
+		// KB permalink is `/{kb slug}/{article slug}/` with no taxonomy in it,
+		// and nothing below reads meta, so priming either would just be an
+		// extra query.
+		_prime_post_caches( $kb_ids, false, false );
 
 		$items = '';
 

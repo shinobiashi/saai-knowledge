@@ -309,10 +309,18 @@ class Test_Woo_Product_Page extends WP_UnitTestCase {
 		$this->assertFalse( is_singular() );
 		$this->assertSame( 0, Product_Context::current_product_id() );
 
-		// The editor's block-renderer preview: a REST request whose global
-		// post has been primed with the product, but no singular main query.
-		$this->go_to( add_query_arg( 'rest_route', '/wp/v2/posts', home_url( '/' ) ) );
-		$GLOBALS['post'] = get_post( $product ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- simulating the REST block renderer priming the global post.
+		// The editor's block-renderer preview, reproduced as the REST request
+		// really leaves things: rest_api_loaded() serves and exits during
+		// `parse_request`, so WP::main() never runs the main query — $wp_query
+		// stays the empty WP_Query from wp-settings.php — while the renderer
+		// primes the global post with the product from its post_id parameter.
+		// (Not go_to( '?rest_route=...' ): `rest_route` is no public query var
+		// once the test case has reset $wp, so that would only be the home
+		// query again — and if it weren't reset, the request would be served
+		// and the process would exit).
+		$GLOBALS['wp_the_query'] = new WP_Query(); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- the REST request state described above; the test case rebuilds these globals for the next test.
+		$GLOBALS['wp_query']     = $GLOBALS['wp_the_query']; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- same.
+		$GLOBALS['post']         = get_post( $product ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- simulating the REST block renderer priming the global post.
 		$this->assertFalse( is_singular() );
 		$this->assertSame( 0, Product_Context::current_product_id() );
 	}
@@ -563,20 +571,11 @@ class Test_Woo_Product_Page extends WP_UnitTestCase {
 		};
 		add_filter( 'the_title', $inject, 10, 2 );
 
-		// Evict the articles so the render has to prime them itself.
-		wp_cache_delete( $alpha, 'posts' );
-		wp_cache_delete( $bravo, 'posts' );
-
 		try {
 			$html = $this->page->kb_links_html( $product );
 		} finally {
 			remove_filter( 'the_title', $inject, 10 );
 		}
-
-		// Both articles were primed in one go rather than fetched one by one
-		// through get_permalink()/get_the_title().
-		$this->assertNotFalse( wp_cache_get( $alpha, 'posts' ) );
-		$this->assertNotFalse( wp_cache_get( $bravo, 'posts' ) );
 
 		$this->assertStringStartsWith( '<section class="saai-woo-related-kb"', $html );
 		$this->assertMatchesRegularExpression( '/<section class="saai-woo-related-kb" aria-labelledby="(saai-woo-related-kb-title-\d+)"><h2 id="\1"/', $html, 'The heading id is unique per render and referenced by aria-labelledby.' );
@@ -590,6 +589,50 @@ class Test_Woo_Product_Page extends WP_UnitTestCase {
 		$this->assertLessThan( strpos( $html, 'Bravo guide' ), strpos( $html, 'Alpha' ) );
 		$this->assertSame( 2, substr_count( $html, '<li class="saai-woo-related-kb__item">' ) );
 		$this->assertGreaterThan( 0, $unlinked );
+	}
+
+	/**
+	 * The articles come out of an IDs-only query, so their posts (and terms)
+	 * must be primed in one go: the query cost of the section cannot grow
+	 * with the number of linked articles.
+	 *
+	 * Measured as a comparison rather than a fixed number: whatever one-time
+	 * lazy lookups the first render pays for, a render of three articles
+	 * must not cost more than a render of one. Without the priming it costs
+	 * two extra get_post() round-trips (one per additional article).
+	 */
+	public function test_kb_links_prime_the_article_caches_in_one_go() {
+		$one   = $this->create_product( 'One' );
+		$three = $this->create_product( 'Three' );
+		$ids   = array();
+
+		foreach ( array( 'A', 'B', 'C', 'D' ) as $letter ) {
+			$ids[] = $this->create_content( 'saai_kb', 'Guide ' . $letter );
+		}
+
+		$this->link( $ids[0], $one );
+
+		foreach ( array_slice( $ids, 1 ) as $id ) {
+			$this->link( $id, $three );
+		}
+
+		$this->assertStringContainsString( 'Guide D', $this->page->kb_links_html( $three ), 'Precondition: all three articles render.' );
+
+		$queries_for = function ( int $product_id ) use ( $ids ): int {
+			foreach ( $ids as $id ) {
+				clean_post_cache( $id );
+			}
+
+			$before = get_num_queries();
+			$this->page->kb_links_html( $product_id );
+
+			return get_num_queries() - $before;
+		};
+
+		$delta_one   = $queries_for( $one );
+		$delta_three = $queries_for( $three );
+
+		$this->assertLessThanOrEqual( $delta_one, $delta_three, 'Rendering three linked articles must not cost more queries than rendering one.' );
 	}
 
 	/**
