@@ -131,6 +131,6 @@ add_action( 'saai_loaded', function ( $plugin ) {
 | 関連 KB セクション | 無料版 API 不要（有料版側のマークアップ。`get_permalink()` / `get_the_title()` のみ）。挿入先は WooCommerce の `woocommerce_after_single_product_summary` |
 | 手動配置ブロック（`product-faq` / `product-docs` / `product-glossary`）+ ショートコード | `product-faq` は商品タブと同じく公開ブロック `saai-knowledge/faq-list` + `saai_faq_query_args`（`category` に商品ごとのマーカーを渡して FAQPage の署名を分ける）。`product-docs` / `product-glossary` は無料版 API 不要（`get_permalink()` / `get_the_title()` / `get_the_excerpt()` のみ）。ブロック名前空間 `saai-knowledge/*` は §6 のとおり無料版と共通 |
 | 設定タブ追加（自動挿入 on/off） | `saai_settings_sections`, `saai_default_settings`。読み取りは `saai_knowledge_settings` オプション（§6） |
-| RAG エクスポートへの商品メタ付与 | `saai_export_record` |
+| RAG エクスポートへの商品メタ付与 | `saai_export_record`（`Export_Metadata` が `products` / `product_categories` を追加。CSV のときだけ JSON 文字列。形状と規則は `DESIGN.md` §7.4） |
 
 この表が「有料版を壊さずに無料版をリファクタリングできる範囲」の定義になる。無料版の変更が上記フック・サービスの契約を守る限り、有料版の追従リリースは不要。
