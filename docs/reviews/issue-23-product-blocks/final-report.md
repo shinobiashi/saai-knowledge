@@ -3,7 +3,7 @@
 ## 開発内容
 
 - タスク: Issue #23 / M5-4 — 手動配置ブロック `product-faq` / `product-docs` / `product-glossary` + ショートコード `[saai_product_faq]` / `[saai_product_docs]` / `[saai_product_glossary]`、有料版のビルド基盤
-- PR: #70 https://github.com/shinobiashi/saai-knowledge/pull/70
+- PR: [#70](https://github.com/shinobiashi/saai-knowledge/pull/70)
 - 承認された計画の要約: 描画内容を `Product_Sections` に集約して自動挿入（`Product_Page`）と共有し、3 ブロックは `Product_Context::for_block()` で商品を解決（属性 → `postId` 文脈〔アーカイブ等のルートでは `queryId` 必須〕→ 表示中の商品）。紐づけ 0 件なら見出しごと出さない。自動挿入のトグルとは独立。`product-faq` は無料版 faq-list を商品ごとのマーカー付きで描画し FAQPage を 1 つに保つ
 - コミット:
 
