@@ -296,7 +296,13 @@ final class Product_Page {
 		foreach ( $kb_ids as $kb_id ) {
 			$url = get_permalink( $kb_id );
 
-			if ( ! is_string( $url ) || '' === $url ) {
+			// Judge the URL AFTER escaping: esc_url() reduces a disallowed
+			// protocol (a `post_type_link` filter returning javascript: or
+			// data:, say) to '', and that must drop the item rather than
+			// print an <a href=""> around the title.
+			$url = is_string( $url ) ? esc_url( $url ) : '';
+
+			if ( '' === $url ) {
 				continue;
 			}
 
@@ -308,7 +314,7 @@ final class Product_Page {
 
 			$items .= sprintf(
 				'<li class="saai-woo-related-kb__item"><a href="%1$s">%2$s</a></li>',
-				esc_url( $url ),
+				$url, // Already esc_url()'d above.
 				esc_html( $title )
 			);
 		}

@@ -227,7 +227,7 @@ CPT 登録変更時のみ `flush_rewrite_rules()`（有効化時 + スラッグ�
 
 - WooCommerce は表示中の商品を `$GLOBALS['product']` に保持し、`the_post` アクション（`wc_setup_product_data()`）で商品以外の投稿が来ると unset する。FAQ 回答の描画（無料版 `Faq_List` の `setup_postdata()`）がこれを踏むため、有料版はタブ本文の描画前後で `$GLOBALS['product']` をスナップショット・復元する（復元しないと同じタブ一覧の直後に描画される Reviews タブが `$product->get_review_count()` で fatal になる。実機で発生）。
 - 「紐づけのない商品では何も出ない」が受け入れ条件なので、紐づけ FAQ / KB が 0 件ならタブ・セクション自体を追加しない（空のタブは出さない）。用語も紐づけが無ければ辞書が空になり、無料版の `Tooltip` が資材を読み込まない。
-- 「単一商品ページで、かつ描画対象が表示中の商品自身」の判定は `Product_Context::current_product_id()` に集約し、3 機能すべてがそれを使う（REST の block-renderer プレビュー・管理画面・同一ページ下部の Product Collection が回す他商品を除外する）。WooCommerce 関数（`is_product()` / `wc_get_product()`）は使わず core 関数だけで組み、`Link_Resolver` と同じくスタンドインの `product` で PHPUnit できるようにする。
+- 「単一商品ページで、かつ描画対象が表示中の商品自身」の判定は `Product_Context::current_product_id()` に集約し、FAQ タブ・関連 KB・短い説明の 3 経路がそれを使う（REST の block-renderer プレビュー・管理画面・同一ページ下部の Product Collection が回す他商品を除外する）。長い説明だけは別で、無料版エンジンの `the_content` 経路（管理画面・REST・フィードは無料版側がスキップ）に `product` を加えるだけなので、商品本文が描画される文脈全般（検索結果や `core/post-content` を持つ Product Collection を含む）で、その商品の紐づけ用語だけに絞って処理される。WooCommerce 関数（`is_product()` / `wc_get_product()`）は使わず core 関数だけで組み、`Link_Resolver` と同じくスタンドインの `product` で PHPUnit できるようにする。
 - ※ Product Details の hooked block は `content` が `init` 時に固定される静的マークアップなので、将来併用する場合は商品ごとに内容が変わるものを dynamic block で指定する。また空判定（`hide_empty_accordion_items()`）のため panel が1回余分にレンダーされるので、その dynamic block は副作用なしで複数回描画できる必要がある。
 - ※ `@woocommerce/product-editor`（管理画面のブロック製品エディター）は WC 11.0 で削除済みのため**一切依存しない**（管理UIは従来のメタボックス/エディターサイドバーで実装）。
 

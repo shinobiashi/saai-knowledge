@@ -656,6 +656,35 @@ class Test_Woo_Product_Page extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A permalink that escapes to nothing (a `post_type_link` filter handing
+	 * back a disallowed protocol) drops the article instead of printing an
+	 * empty href around its title.
+	 */
+	public function test_kb_links_skip_articles_whose_permalink_escapes_to_nothing() {
+		$product = $this->create_product();
+		$good    = $this->create_content( 'saai_kb', 'Good guide' );
+		$bad     = $this->create_content( 'saai_kb', 'Bad guide' );
+		$this->link( $good, $product );
+		$this->link( $bad, $product );
+
+		$poison = static function ( $url, $post ) use ( $bad ) {
+			return $post instanceof WP_Post && $post->ID === $bad ? 'javascript:alert(1)' : $url;
+		};
+		add_filter( 'post_type_link', $poison, 10, 2 );
+
+		try {
+			$html = $this->page->kb_links_html( $product );
+		} finally {
+			remove_filter( 'post_type_link', $poison, 10 );
+		}
+
+		$this->assertStringContainsString( 'Good guide', $html );
+		$this->assertStringNotContainsString( 'Bad guide', $html );
+		$this->assertStringNotContainsString( 'href=""', $html );
+		$this->assertStringNotContainsString( 'javascript:', $html );
+	}
+
+	/**
 	 * An article saved without a title still gets link text.
 	 */
 	public function test_kb_links_fall_back_to_a_placeholder_for_an_empty_title() {
