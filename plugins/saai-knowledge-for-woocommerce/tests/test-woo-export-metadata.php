@@ -486,16 +486,25 @@ class Test_Woo_Export_Metadata extends WP_UnitTestCase {
 	}
 
 	/**
-	 * The linked products and terms are primed in bulk, so a record linked
-	 * to three of each costs no more queries than one linked to one.
+	 * The linked products and terms are fetched in bulk, so a record linked
+	 * to three of each costs no more queries than one linked to one — even
+	 * with links left behind by permanently deleted products, which the
+	 * meta keeps on purpose (docs/DESIGN.md section 6.1) and which the
+	 * object cache cannot remember as missing.
 	 */
 	public function test_query_count_does_not_grow_with_linked_items() {
 		$products   = array();
 		$categories = array();
+		$deleted    = array();
 
 		foreach ( array( 'A', 'B', 'C' ) as $letter ) {
 			$products[]   = $this->create_product( 'Product ' . $letter, 'SKU-' . $letter );
 			$categories[] = $this->create_category( 'Category ' . $letter );
+			$deleted[]    = $this->create_product( 'Deleted ' . $letter );
+		}
+
+		foreach ( $deleted as $product_id ) {
+			wp_delete_post( $product_id, true );
 		}
 
 		$one   = $this->create_content( 'saai_faq', 'One of each' );
@@ -503,7 +512,7 @@ class Test_Woo_Export_Metadata extends WP_UnitTestCase {
 
 		$this->link_products( $one, array( $products[0] ) );
 		$this->link_categories( $one, array( $categories[0] ) );
-		$this->link_products( $three, $products );
+		$this->link_products( $three, array_merge( $products, $deleted ) );
 		$this->link_categories( $three, $categories );
 
 		$queries_for = function ( int $content_id ) use ( $products, $categories ): int {
@@ -519,7 +528,7 @@ class Test_Woo_Export_Metadata extends WP_UnitTestCase {
 			$record = $this->service->filter_record( array(), $post, 'json' );
 			$delta  = get_num_queries() - $before;
 
-			$this->assertNotEmpty( $record['products'], 'Precondition: the products resolve.' );
+			$this->assertNotEmpty( $record['products'], 'Precondition: the live products resolve.' );
 			$this->assertNotEmpty( $record['product_categories'], 'Precondition: the categories resolve.' );
 
 			return $delta;
@@ -528,6 +537,6 @@ class Test_Woo_Export_Metadata extends WP_UnitTestCase {
 		$delta_one   = $queries_for( $one );
 		$delta_three = $queries_for( $three );
 
-		$this->assertLessThanOrEqual( $delta_one, $delta_three, 'Exporting three linked products and categories must not cost more queries than one of each.' );
+		$this->assertLessThanOrEqual( $delta_one, $delta_three, 'Exporting three linked products (plus three deleted ones) and categories must not cost more queries than one of each.' );
 	}
 }

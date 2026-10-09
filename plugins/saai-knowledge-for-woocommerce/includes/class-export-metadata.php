@@ -125,20 +125,27 @@ final class Export_Metadata {
 			return array();
 		}
 
-		// One query for the posts and one for their meta (the SKU), instead
-		// of one get_post() plus one meta read per linked product.
-		_prime_post_caches( $product_ids, false, true );
+		// One query that applies the public-only rule in SQL and skips IDs
+		// whose product is gone, plus one for the found products' meta (the
+		// SKU). Not _prime_post_caches() + get_post(): a permanently deleted
+		// product is not cached as missing, so each dangling ID — and links
+		// to auto-emptied trash pile up over time — would cost its own query.
+		$found = get_posts(
+			array(
+				'post_type'              => Link_Resolver::PRODUCT_POST_TYPE,
+				'post_status'            => 'publish',
+				'has_password'           => false,
+				'post__in'               => $product_ids,
+				'orderby'                => 'post__in',
+				'posts_per_page'         => count( $product_ids ),
+				'update_post_term_cache' => false,
+			)
+		);
 
 		$products = array();
 
-		foreach ( $product_ids as $product_id ) {
-			$product = get_post( $product_id );
-
-			if ( ! $product instanceof \WP_Post
-				|| Link_Resolver::PRODUCT_POST_TYPE !== $product->post_type
-				|| 'publish' !== $product->post_status
-				|| '' !== $product->post_password
-			) {
+		foreach ( $found as $product ) {
+			if ( ! $product instanceof \WP_Post ) {
 				continue;
 			}
 
