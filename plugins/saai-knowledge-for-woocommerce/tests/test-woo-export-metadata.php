@@ -298,6 +298,30 @@ class Test_Woo_Export_Metadata extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Every public product comes through in stored order, however many there
+	 * are: the order matches neither ID nor date (either way round), and
+	 * there are more than get_posts()' default five.
+	 */
+	public function test_products_keep_stored_order_and_are_not_capped() {
+		$ids = array();
+
+		foreach ( array( 'A', 'B', 'C', 'D', 'E', 'F' ) as $letter ) {
+			$ids[ $letter ] = $this->create_product( 'Product ' . $letter );
+		}
+
+		$order = array( $ids['C'], $ids['A'], $ids['F'], $ids['B'], $ids['E'], $ids['D'] );
+		$faq   = $this->create_content( 'saai_faq', 'Many products' );
+
+		$this->link_products( $faq, $order );
+
+		$this->service->register();
+
+		$record = $this->export_records( 'faq' )[ $faq ];
+
+		$this->assertSame( $order, wp_list_pluck( $record['products'], 'id' ) );
+	}
+
+	/**
 	 * Issue #27's acceptance criterion: an unlinked post's record is exactly
 	 * what the free plugin alone exports — no keys, not even empty ones.
 	 */
