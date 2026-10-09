@@ -71,8 +71,7 @@ final class Plugin {
 	/**
 	 * Registers the add-on's internal services.
 	 *
-	 * Services are added incrementally per milestone; the export metadata
-	 * follows in M5-5 (Issue #27).
+	 * Services are added incrementally per milestone.
 	 */
 	private function register_services(): void {
 		( new Post_Meta() )->register();
@@ -103,6 +102,11 @@ final class Plugin {
 		( new Blocks() )->register();
 		( new Shortcodes() )->register();
 
+		// Product metadata on the free plugin's RAG export records (M5-6).
+		// Not gated on is_admin(): the export runs through the REST route
+		// as well as the admin-post.php download.
+		( new Export_Metadata( $this->link_resolver ) )->register();
+
 		if ( is_admin() ) {
 			( new Content_Editor() )->register();
 			( new Product_Metabox() )->register();
@@ -125,7 +129,7 @@ final class Plugin {
 	 * The product <-> content link resolver.
 	 *
 	 * The supported entry point for the add-on's own later milestones (the
-	 * product page output in M5-3, the export metadata in M5-5) so the
+	 * product page output in M5-3, the export metadata in M5-6) so the
 	 * resolution rule in docs/DESIGN.md section 6.1 has one implementation.
 	 *
 	 * @return Link_Resolver
