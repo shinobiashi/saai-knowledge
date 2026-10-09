@@ -603,6 +603,18 @@ final class Faq_List {
 	 * restored afterward so the containing page's own render continues
 	 * unaffected — including when there was no prior global post at all.
 	 *
+	 * setup_postdata() also fires `the_post`, and third-party code keeps its
+	 * own state from that action: WooCommerce's wc_setup_product_data()
+	 * unsets $GLOBALS['product'] for any non-product post, so an FAQ list in
+	 * a product description left the Reviews tab rendering against a null
+	 * product (#68). Restoring the globals by assignment alone can't undo
+	 * that, so the previous post is set up again first — the same
+	 * `the_post` re-run wp_reset_postdata() performs, which is what such
+	 * code is written against. wp_reset_postdata() itself isn't used: it
+	 * returns to the main query's post, not necessarily the one current
+	 * before this render (a Query Loop item, say). With no previous post
+	 * there is nothing to re-establish, so nothing is re-run.
+	 *
 	 * @param \WP_Post $post The FAQ entry.
 	 * @return string
 	 */
@@ -650,8 +662,17 @@ final class Faq_List {
 		} finally {
 			$GLOBALS['post'] = $previous_post; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- restoring the exact pre-render value saved above.
 
-			foreach ( $previous_globals as $var => $value ) {
-				$GLOBALS[ $var ] = $value; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited, WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- restoring the exact pre-render values of WordPress's own postdata globals saved above.
+			// Re-runs `the_post` for the previous post; the snapshot below
+			// then puts the postdata globals back to their exact prior values,
+			// even when a `the_post` callback throws.
+			try {
+				if ( $previous_post instanceof \WP_Post ) {
+					setup_postdata( $previous_post );
+				}
+			} finally {
+				foreach ( $previous_globals as $var => $value ) {
+					$GLOBALS[ $var ] = $value; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited, WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- restoring the exact pre-render values of WordPress's own postdata globals saved above.
+				}
 			}
 		}
 	}
