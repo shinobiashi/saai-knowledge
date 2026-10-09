@@ -10,7 +10,7 @@ registerBlockType( metadata.name, {
 		title: __( 'Product Documentation', 'saai-knowledge-for-woocommerce' ),
 		icon: metadata.icon,
 		noProductText: __(
-			'Shows the knowledge base articles linked to the product being displayed. Choose a product in the block settings to preview it here, or to show a specific product on a regular page.',
+			'Shows the knowledge base articles linked to the product being displayed. In the Single Product template, leave the product empty so each product page shows its own. To show one specific product, for example on a regular page, choose it in the block settings.',
 			'saai-knowledge-for-woocommerce'
 		),
 		noContentText: __(
