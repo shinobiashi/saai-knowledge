@@ -18,7 +18,10 @@ process.env.STORAGE_STATE_PATH = STORAGE_STATE_PATH;
 process.env.WP_BASE_URL = process.env.WP_BASE_URL || 'http://localhost:10031';
 
 module.exports = defineConfig( {
-	testDir: './plugins/saai-knowledge/tests/e2e',
+	// Both plugins keep their specs under their own tests/e2e/ directory;
+	// the shared login (global-setup.js) still lives with the free plugin.
+	testDir: './plugins',
+	testMatch: '**/tests/e2e/**/*.spec.js',
 	globalSetup: require.resolve(
 		'./plugins/saai-knowledge/tests/e2e/global-setup.js'
 	),

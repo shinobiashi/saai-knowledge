@@ -71,18 +71,31 @@ final class Plugin {
 	/**
 	 * Registers the add-on's internal services.
 	 *
-	 * Services are added incrementally per milestone; product page output
-	 * follows in M5-3 (Issue #22).
+	 * Services are added incrementally per milestone; the export metadata
+	 * follows in M5-5 (Issue #27).
 	 */
 	private function register_services(): void {
 		( new Post_Meta() )->register();
 
 		$this->link_resolver = new Link_Resolver();
 
+		// Registered on every request kind, not only in admin: the settings
+		// filters also decide what the front end reads back through
+		// get_option(), and the free plugin's `default_option_*` filter has
+		// to see this add-on's defaults there too.
+		$settings = new Settings();
+		$settings->register();
+
 		// Not inside the is_admin() branch: the routes are registered on
 		// `rest_api_init`, which a REST request reaches without is_admin()
 		// being true.
 		( new Links_Controller( $this->link_resolver ) )->register();
+
+		// Product page output (M5-3). Not gated on `! is_admin()`: every
+		// hook these two attach to only fires while a single product page
+		// renders, and the free plugin's engine already skips admin/REST.
+		( new Product_Page( $this->link_resolver, $settings ) )->register();
+		( new Product_Autolink( $this->base, $this->link_resolver, $settings ) )->register();
 
 		if ( is_admin() ) {
 			( new Content_Editor() )->register();

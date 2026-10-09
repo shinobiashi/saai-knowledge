@@ -37,7 +37,7 @@ add_action( 'saai_loaded', function ( $plugin ) {
 
 | フック | シグネチャ | 用途 |
 | --- | --- | --- |
-| `saai_autolink_post_types` | `( string[] $post_types ): string[]` | 自動リンク対象 post type の追加/削除。有料版が `product` を追加 |
+| `saai_autolink_post_types` | `( string[] $post_types ): string[]` | 自動リンク対象 post type の追加/削除。有料版は `product` を**追加しない**（自前の `the_content` フックから `process()` を呼ぶ。理由は DESIGN-AUTOLINK.md §6）— 逆にツールチップが ON の間は `product` を取り除く |
 | `saai_autolink_dictionary` | `( array $entries, array $context ): array` | 辞書の差し替え/絞り込み。entry 形状は `DESIGN-AUTOLINK.md` §2.1。`$context = [ 'post_id' => int, 'post_type' => string ]` |
 | `saai_autolink_enabled` | `( bool $enabled, WP_Post $post ): bool` | 投稿単位の最終有効判定 |
 | `saai_autolink_match_rejected` | `( bool $rejected, array $match ): bool` | スクリプト境界判定の上書き。`$match = [ 'pattern', 'text', 'offset', 'before_char', 'after_char' ]` |
@@ -49,7 +49,7 @@ add_action( 'saai_loaded', function ( $plugin ) {
 | `saai_kb_sidebar_items` | `( array $tree, array $context ): array` | サイドバーツリーの加工。node 形状: `[ 'type' => 'term'\|'post', 'id', 'title', 'url', 'order', 'children' => node[] ]`。`$context = [ 'current_post_id' => int\|null, 'current_term_id' => int\|null, 'taxonomy' => string ]`（`current_term_id` は saai_category タクソノミーアーカイブ表示時のみ設定。単体記事表示では `current_post_id` が優先され `current_term_id` は常に null） |
 | `saai_kb_toc_items` | `( array $headings, array $context ): array` | ページ内目次の見出しリストの加工。heading 形状: `[ 'id' => string, 'text' => string, 'level' => 2\|3 ]`。`$context = [ 'post_id' => int ]` |
 | `saai_breadcrumbs_items` | `( array $trail, array $context ): array` | パンくずリストの加工。node 形状: `[ 'label' => string, 'url' => string, 'current' => bool ]`。`$context = [ 'post_id' => int\|null, 'term_id' => int\|null, 'taxonomy' => string ]` |
-| `saai_faq_query_args` | `( array $args, array $block_attrs ): array` | FAQ 一覧ブロックの WP_Query 引数調整。有料版が商品コンテキストの meta_query を注入 |
+| `saai_faq_query_args` | `( array $args, array $block_attrs ): array` | FAQ 一覧ブロックの WP_Query 引数調整。有料版が商品タブの描画時に紐づけ FAQ の `post__in`（+ `orderby => post__in`）を注入する |
 | `saai_structured_data` | `( array $schema, string $schema_type, ?WP_Post $post ): array` | JSON-LD 出力の加工。`$schema_type` は `faq-page` / `qa-page` / `defined-term` / `breadcrumbs` |
 | `saai_template` | `( string $template_path, string $slug ): string` | クラシックテーマ向けテンプレート解決の最終上書き。`$slug` 例: `single-saai_kb` |
 
@@ -105,8 +105,8 @@ add_action( 'saai_loaded', function ( $plugin ) {
 | サービス | メソッド | 用途 |
 | --- | --- | --- |
 | `$plugin->autolinker()` | `process( string $html, array $context ): string` | 自動リンクエンジンの単体実行。有料版が Woo の説明文フィルターに接続 |
-| `$plugin->settings()` | `get( string $key, mixed $default = null ): mixed` | 設定値の読み取り（書き込みは非公開） |
-| `$plugin->renderer()` | `faq_list( array $args ): string` / `kb_links( int[] $post_ids ): string` | FAQ アコーディオン・KB リンク一覧の HTML 生成。有料版が商品タブ/セクションで再利用（マークアップ・Interactivity API 連携を二重実装しない） |
+
+公開サービスはこの1つだけ。初版の設計に載せていた `$plugin->settings()` / `$plugin->renderer()` は、M5-3（Issue #22、2026-10-09）で**追加しないと決めた**。設定値は §6 のオプション名を `get_option()` で読めば足り、FAQ の描画は §6 の公開ブロック `saai-knowledge/faq-list` を `render_block()` に渡して §3.2 の `saai_faq_query_args` で絞れば、アコーディオンのマークアップ・Interactivity API 連携・FAQPage JSON-LD を二重実装せずに済む（無料版 `Shortcodes` が使うのと同じ経路）。KB リンク一覧は有料版側の素朴なマークアップで十分で、無料版に対応する描画は存在しない。§1 の「実ユースケースが必要とするものだけを公開する」に従い、表面積を増やさない。
 
 ## 6. その他の公開識別子
 
@@ -116,7 +116,8 @@ add_action( 'saai_loaded', function ( $plugin ) {
 | Taxonomies | `saai_category`, `saai_tag` |
 | Post meta | `saai_reading`, `saai_synonyms`, `saai_no_autolink`（有料版定義: `saai_linked_products`, `saai_linked_product_cats`） |
 | REST namespace | `saai-knowledge/v1` |
-| ブロック namespace | `saai-knowledge/*` |
+| ブロック namespace | `saai-knowledge/*`（block.json の属性も公開契約。アドオンはサーバー側から `render_block()` で再利用してよい） |
+| オプション | `saai_knowledge_settings`（配列）。アドオンからは**読み取り専用**: 自分のフィールドは `saai_settings_sections` / `saai_default_settings` で宣言し、保存は無料版の設定画面に任せる。無料版の `default_option_*` フィルターが既定値を補うのはオプション行そのものが無いときだけなので、行はあるが自分のキーが無い場合（アドオン有効化前に保存済みのサイト）は自分の既定値へフォールバックする |
 | Interactivity API store namespace | `saai-knowledge/{feature}`（例: `saai-knowledge/tooltip`） |
 | CSS プレフィックス | `.saai-` |
 
@@ -125,10 +126,10 @@ add_action( 'saai_loaded', function ( $plugin ) {
 | 有料版の機能 | 使用する公開API |
 | --- | --- |
 | 起動・依存チェック | `saai_loaded`, `SAAI_KNOWLEDGE_VERSION` |
-| 商品説明への用語ツールチップ | `saai_autolink_post_types`, `saai_autolink_dictionary`, `$plugin->autolinker()` |
-| 商品タブに FAQ | `$plugin->renderer()->faq_list()`（紐づけ解決は有料版側のクエリ） |
-| 関連 KB セクション | `$plugin->renderer()->kb_links()` |
-| 設定タブ追加（自動挿入 on/off） | `saai_settings_sections`, `saai_default_settings` |
+| 商品説明への用語ツールチップ | `$plugin->autolinker()->process()`（長い説明は自前の `the_content` フック、短い説明は `woocommerce_short_description` / `render_block_*` から。`$context` に紐づけ用語 ID の指紋 `saai_woo_terms` を含める）, `saai_autolink_dictionary`, `saai_autolink_post_types`（`product` を取り除く側） |
+| 商品タブに FAQ | 公開ブロック `saai-knowledge/faq-list` を `render_block()` で描画し、`saai_faq_query_args` で紐づけ FAQ の `post__in` に絞る（紐づけ解決は有料版側のクエリ）。挿入先は WooCommerce の `woocommerce_product_tabs` |
+| 関連 KB セクション | 無料版 API 不要（有料版側のマークアップ。`get_permalink()` / `get_the_title()` のみ）。挿入先は WooCommerce の `woocommerce_after_single_product_summary` |
+| 設定タブ追加（自動挿入 on/off） | `saai_settings_sections`, `saai_default_settings`。読み取りは `saai_knowledge_settings` オプション（§6） |
 | RAG エクスポートへの商品メタ付与 | `saai_export_record` |
 
 この表が「有料版を壊さずに無料版をリファクタリングできる範囲」の定義になる。無料版の変更が上記フック・サービスの契約を守る限り、有料版の追従リリースは不要。
