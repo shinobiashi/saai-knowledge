@@ -1,4 +1,10 @@
-const { test, expect } = require( '@wordpress/e2e-test-utils-playwright' );
+const {
+	test,
+	expect,
+	Admin,
+	Editor,
+	PageUtils,
+} = require( '@wordpress/e2e-test-utils-playwright' );
 const {
 	SINGLE_PRODUCT_TEMPLATE_ID,
 	createProductPageFixtures,
@@ -240,5 +246,69 @@ test.describe( 'Product blocks (Twenty Twenty-Five)', () => {
 					{ exact: false }
 				)
 		).toBeVisible();
+	} );
+
+	test( 'lets an Editor without product capabilities pick the product', async ( {
+		browser,
+		requestUtils,
+	} ) => {
+		// The picker searches core's /wp/v2/product; in the `edit` context
+		// core-data uses by default, that route answers an Editor (no
+		// `edit_products`) with 403, so this is the case that proves the
+		// picker asks for `view`.
+		const username = `e2e-editor-${ Date.now() }`;
+		const password = `e2e-${ Math.random().toString( 36 ).slice( 2 ) }`;
+		const user = await requestUtils.createUser( {
+			username,
+			email: `${ username }@example.com`,
+			password,
+			roles: [ 'editor' ],
+		} );
+		const context = await browser.newContext( {
+			baseURL: process.env.WP_BASE_URL,
+		} );
+		const editorPage = await context.newPage();
+
+		try {
+			await editorPage.goto( '/wp-login.php' );
+			await editorPage.locator( '#user_login' ).fill( username );
+			await editorPage.locator( '#user_pass' ).fill( password );
+			await editorPage.locator( '#wp-submit' ).click();
+			await editorPage.waitForURL( '**/wp-admin/**' );
+
+			const editor = new Editor( { page: editorPage } );
+			const admin = new Admin( {
+				page: editorPage,
+				pageUtils: new PageUtils( {
+					page: editorPage,
+					browserName: 'chromium',
+				} ),
+				editor,
+			} );
+
+			await admin.createNewPost();
+			await editor.insertBlock( { name: 'saai-knowledge/product-docs' } );
+			await editor.openDocumentSettingsSidebar();
+
+			await editorPage
+				.getByRole( 'combobox', { name: 'Product' } )
+				.fill( fixtures.linkedProduct.name );
+			await editorPage
+				.getByRole( 'option', { name: fixtures.linkedProduct.name } )
+				.click();
+
+			await expect(
+				editor.canvas
+					.locator( '.wp-block-saai-knowledge-product-docs' )
+					.getByRole( 'link', { name: fixtures.kb.title.rendered } )
+			).toBeVisible();
+		} finally {
+			await context.close();
+			await requestUtils.rest( {
+				method: 'DELETE',
+				path: `/wp/v2/users/${ user.id }`,
+				params: { force: true, reassign: 1 },
+			} );
+		}
 	} );
 } );

@@ -118,6 +118,12 @@ final class Shortcodes {
 			$value = $atts[ $name ];
 
 			if ( 'int' === $spec['type'] ) {
+				// A value that is no number is no ID: "12abc" must not turn
+				// into product 12 through an (int) cast.
+				if ( ! is_numeric( $value ) ) {
+					continue;
+				}
+
 				// Not absint(): it would turn "-3" into 3, a different and
 				// possibly real product. 0 leaves the block to resolve its
 				// product from the context, as without the attribute.
@@ -125,9 +131,10 @@ final class Shortcodes {
 			} else {
 				// Hand-typed by merchants, so "no" and "off" have to work as
 				// well as "false" (rest_sanitize_boolean() would read both
-				// as true). A value that is no boolean at all keeps the
-				// block's default.
-				$value = filter_var( $value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE );
+				// as true). A value that is no boolean at all — including an
+				// empty one, which FILTER_VALIDATE_BOOLEAN reads as false —
+				// keeps the block's default.
+				$value = '' === trim( (string) $value ) ? null : filter_var( $value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE );
 
 				if ( null === $value ) {
 					continue;

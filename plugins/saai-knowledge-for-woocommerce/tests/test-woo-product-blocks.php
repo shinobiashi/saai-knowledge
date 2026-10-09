@@ -42,6 +42,14 @@ class Test_Woo_Product_Blocks extends WP_UnitTestCase {
 	private $original_blocks = array();
 
 	/**
+	 * The product shortcodes' callbacks before this test, keyed by tag
+	 * (null when the tag wasn't registered).
+	 *
+	 * @var array<string, callable|null>
+	 */
+	private $original_shortcodes = array();
+
+	/**
 	 * Registers the linking meta, the WooCommerce stand-ins, and the blocks
 	 * from src/.
 	 */
@@ -51,6 +59,10 @@ class Test_Woo_Product_Blocks extends WP_UnitTestCase {
 		// The core test framework unregisters every meta key after each test.
 		( new Post_Meta() )->register_post_meta();
 		delete_option( Settings::OPTION_KEY );
+
+		foreach ( array_keys( Shortcodes::SHORTCODE_BLOCKS ) as $tag ) {
+			$this->original_shortcodes[ $tag ] = $GLOBALS['shortcode_tags'][ $tag ] ?? null;
+		}
 
 		if ( ! post_type_exists( Link_Resolver::PRODUCT_POST_TYPE ) ) {
 			register_post_type(
@@ -116,9 +128,17 @@ class Test_Woo_Product_Blocks extends WP_UnitTestCase {
 		$this->original_blocks = array();
 		unset( $GLOBALS['product'] );
 
-		foreach ( array_keys( Shortcodes::SHORTCODE_BLOCKS ) as $tag ) {
+		// Back to exactly what was there: a test registering the shortcodes
+		// must not leave them behind, nor remove registrations it found.
+		foreach ( $this->original_shortcodes as $tag => $callback ) {
 			remove_shortcode( $tag );
+
+			if ( null !== $callback ) {
+				add_shortcode( $tag, $callback );
+			}
 		}
+
+		$this->original_shortcodes = array();
 
 		if ( $this->registered_taxonomy ) {
 			unregister_taxonomy( Link_Resolver::PRODUCT_TAXONOMY );
@@ -305,7 +325,7 @@ class Test_Woo_Product_Blocks extends WP_UnitTestCase {
 
 		$this->assertSame( $product, Product_Context::for_block( 0, array( 'postId' => $product ) ) );
 		$this->assertSame( 0, Product_Context::for_block( 0, array( 'postId' => $page ) ) );
-		$this->assertSame( 0, Product_Context::for_block( 'not a number', array() ) );
+		$this->assertSame( 0, Product_Context::for_block( $product . 'abc', array() ), 'A non-numeric attribute is no ID, not the number it starts with.' );
 
 		$this->go_to( get_permalink( $product ) );
 		$this->assertSame( $product, Product_Context::for_block( 0, array() ) );
@@ -334,6 +354,32 @@ class Test_Woo_Product_Blocks extends WP_UnitTestCase {
 			)
 		);
 		$this->assertSame( $product, Product_Context::for_block( $product, array() ), 'An explicit product still applies on an archive.' );
+	}
+
+	/**
+	 * The same holds at the root of search results and of the posts page:
+	 * the primed first result is not what the page is about.
+	 */
+	public function test_for_block_ignores_the_primed_post_at_the_root_of_search_and_the_posts_page() {
+		$product = $this->create_product( 'Searchable product' );
+
+		$this->go_to( add_query_arg( 's', 'Searchable', home_url( '/' ) ) );
+		$this->assertTrue( is_search(), 'Precondition: the request must be a search.' );
+		$this->assertSame( 0, Product_Context::for_block( 0, array( 'postId' => $product ) ) );
+		$this->assertSame(
+			$product,
+			Product_Context::for_block(
+				0,
+				array(
+					'postId'  => $product,
+					'queryId' => 0,
+				)
+			)
+		);
+
+		$this->go_to( home_url( '/' ) );
+		$this->assertTrue( is_home(), 'Precondition: the request must be the posts page.' );
+		$this->assertSame( 0, Product_Context::for_block( 0, array( 'postId' => $product ) ) );
 	}
 
 	/**
@@ -431,6 +477,51 @@ class Test_Woo_Product_Blocks extends WP_UnitTestCase {
 	}
 
 	/**
+	 * In post content, do_shortcode() runs over the blocks' output after
+	 * do_blocks(): shortcode syntax in a title or a definition — a manual
+	 * excerpt as written, or `[[x]]` in a body, which strip_shortcodes()
+	 * unescapes — is printed as text, not executed.
+	 */
+	public function test_shortcode_syntax_in_titles_and_definitions_is_not_run_in_post_content() {
+		$product = $this->create_product();
+		$page    = self::factory()->post->create( array( 'post_type' => 'page' ) );
+
+		$this->link( $this->create_content( 'saai_kb', 'Guide [saai_woo_test_probe]' ), $product );
+		$this->link(
+			$this->create_content( 'saai_glossary', 'From the body', array( 'post_content' => '<!-- wp:paragraph --><p>Type [[saai_woo_test_probe]] here.</p><!-- /wp:paragraph -->' ) ),
+			$product
+		);
+		$this->link(
+			$this->create_content( 'saai_glossary', 'From the excerpt', array( 'post_excerpt' => 'Shows [saai_woo_test_probe] literally.' ) ),
+			$product
+		);
+
+		add_shortcode(
+			'saai_woo_test_probe',
+			static function () {
+				return 'PROBE-EXECUTED';
+			}
+		);
+
+		try {
+			$this->go_to( get_permalink( $page ) );
+
+			$html = apply_filters(
+				'the_content',
+				$this->block_markup( 'product-docs', array( 'productId' => $product ) )
+				. $this->block_markup( 'product-glossary', array( 'productId' => $product ) )
+			);
+		} finally {
+			remove_shortcode( 'saai_woo_test_probe' );
+		}
+
+		$this->assertStringNotContainsString( 'PROBE-EXECUTED', $html );
+		$this->assertStringContainsString( '>Guide &#91;saai_woo_test_probe&#93;</a>', $html );
+		$this->assertStringContainsString( 'Type &#91;saai_woo_test_probe&#93; here.', $html );
+		$this->assertStringContainsString( 'Shows &#91;saai_woo_test_probe&#93; literally.', $html );
+	}
+
+	/**
 	 * Titles and definitions are escaped on output.
 	 */
 	public function test_glossary_output_is_escaped() {
@@ -508,7 +599,7 @@ class Test_Woo_Product_Blocks extends WP_UnitTestCase {
 			$this->assertStringNotContainsString( '<h2', do_shortcode( '[saai_product_docs product_id="' . $product . '" show_title="' . $off . '"]' ), $off );
 		}
 
-		foreach ( array( 'true', '1', 'yes', 'on', 'maybe' ) as $on ) {
+		foreach ( array( 'true', '1', 'yes', 'on', 'maybe', '', ' ' ) as $on ) {
 			$this->assertStringContainsString( 'Related documentation</h2>', do_shortcode( '[saai_product_docs product_id="' . $product . '" show_title="' . $on . '"]' ), $on );
 		}
 	}
@@ -517,7 +608,7 @@ class Test_Woo_Product_Blocks extends WP_UnitTestCase {
 	 * A negative or non-numeric `product_id` counts as no ID at all (the
 	 * block then resolves its product from the context, as without the
 	 * attribute) — never as a different product, which absint() would make
-	 * of -N.
+	 * of -N and an (int) cast of "Nabc".
 	 */
 	public function test_shortcodes_treat_unusable_product_ids_as_absent() {
 		( new Shortcodes() )->register_shortcodes();
@@ -527,6 +618,7 @@ class Test_Woo_Product_Blocks extends WP_UnitTestCase {
 
 		$this->go_to( get_permalink( $page ) );
 		$this->assertSame( '', do_shortcode( '[saai_product_docs product_id="-' . $product . '"]' ) );
+		$this->assertSame( '', do_shortcode( '[saai_product_docs product_id="' . $product . 'abc"]' ), 'Not the number the value starts with.' );
 
 		$this->go_to( get_permalink( $product ) );
 		$this->assertStringContainsString( '>Linked guide</a>', do_shortcode( '[saai_product_docs product_id="abc"]' ) );
