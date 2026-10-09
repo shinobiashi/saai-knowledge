@@ -6,18 +6,18 @@
 
 ## フェーズ一覧
 
-| フェーズ | 内容 | 成果物 |
-| --- | --- | --- |
-| M0 | プロジェクト基盤（本書・設計書・リポジトリ初期化） | docs 一式、git リポジトリ |
-| M1 | 開発環境 + プラグイン骨格 + データモデル | 有効化できる無料版プラグイン、CI |
-| M2 | Knowledge Base コア（2カラムレイアウト） | KB が動く状態 |
-| M3 | FAQ + 用語集 | 無料版の全コンテンツ機能 |
-| M4 | 検索・設定・仕上げ → WordPress.org 申請 | 無料版 v1.0.1 公開 |
-| M5 | 有料版（WooCommerce 連携）→ WooCommerce.com 申請 | 有料版 v1.0.0 公開 |
+| フェーズ | 内容 | 成果物 | 状態 |
+| --- | --- | --- | --- |
+| M0 | プロジェクト基盤（本書・設計書・リポジトリ初期化） | docs 一式、git リポジトリ | 完了 |
+| M1 | 開発環境 + プラグイン骨格 + データモデル | 有効化できる無料版プラグイン、CI | 完了 |
+| M2 | Knowledge Base コア（2カラムレイアウト） | KB が動く状態 | 完了 |
+| M3 | FAQ + 用語集 | 無料版の全コンテンツ機能 | 完了 |
+| M4 | 検索・設定・仕上げ → WordPress.org 申請 | 無料版 v1.0.1 公開 | 完了（2026-09-26 公開） |
+| M5 | 有料版（WooCommerce 連携）→ WooCommerce.com 申請 | 有料版 v1.0.0 公開 | 進行中 |
 
 各フェーズは「完了条件をすべて満たす → 次へ」。フェーズ内のタスク順は原則上から。
 
-M1〜M5 の全タスクは GitHub Issues #1〜#27（マイルストーン M1〜M5 に割当済み。#25〜#27 は AI可読性・RAGエクスポート関連）として登録済み。実装は Issue 単位で進め、受け入れ条件は各 Issue に記載（本書と二重管理になった場合は Issue 側を正とする）。
+M1〜M5 の全タスクは GitHub Issues #1〜#27（マイルストーン M1〜M5 に割当済み。#25〜#27 は AI可読性・RAGエクスポート関連）として登録済み。実装は Issue 単位で進め、受け入れ条件は各 Issue に記載（本書と二重管理になった場合は Issue 側を正とする）。#28 以降はレビュー指摘・運用上のフォローアップ Issue で、本書のタスク一覧には載せず `docs/review-backlog.md` と合わせて管理する。
 
 ---
 
@@ -132,9 +132,9 @@ M1〜M5 の全タスクは GitHub Issues #1〜#27（マイルストーン M1〜M
   - [x] 第1回レビュー指摘への対応（ソース公開の明記・`load_plugin_textdomain()` 削除・翻訳ファイル非同梱・エスケープ再確認）— Issue #61
   - [x] v1.0.1 としてリリース準備（バージョン文字列・Stable tag・changelog）。審査対応で配布物が変わったため、初回公開版は 1.0.0 ではなく 1.0.1 になる
   - [x] 審査承認後、リポジトリ Secrets（`SVN_USERNAME` / `SVN_PASSWORD`）を登録し、`deploy-wporg.yml` を `version=1.0.1` で手動実行して SVN の trunk / `tags/1.0.1` / assets へ初回デプロイ（2026-09-26）。以後のリリースも同ワークフローを手動実行する
-- [ ] translate.wordpress.org での日本語翻訳（言語パック配信は Stable サブプロジェクトの翻訳率 90% 以上で開始）
+- [x] translate.wordpress.org での日本語翻訳（言語パック配信は Stable サブプロジェクトの翻訳率 90% 以上で開始。ja 言語パックは 2026-09-29 から配信中。readme サブプロジェクトの翻訳は 0% のままだが言語パックの要件外なので任意）
   - [x] `languages/saai-knowledge-ja.po` のインポート
-  - [ ] PTE 申請 → インポートした訳文の承認
+  - [x] PTE 申請 → インポートした訳文の承認（Stable / Development とも 100%）
 
 ### 完了条件
 
@@ -151,17 +151,17 @@ M1〜M5 の全タスクは GitHub Issues #1〜#27（マイルストーン M1〜M
 
 ### タスク
 
-- [x] アドオン骨格: 依存チェック（無料版 + WooCommerce、fatal にしない）、HPOS / Cart-Checkout Blocks 互換宣言
-- [x] 紐づけメタ（`saai_linked_products` / `saai_linked_product_cats`、1値1行保存）+ 解決ロジック（商品 ∪ 所属カテゴリー祖先、重複排除）
-- [x] コンテンツ側 UI: エディターサイドバーで商品・商品カテゴリー検索選択
-- [x] 商品側 UI: 商品編集画面の逆引きメタボックス（一覧・追加・解除）
-- [ ] 商品ページ表示: FAQ セクション（**主経路は両テーマとも `woocommerce_product_tabs`**。未カスタマイズの blockified テンプレートは legacy タブを描画するため。保存済みテンプレート向けに Woo 公式の `woocommerce_product_details_hooked_blocks` を併用するかは着手時に実機検証して決める。DESIGN.md §6.2 参照）、関連 KB セクション、商品説明への用語ツールチップ注入（`saai_autolink_dictionary`）— 各自動挿入は設定で on/off
-- [ ] 手動配置ブロック: `product-faq` / `product-docs` / `product-glossary` + ショートコード
-- [ ] RAG エクスポートへの商品メタデータ付与（`saai_export_record` で商品ID / SKU / 商品カテゴリーを注入 — 商品対応サポートAI構築用）
-- [x] 紐づけ解決ロジックのユニットテスト
-- [ ] 商品ページの E2E テスト
-- [ ] QIT（Quality Insights Toolkit）テストのパス
-- [ ] WooCommerce.com Marketplace 申請ドキュメント整備 → 申請 → レビュー対応
+- [x] アドオン骨格: 依存チェック（無料版 + WooCommerce、fatal にしない）、HPOS / Cart-Checkout Blocks 互換宣言 — Issue #20
+- [x] 紐づけメタ（`saai_linked_products` / `saai_linked_product_cats`、1値1行保存）+ 解決ロジック（商品 ∪ 所属カテゴリー祖先、重複排除） — Issue #21（PR #64）
+- [x] コンテンツ側 UI: エディターサイドバーで商品・商品カテゴリー検索選択（商品検索は Woo REST ではなく core REST `/wp/v2/product` を使う。DESIGN.md §6.1 訂正済み） — Issue #21
+- [x] 商品側 UI: 商品編集画面の逆引きメタボックス（一覧・追加・解除） — Issue #21
+- [ ] 商品ページ表示: FAQ セクション（**主経路は両テーマとも `woocommerce_product_tabs`**。未カスタマイズの blockified テンプレートは legacy タブを描画するため。保存済みテンプレート向けに Woo 公式の `woocommerce_product_details_hooked_blocks` を併用するかは着手時に実機検証して決める。DESIGN.md §6.2 参照）、関連 KB セクション、商品説明への用語ツールチップ注入（`saai_autolink_dictionary`）— 各自動挿入は設定で on/off — Issue #22
+- [ ] 手動配置ブロック: `product-faq` / `product-docs` / `product-glossary` + ショートコード（有料版で初めてビルドを導入する: `package.json` / lint / CI の対象追加を含む。手順は `.claude/skills/saai-block-scaffold`） — Issue #23
+- [ ] RAG エクスポートへの商品メタデータ付与（`saai_export_record` で商品ID / SKU / 商品カテゴリーを注入 — 商品対応サポートAI構築用） — Issue #27
+- [x] 紐づけ解決ロジックのユニットテスト — Issue #21
+- [ ] 商品ページの E2E テスト（Storefront + ブロックテーマ。ブロックテーマは未カスタマイズ／サイトエディター保存済みの両方） — Issue #22
+- [ ] QIT（Quality Insights Toolkit）テストのパス — Issue #24
+- [ ] WooCommerce.com Marketplace 申請ドキュメント整備 → 申請 → レビュー対応 — Issue #24
 
 ### 完了条件
 
@@ -188,4 +188,5 @@ Marketplace 申請は共有スキル（`~/.claude/skills/`。元本は <https://
 
 - タスク完了時に本書のチェックボックスを更新し、同一コミットに含める。
 - 設計と実装が乖離したら DESIGN.md を先に直す（ドキュメント優先）。
+- レビューで今回対応しなかった指摘は `docs/review-backlog.md` に記録し、対応する場合は Issue を起票する（2026-10-09 時点で open のもの: #49 / #50 / #52 / #53 / #56）。
 - v1.0 スコープ外（バックログ）: 記事のドラッグ&ドロップ並び替え UI、`saai_tag` の本格活用、KB 記事の評価（役に立った？）ボタン、アナリティクス、Freemius 等による自社販売、ルート `/llms.txt` の自前生成（第3層: 競合検知 + Site Health チェック付き。DESIGN.md §7.2）、WordPress Abilities API + MCP アダプター対応。
