@@ -9,6 +9,10 @@ import { __, sprintf } from '@wordpress/i18n';
 const SEARCH_DEBOUNCE_MS = 300;
 const MAX_SUGGESTIONS = 20;
 
+// Returned while there is nothing to search: a fresh [] on every call would
+// make useSelect() see a changed value each time and re-render for nothing.
+const NO_MATCHES = [];
+
 /**
  * Reads a product record's display name.
  *
@@ -32,12 +36,15 @@ function productName( record ) {
 /**
  * Searchable product selector for the product blocks' `productId` attribute.
  *
- * Products are searched through core's own /wp/v2/product route, like the
- * add-on's Linked Products panel (docs/DESIGN.md section 6.1): WooCommerce's
- * /wc/v3/products needs product capabilities an Editor doesn't have. The
- * search is limited to titles because ComboboxControl re-filters the options
- * it is given against the typed text, so a product matched on its
- * description alone would be invisible while still taking a result slot.
+ * Products are searched through core's own /wp/v2/product route
+ * (docs/DESIGN.md section 6.1): WooCommerce's /wc/v3/products needs product
+ * capabilities an Editor doesn't have. Both queries ask for the `view`
+ * context explicitly — core-data requests post type records in the `edit`
+ * context by default, which that route also refuses to anyone without
+ * `edit_products` (403 rest_forbidden_context for an Editor). The search is
+ * limited to titles because ComboboxControl re-filters the options it is
+ * given against the typed text, so a product matched on its description
+ * alone would be invisible while still taking a result slot.
  *
  * @param {Object}   props           Component props.
  * @param {number}   props.productId The selected product ID; 0 for none.
@@ -52,6 +59,7 @@ export default function ProductPicker( { productId, onChange } ) {
 		( select ) => {
 			const core = select( coreStore );
 			const searchQuery = {
+				context: 'view',
 				search,
 				search_columns: [ 'post_title' ],
 				per_page: MAX_SUGGESTIONS,
@@ -61,6 +69,7 @@ export default function ProductPicker( { productId, onChange } ) {
 			const selectedRecords =
 				productId > 0
 					? core.getEntityRecords( 'postType', 'product', {
+							context: 'view',
 							include: [ productId ],
 							per_page: 1,
 					  } )
@@ -69,12 +78,12 @@ export default function ProductPicker( { productId, onChange } ) {
 			return {
 				matches:
 					'' === search
-						? []
+						? NO_MATCHES
 						: core.getEntityRecords(
 								'postType',
 								'product',
 								searchQuery
-						  ) ?? [],
+						  ) ?? NO_MATCHES,
 				selected: selectedRecords?.[ 0 ] ?? null,
 				isSearching:
 					'' !== search &&
