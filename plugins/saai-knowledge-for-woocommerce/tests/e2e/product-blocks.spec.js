@@ -4,6 +4,7 @@ const {
 	Admin,
 	Editor,
 	PageUtils,
+	RequestUtils,
 } = require( '@wordpress/e2e-test-utils-playwright' );
 const {
 	SINGLE_PRODUCT_TEMPLATE_ID,
@@ -252,6 +253,10 @@ test.describe( 'Product blocks (Twenty Twenty-Five)', () => {
 		browser,
 		requestUtils,
 	} ) => {
+		// Log in, open a new post, insert a block, search: a long flow on a
+		// slow CI runner.
+		test.setTimeout( 120000 );
+
 		// The picker searches core's /wp/v2/product; in the `edit` context
 		// core-data uses by default, that route answers an Editor (no
 		// `edit_products`) with 403, so this is the case that proves the
@@ -268,17 +273,25 @@ test.describe( 'Product blocks (Twenty Twenty-Five)', () => {
 				password,
 				roles: [ 'editor' ],
 			} );
+
+			// Logged in through a request context, as the global setup does
+			// for the admin, rather than through the login form: a click on
+			// "Log In" right after the page loads was seen on CI to submit
+			// nothing at all (no POST to wp-login.php in the trace).
+			const editorRequest = await RequestUtils.setup( {
+				user: { username, password },
+				baseURL: process.env.WP_BASE_URL,
+			} );
+			await editorRequest.login();
+			const storageState = await editorRequest.request.storageState();
+			await editorRequest.request.dispose();
+
 			context = await browser.newContext( {
 				baseURL: process.env.WP_BASE_URL,
+				storageState,
 			} );
 
 			const editorPage = await context.newPage();
-
-			await editorPage.goto( '/wp-login.php' );
-			await editorPage.locator( '#user_login' ).fill( username );
-			await editorPage.locator( '#user_pass' ).fill( password );
-			await editorPage.locator( '#wp-submit' ).click();
-			await editorPage.waitForURL( '**/wp-admin/**' );
 
 			const editor = new Editor( { page: editorPage } );
 			const admin = new Admin( {
