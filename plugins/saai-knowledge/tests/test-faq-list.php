@@ -409,6 +409,42 @@ class Test_Faq_List extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A `the_post` callback that throws while the previous post is set up
+	 * again must not skip writing the postdata snapshot back: a caller that
+	 * catches the exception and keeps rendering would otherwise carry on
+	 * with the values the re-run recalculated.
+	 */
+	public function test_items_restores_postdata_when_a_the_post_callback_throws() {
+		$this->create_faq();
+		$page_id = self::factory()->post->create( array( 'post_type' => 'page' ) );
+
+		$this->go_to( get_permalink( $page_id ) );
+
+		$GLOBALS['page']     = 7; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- sentinel the snapshot must restore.
+		$GLOBALS['numpages'] = 9; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- sentinel the snapshot must restore.
+
+		$callback = static function ( $post ) use ( $page_id ) {
+			if ( $page_id === $post->ID ) {
+				throw new RuntimeException( 'the_post failed' );
+			}
+		};
+
+		add_action( 'the_post', $callback );
+
+		try {
+			$this->faq_list->items( array() );
+			$this->fail( 'The exception from the the_post callback should propagate.' );
+		} catch ( RuntimeException $e ) {
+			$this->assertSame( 'the_post failed', $e->getMessage() );
+		} finally {
+			remove_action( 'the_post', $callback );
+		}
+
+		$this->assertSame( 7, $GLOBALS['page'] );
+		$this->assertSame( 9, $GLOBALS['numpages'] );
+	}
+
+	/**
 	 * The orderBy/order attributes should control the item order.
 	 */
 	public function test_items_ordering_by_title() {

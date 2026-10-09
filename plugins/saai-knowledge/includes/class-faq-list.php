@@ -663,13 +663,16 @@ final class Faq_List {
 			$GLOBALS['post'] = $previous_post; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- restoring the exact pre-render value saved above.
 
 			// Re-runs `the_post` for the previous post; the snapshot below
-			// then puts the postdata globals back to their exact prior values.
-			if ( $previous_post instanceof \WP_Post ) {
-				setup_postdata( $previous_post );
-			}
-
-			foreach ( $previous_globals as $var => $value ) {
-				$GLOBALS[ $var ] = $value; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited, WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- restoring the exact pre-render values of WordPress's own postdata globals saved above.
+			// then puts the postdata globals back to their exact prior values,
+			// even when a `the_post` callback throws.
+			try {
+				if ( $previous_post instanceof \WP_Post ) {
+					setup_postdata( $previous_post );
+				}
+			} finally {
+				foreach ( $previous_globals as $var => $value ) {
+					$GLOBALS[ $var ] = $value; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited, WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- restoring the exact pre-render values of WordPress's own postdata globals saved above.
+				}
 			}
 		}
 	}
