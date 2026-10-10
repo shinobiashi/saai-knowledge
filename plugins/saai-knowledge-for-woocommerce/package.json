@@ -7,6 +7,9 @@
         "assets",
         "build",
         "includes",
+        "languages",
+        "changelog.txt",
+        "readme.txt",
         "saai-knowledge-for-woocommerce.php"
     ],
     "scripts": {

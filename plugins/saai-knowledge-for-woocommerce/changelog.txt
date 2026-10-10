@@ -1,0 +1,8 @@
+*** SAAI Knowledge for WooCommerce Changelog ***
+
+2026-10-10 - version 1.0.0
+* Added - Link FAQs, knowledge base articles, and glossary terms to WooCommerce products and product categories, from the content's editor sidebar or from the product's edit screen.
+* Added - Product pages show the linked FAQs in a FAQ tab (with FAQPage structured data), the linked knowledge base articles as related documentation, and tooltips for the linked glossary terms in the product descriptions; each insertion can be turned off.
+* Added - Product FAQ, Product Documentation, and Product Glossary blocks, and the matching [saai_product_faq], [saai_product_docs], and [saai_product_glossary] shortcodes, for placing the linked content anywhere.
+* Added - The SAAI Knowledge RAG export includes the products and product categories each FAQ, article, or term is linked to.
+* Added - Japanese translation.

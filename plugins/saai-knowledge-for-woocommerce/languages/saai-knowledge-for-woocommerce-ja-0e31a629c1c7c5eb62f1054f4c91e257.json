@@ -1,0 +1,48 @@
+{
+    "translation-revision-date": "2026-10-10T00:00:00+00:00",
+    "generator": "WP-CLI\/2.12.0",
+    "source": "assets\/js\/linked-products-panel.js",
+    "domain": "messages",
+    "locale_data": {
+        "messages": {
+            "": {
+                "domain": "messages",
+                "lang": "ja",
+                "plural-forms": "nplurals=1; plural=0;"
+            },
+            "Cannot be shown \u2014 unpublished or deleted (#%d)": [
+                "\u8868\u793a\u3067\u304d\u307e\u305b\u3093 \u2014 \u975e\u516c\u958b\u307e\u305f\u306f\u524a\u9664\u6e08\u307f\uff08#%d\uff09"
+            ],
+            "Remove %s": [
+                "%s\u3092\u5916\u3059"
+            ],
+            "Remove": [
+                "\u5916\u3059"
+            ],
+            "Products": [
+                "\u5546\u54c1"
+            ],
+            "No products linked yet.": [
+                "\u307e\u3060\u5546\u54c1\u306f\u7d10\u3065\u3044\u3066\u3044\u307e\u305b\u3093\u3002"
+            ],
+            "Add a product": [
+                "\u5546\u54c1\u3092\u8ffd\u52a0"
+            ],
+            "Product categories": [
+                "\u5546\u54c1\u30ab\u30c6\u30b4\u30ea\u30fc"
+            ],
+            "No product categories linked yet.": [
+                "\u307e\u3060\u5546\u54c1\u30ab\u30c6\u30b4\u30ea\u30fc\u306f\u7d10\u3065\u3044\u3066\u3044\u307e\u305b\u3093\u3002"
+            ],
+            "Add a product category": [
+                "\u5546\u54c1\u30ab\u30c6\u30b4\u30ea\u30fc\u3092\u8ffd\u52a0"
+            ],
+            "A category also covers the products in its subcategories.": [
+                "\u30ab\u30c6\u30b4\u30ea\u30fc\u3092\u7d10\u3065\u3051\u308b\u3068\u3001\u305d\u306e\u5b50\u30ab\u30c6\u30b4\u30ea\u30fc\u306e\u5546\u54c1\u306b\u3082\u9069\u7528\u3055\u308c\u307e\u3059\u3002"
+            ],
+            "Linked Products": [
+                "\u7d10\u3065\u3051\u305f\u5546\u54c1"
+            ]
+        }
+    }
+}

@@ -82,6 +82,15 @@ jobs:
             exit 1
           fi
 
+      - name: Build add-on release ZIP
+        working-directory: plugins/saai-knowledge-for-woocommerce
+        run: npx wp-scripts plugin-zip
+
+      # Contents, translations, and version agreement for the WooCommerce.com
+      # upload; the checks live in the script so they can be run locally too.
+      - name: Verify add-on release ZIP
+        run: bash bin/verify-woo-zip.sh
+
   e2e:
     name: E2E (Playwright)
     runs-on: ubuntu-latest

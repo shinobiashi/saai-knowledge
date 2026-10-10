@@ -3,12 +3,12 @@
  * Plugin Name:          SAAI Knowledge for WooCommerce
  * Plugin URI:           https://github.com/shinobiashi/saai-knowledge
  * Description:          Links FAQ / Knowledge Base / Glossary content from SAAI Knowledge to WooCommerce products and product categories, and displays it on product pages.
- * Version:              0.1.0
+ * Version:              1.0.0
  * Requires at least:    6.9
  * Requires PHP:         8.2
  * Requires Plugins:     woocommerce, saai-knowledge
- * WC requires at least: 10.9
- * WC tested up to:      11.1
+ * WC requires at least: 11.0
+ * WC tested up to:      11.2
  * Author:               Shinobiashi
  * License:              GPL v2 or later
  * License URI:          https://www.gnu.org/licenses/gpl-2.0.html
@@ -20,12 +20,12 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'SAAI_KNOWLEDGE_WOO_VERSION', '0.1.0' );
+define( 'SAAI_KNOWLEDGE_WOO_VERSION', '1.0.0' );
 define( 'SAAI_KNOWLEDGE_WOO_DIR', plugin_dir_path( __FILE__ ) );
 define( 'SAAI_KNOWLEDGE_WOO_URL', plugin_dir_url( __FILE__ ) );
 define( 'SAAI_WOO_MIN_BASE_VERSION', '1.0.0' );
 // Keep in sync with the "WC requires at least" header above.
-define( 'SAAI_WOO_MIN_WC_VERSION', '10.9' );
+define( 'SAAI_WOO_MIN_WC_VERSION', '11.0' );
 
 spl_autoload_register(
 	function ( $fqcn ) {
