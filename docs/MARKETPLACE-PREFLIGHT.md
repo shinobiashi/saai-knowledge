@@ -18,13 +18,19 @@ npm run build
 #    バージョン・WC 要件ヘッダーの一致
 bash bin/verify-woo-zip.sh
 
-# 2. Plugin Check（展開した ZIP に対して。dist/ は .gitignore 済み）
-mkdir dist/woo-check && unzip -q plugins/saai-knowledge-for-woocommerce/saai-knowledge-for-woocommerce.zip -d dist/woo-check
+# 2. Plugin Check（展開した ZIP に対して。dist/ は .gitignore 済み。前回の展開物は消してから入れ直す）
+rm -rf dist/woo-check && mkdir -p dist/woo-check
+unzip -oq plugins/saai-knowledge-for-woocommerce/saai-knowledge-for-woocommerce.zip -d dist/woo-check
 npx wp-env run cli bash -c "wp plugin check /var/www/html/saai-monorepo/dist/woo-check/saai-knowledge-for-woocommerce \
   --slug=saai-knowledge-for-woocommerce \
   --categories=general,plugin_repo,security,performance,accessibility --include-experimental"
 
-# 3. 互換マトリクス（qit CLI と Docker が必要。既定は WP 7.0 / 7.1 × WC 11.0 / 11.1 / 11.2 の 6 通り）
+# 3. PHPCompatibility（composer lint にも含まれる。有料版だけを明示的に見る場合）
+vendor/bin/phpcs --standard=PHPCompatibilityWP --runtime-set testVersion 8.2- --extensions=php \
+  plugins/saai-knowledge-for-woocommerce/includes plugins/saai-knowledge-for-woocommerce/src \
+  plugins/saai-knowledge-for-woocommerce/saai-knowledge-for-woocommerce.php
+
+# 4. 互換マトリクス（qit CLI と Docker が必要。既定は WP 7.0 / 7.1 × WC 11.0 / 11.1 / 11.2 の 6 通り）
 bash bin/qit-matrix.sh
 bash bin/qit-matrix.sh 7.1.3:11.3.0   # 組み合わせを指定する場合（WP:WC）
 ```
@@ -47,6 +53,7 @@ bash bin/qit-matrix.sh 7.1.3:11.3.0   # 組み合わせを指定する場合（W
   - 対応前の ZIP では次の 2 件も出ていたが、今回の対応で解消した
   - `no_plugin_readme`（ERROR）
   - `plugin_header_nonexistent_domain_path`（WARNING）
+- **PHPCompatibility**（`PHPCompatibilityWP`、testVersion 8.2-）: エラー・警告とも 0（有料版の PHP 20 ファイル）
 - **`bin/qit-matrix.sh`**: 6 通りすべて pass
 
 | WordPress | WooCommerce | 有効化 | E2E（有料版） | 巡回 | 訪問者に FAQ タブ | 無料版を外した時 | debug.log |
@@ -86,6 +93,9 @@ E2E の 11 件は、`product-blocks` 5 件・`product-page-block-theme` 4 件・
 
 ## 申請時（#24）に確認すること
 
+- **PR #73（Issue #71）がマージ済みであること**
+  - readme.txt の「an Editor does not need WooCommerce's product permissions」は、Linked Products パネルが `context: 'view'` で商品を引く #73 の修正が前提
+  - マージ後は `bin/qit-matrix.sh` の E2E に `linked-products-panel.spec.js`（Editor ロールでパネルを操作する）が自動で加わる。その件数が 11 件より増えていることを確かめる
 - QIT の PHPCompatibility テストの `--min_php_version=auto` が `Requires PHP: 8.2` を下限に使うか。7.4 から検査されると、PHP 8 の構文で失敗しうる
 - PHP 要件 8.2 が受け入れられるか（提出要件の読み方。DESIGN.md §6.3）
 - オフラインの Activation テストで、上記の `plugins_api()` の Warning が問題にならないか
