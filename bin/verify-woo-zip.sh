@@ -31,7 +31,12 @@ fail() {
 CHECK_DIR="$(mktemp -d "${RUNNER_TEMP:-/tmp}/$SLUG-zip-check.XXXXXX")"
 # Keep the failing status: without the explicit exit, the trap's own rm
 # would become the script's exit status.
-trap 'status=$?; rm -rf "$CHECK_DIR"; exit "$status"' EXIT
+on_exit() {
+	local status=$?
+	rm -rf "$CHECK_DIR"
+	exit "$status"
+}
+trap on_exit EXIT
 unzip -q "$ZIP" -d "$CHECK_DIR"
 ROOT="$CHECK_DIR/$SLUG"
 
