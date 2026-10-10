@@ -242,6 +242,43 @@ class Test_Markdown_Converter extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The RAG export's content_plain is plain text, not Markdown, so the
+	 * character references `the_content` is full of (wptexturize's curly
+	 * quotes, an escaped "&", a non-breaking space) must come out as the
+	 * characters themselves (Issue #49).
+	 */
+	public function test_to_plain_text_decodes_html_character_references() {
+		$result = Markdown_Converter::to_plain_text( '<p>AT&amp;T&#8217;s &#8220;plan&#8221; a&nbsp;b</p>' );
+
+		$this->assertSame( "AT&T\u{2019}s \u{201C}plan\u{201D} a\u{00A0}b", $result );
+	}
+
+	/**
+	 * Decoding happens after the tags are stripped: an article's literal
+	 * `&lt;br&gt;` text stays the text "<br>" rather than becoming a real
+	 * tag that is stripped or turned into a line break, and a double-encoded
+	 * `&amp;lt;` is decoded exactly once.
+	 */
+	public function test_to_plain_text_keeps_escaped_markup_as_literal_text() {
+		$result = Markdown_Converter::to_plain_text( '<p>Use &lt;br&gt; here</p><p>Write &amp;lt; for &lt;</p>' );
+
+		$this->assertSame( "Use <br> here\n\nWrite &lt; for <", $result );
+	}
+
+	/**
+	 * The DOMDocument-less fallback of convert() returns Markdown, where a
+	 * character reference already stands for its character (CommonMark), so
+	 * it keeps them: decoding would turn an escaped `&lt;tag&gt;` into raw
+	 * HTML inside the Markdown.
+	 */
+	public function test_fallback_plain_text_keeps_html_character_references() {
+		$method = new \ReflectionMethod( Markdown_Converter::class, 'fallback_plain_text' );
+		$method->setAccessible( true );
+
+		$this->assertSame( 'AT&amp;T &lt;b&gt;', $method->invoke( null, '<p>AT&amp;T &lt;b&gt;</p>' ) );
+	}
+
+	/**
 	 * A code sample that itself contains a triple-backtick line (e.g. an
 	 * article demonstrating Markdown syntax) gets a fence longer than any
 	 * backtick run inside it, so that run can't close the block early

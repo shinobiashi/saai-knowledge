@@ -77,6 +77,14 @@ final class Markdown_Converter {
 	 * inserted after each common block-level closing tag (and for `<br>`)
 	 * before stripping.
 	 *
+	 * HTML character references (`&amp;`, `&#8217;`, ...) are deliberately
+	 * left as they are, unlike to_plain_text(): this is convert()'s output,
+	 * i.e. Markdown, and CommonMark already reads a character reference in
+	 * text as the character it stands for — `AT&amp;T` is correct Markdown
+	 * for "AT&T". Decoding here would instead turn an article's literal
+	 * `&lt;tag&gt;` text into raw HTML inside the Markdown, which a consumer
+	 * rendering that Markdown to HTML would treat as markup.
+	 *
 	 * @param string $html Rendered HTML.
 	 * @return string
 	 */
@@ -98,11 +106,17 @@ final class Markdown_Converter {
 	 * of relying on regexing tag boundaries in a flat string) — both wrap
 	 * strip_with_block_breaks().
 	 *
+	 * Unlike fallback_plain_text(), it also decodes HTML character
+	 * references: `the_content` output is full of them (wptexturize alone
+	 * turns every `'`/`"` into `&#8217;`/`&#8220;`...), and in text that is
+	 * not Markdown nothing downstream would ever decode `AT&amp;T` back to
+	 * "AT&T" for search/embedding.
+	 *
 	 * @param string $html Rendered HTML.
 	 * @return string
 	 */
 	public static function to_plain_text( string $html ): string {
-		return self::strip_with_block_breaks( $html );
+		return self::strip_with_block_breaks( $html, true );
 	}
 
 	/**
@@ -119,15 +133,24 @@ final class Markdown_Converter {
 	 * genuinely distinct cell values corrupted into one for full-text
 	 * search/embedding purposes (Codex review).
 	 *
-	 * @param string $html Rendered HTML.
+	 * Character references are decoded only after the tags are stripped:
+	 * decoding first would turn an article's literal `&lt;br&gt;` text into
+	 * a real tag, which the break insertion and stripping would then act on.
+	 *
+	 * @param string $html            Rendered HTML.
+	 * @param bool   $decode_entities Whether to decode HTML character references.
 	 * @return string
 	 */
-	private static function strip_with_block_breaks( string $html ): string {
+	private static function strip_with_block_breaks( string $html, bool $decode_entities = false ): string {
 		$with_breaks = (string) preg_replace( '#</(?:p|div|h[1-6]|li|blockquote|pre|tr|table|ul|ol)>#i', "$0\n\n", $html );
 		$with_breaks = (string) preg_replace( '#</(?:td|th)>#i', '$0 ', $with_breaks );
 		$with_breaks = (string) preg_replace( '#<br\s*/?>#i', "\n", $with_breaks );
 
 		$plain = wp_strip_all_tags( $with_breaks );
+
+		if ( $decode_entities ) {
+			$plain = html_entity_decode( $plain, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' );
+		}
 
 		return trim( (string) preg_replace( "/\n{3,}/", "\n\n", $plain ) );
 	}
