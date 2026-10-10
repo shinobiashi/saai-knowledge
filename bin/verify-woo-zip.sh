@@ -13,7 +13,9 @@
 #   - development files are not;
 #   - the version agrees everywhere the Marketplace compares it — the plugin
 #     header, the SAAI_KNOWLEDGE_WOO_VERSION constant, readme.txt's Stable
-#     tag, and changelog.txt's latest entry — and the WooCommerce version
+#     tag, and changelog.txt's latest entry, which must use WooCommerce.com's
+#     "YYYY-MM-DD - version x.y.z" form (a changelog in any other form is
+#     rejected at upload) — and the WooCommerce version
 #     headers agree between the plugin file, readme.txt, and the minimum the
 #     add-on enforces at runtime (SAAI_WOO_MIN_WC_VERSION).
 set -euo pipefail
@@ -70,12 +72,12 @@ README="$ROOT/readme.txt"
 VERSION="$(header 'Version' "$MAIN")"
 VERSION_CONSTANT="$(constant SAAI_KNOWLEDGE_WOO_VERSION "$MAIN")"
 STABLE_TAG="$(header 'Stable tag' "$README")"
-CHANGELOG_VERSION="$(sed -n 's/^= \([0-9][0-9.]*\) - [0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\} =$/\1/p' "$ROOT/changelog.txt" | head -n 1)"
+CHANGELOG_VERSION="$(tr -d '\r' < "$ROOT/changelog.txt" | sed -n 's/^[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\} - version \([0-9][0-9.]*\)[[:space:]]*$/\1/p' | head -n 1)"
 
 [ -n "$VERSION" ] || fail "No Version header in $SLUG.php."
 [ "$VERSION_CONSTANT" = "$VERSION" ] || fail "SAAI_KNOWLEDGE_WOO_VERSION ($VERSION_CONSTANT) does not match the Version header ($VERSION)."
 [ "$STABLE_TAG" = "$VERSION" ] || fail "readme.txt Stable tag ($STABLE_TAG) does not match the Version header ($VERSION)."
-[ "$CHANGELOG_VERSION" = "$VERSION" ] || fail "changelog.txt's latest entry (${CHANGELOG_VERSION:-none in the \"= x.y.z - YYYY-MM-DD =\" form}) does not match the Version header ($VERSION)."
+[ "$CHANGELOG_VERSION" = "$VERSION" ] || fail "changelog.txt's latest entry (${CHANGELOG_VERSION:-none in the \"YYYY-MM-DD - version x.y.z\" form}) does not match the Version header ($VERSION)."
 
 WC_MIN="$(header 'WC requires at least' "$MAIN")"
 WC_TESTED="$(header 'WC tested up to' "$MAIN")"

@@ -258,7 +258,7 @@ CPT 登録変更時のみ `flush_rewrite_rules()`（有効化時 + スラッグ�
 - ライセンス・更新: WooCommerce.com サブスクリプション機構に委譲する。Woo ヘッダー（`Woo:`）は Marketplace がアップロード時に付けるもので、プラグイン側では書かない（手で付けると QIT Validation の警告対象。[Validation](https://qit.woo.com/docs/managed-tests/validation/)）。
 - HPOS 互換宣言、WooCommerce L-2 バージョンポリシー（最新と直近 2 メジャー。最新 11.2 に対して `WC requires at least: 11.0`。下限はヘッダーと実行時チェックの `SAAI_WOO_MIN_WC_VERSION` で揃える）、QIT（Quality Insights Toolkit）テストのパス。
 - PHP 要件は 8.2 のまま。提出要件の「Products must support PHP 7.4+ as a minimum (PHP 8.3+ strongly recommended)」は「最低要件を 7.4 以上にする」と読む（2026-10-10 判断。申請時に窓口で確認する）。
-- 配布物: `readme.txt`（無いと QIT Validation が失敗）・`changelog.txt`（`= x.y.z - YYYY-MM-DD =` 形式。最新エントリがヘッダーの `Version` と食い違うとアップロードが拒否される）・`languages/`（§8.3）。中身とバージョンの一致（ヘッダー・`SAAI_KNOWLEDGE_WOO_VERSION`・readme の Stable tag・changelog）は `bin/verify-woo-zip.sh` が検証し、CI の build ジョブで流す。
+- 配布物: `readme.txt`（無いと QIT Validation が失敗）・`changelog.txt`（[公式書式](https://developer.woocommerce.com/docs/extensions/core-concepts/changelog-txt/)の `YYYY-MM-DD - version x.y.z` 見出しと `* Added - …` 等の項目。書式違いも、最新エントリとヘッダーの `Version` の食い違いも、アップロード拒否の理由になる。WordPress.org の readme 風の `= x.y.z =` ではない）・`languages/`（§8.3）。中身とバージョンの一致（ヘッダー・`SAAI_KNOWLEDGE_WOO_VERSION`・readme の Stable tag・changelog）は `bin/verify-woo-zip.sh` が検証し、CI の build ジョブで流す。
 - 申請前のローカル確認（Plugin Check・QIT のローカル環境での互換マトリクス）の手順と結果は `docs/MARKETPLACE-PREFLIGHT.md`。
 - 無料版の `saai_` フック群のみに依存し、無料版更新で壊れない互換ポリシー（無料版はフックの後方互換を semver で保証）。
 
