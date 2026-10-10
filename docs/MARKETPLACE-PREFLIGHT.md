@@ -53,7 +53,7 @@ bash bin/qit-matrix.sh 7.1.3:11.3.0   # 組み合わせを指定する場合（W
   - 対応前の ZIP では次の 2 件も出ていたが、今回の対応で解消した
   - `no_plugin_readme`（ERROR）
   - `plugin_header_nonexistent_domain_path`（WARNING）
-- **PHPCompatibility**（`PHPCompatibilityWP`、testVersion 8.2-）: エラー・警告とも 0（有料版の PHP 20 ファイル）
+- **PHPCompatibility**（`PHPCompatibilityWP`、testVersion 8.2-）: エラー・警告とも 0（有料版の PHP 19 ファイル: `includes/` 15・`src/*/render.php` 3・本体 1。展開した配布 ZIP の PHP 23 ファイル〔`build/` の 6 と `.l10n.php` を含む〕にかけても 0）
 - **`bin/qit-matrix.sh`**: 6 通りすべて pass
 
 | WordPress | WooCommerce | 有効化 | E2E（有料版） | 巡回 | 訪問者に FAQ タブ | 無料版を外した時 | debug.log |
