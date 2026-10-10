@@ -112,6 +112,7 @@ No. SAAI Knowledge does not call any external API or service; all processing hap
 
 = 1.0.3 =
 * Fixed: Authors and Contributors can now choose a category in the FAQ List block's settings. The list of categories was requested in a way that requires permission to manage categories, so for these roles it silently showed only "All categories".
+* Fixed: the `content_plain` field of the RAG export (the REST endpoint and the admin download) now contains the characters themselves instead of HTML character references such as `&amp;` or `&#8217;`.
 
 = 1.0.2 =
 * Fixed: an FAQ list (the `[saai_faq]` shortcode or the FAQ List block) in a WooCommerce product description no longer breaks the rest of the product page. Rendering the FAQ answers cleared the product that WooCommerce had set up for the page, so, depending on the theme, the Reviews tab could fail with a fatal error, or the Reviews tab and related products could silently disappear.
