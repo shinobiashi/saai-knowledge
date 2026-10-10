@@ -3,7 +3,7 @@
 - タスク: Issue #74（M5-5a）— Marketplace 申請前準備（readme / changelog / 1.0.0 / 翻訳同梱 / 配布 ZIP の CI 検証 / QIT 相当のローカルチェック / WC・WP 互換マトリクス）
 - 開始: 2026-10-10
 - PR: #75 https://github.com/shinobiashi/saai-knowledge/pull/75
-- 現在のステップ: 8（最終報告）
+- 現在のステップ: **完了**（マージ待ち。#73 → #75 の順）
 - モード: 確認ゲートあり（`auto-commit` なし）、Codex は `--request-codex`
 - Copilot: 依頼 1 回 / 収束（G1。見出しは Needs a closer look だが 0 open findings、理由は既出の #73 依存とマネージド検証）
 - Codex: 依頼 1 回 / 収束（G1 で新規指摘なし。`--request-codex` の手動依頼に応答）
@@ -19,3 +19,4 @@
 | 2026-10-10 20:50 | 3 | review-loop R2: **APPROVE**（R1-1〜R1-4 解消。独立サブエージェントが ZIP の複製の改変・bash 3.2 のハーネスで確認）。R2-2 の文書の数値（20→19）を修正、R2-1・R2-2 の残りを backlog |
 | 2026-10-10 20:02 | 4 | 初回 push（`f70a71b`、T=2026-10-10T11:02:27Z）+ PR #75 作成（本文に #73 先行マージの依存を明記） |
 | 2026-10-10 20:11 | 6-7 | G1: CI 12 チェック green 後に両 bot へ依頼。Copilot「Needs a closer look / 0 open findings」（理由は既出の #73 依存とマネージド検証）、Codex「Didn't find any major issues」→ 両 bot 収束、修正なし |
+| 2026-10-10 20:13 | 8 | 最終報告を作成し完了 |
