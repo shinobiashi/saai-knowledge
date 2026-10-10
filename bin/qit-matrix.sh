@@ -68,6 +68,31 @@ in_env() {
 	qit env:exec --env_id="$ENV_ID" "$1"
 }
 
+# IDs of the QIT environments running now, one per line.
+env_ids() {
+	qit env:list --json 2> /dev/null | python3 -c '
+import json, sys
+try:
+    envs = json.load(sys.stdin)
+except ValueError:
+    envs = []
+for env in envs if isinstance(envs, list) else []:
+    print(env.get("env_id", ""))
+' || true
+}
+
+# Runs a WP-CLI command that prints a new object's ID (--porcelain) and
+# echoes the ID; fails when the last line of output is not a number, so
+# stray output can never be glued into a wrong ID.
+porcelain_id() {
+	local id
+	id="$(in_env "$1" 2> /dev/null | tr -d '\r' | tail -n 1)" || true
+	case "$id" in
+		'' | *[!0-9]*) return 1 ;;
+	esac
+	echo "$id"
+}
+
 # GETs a path as the logged-in admin; prints "<code> <path>" and fails unless
 # the status is 200 (or the second argument, e.g. 302).
 fetch() {
@@ -107,16 +132,32 @@ for pair in "${MATRIX[@]}"; do
 	LOG="$WORK/$WP-$WC"
 	mkdir -p "$LOG"
 
+	BEFORE="$(env_ids | sort)"
 	if ! ( cd "$WORK" && qit env:up --wp="$WP" --woo="$WC" --plugin="$WORK/$SLUG.zip" --online --json > "$LOG/env.json" 2> "$LOG/env.err" ); then
-		echo "    !! qit env:up failed (see $LOG/env.json)"
+		echo "    !! qit env:up failed (see $LOG/env.json and env.err)"
 		RESULTS+=( "$WP / $WC: env:up failed" )
 		FAILED=1
 		continue
 	fi
 
-	ENV_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["env_id"])' "$LOG/env.json")"
-	SITE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["site_url"])' "$LOG/env.json")"
-	FAILURES="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1])).get("plugin_activation_failures") or []))' "$LOG/env.json")"
+	if ! ENV_INFO="$(python3 -c '
+import json, sys
+env = json.load(open(sys.argv[1]))
+print(env["env_id"])
+print(env["site_url"])
+print(len(env.get("plugin_activation_failures") or []))
+' "$LOG/env.json")"; then
+		echo "    !! could not read $LOG/env.json"
+		# Stop whatever this run started, and only that: other QIT
+		# environments on this machine are none of this script's business.
+		comm -13 <(echo "$BEFORE") <(env_ids | sort) | while read -r id; do
+			[ -n "$id" ] && qit env:down "$id" > /dev/null 2>&1 || true
+		done
+		RESULTS+=( "$WP / $WC: env.json unreadable" )
+		FAILED=1
+		continue
+	fi
+	{ read -r ENV_ID; read -r SITE; read -r FAILURES; } <<< "$ENV_INFO"
 	echo "    $SITE ($ENV_ID), activation failures: $FAILURES"
 	STEP_FAILED=0
 	[ "$FAILURES" = "0" ] || STEP_FAILED=1
@@ -138,11 +179,15 @@ for pair in "${MATRIX[@]}"; do
 
 	# Content for the crawl: a product with a linked FAQ (one meta row per ID,
 	# as the add-on stores links).
-	PRODUCT_ID="$(in_env "wp wc product create --name='QIT smoke product' --regular_price=10 --user=admin --porcelain" 2>/dev/null | tr -dc '0-9')"
-	FAQ_ID="$(in_env "wp post create --post_type=saai_faq --post_status=publish --post_title='QIT smoke question' --post_content='QIT smoke answer.' --porcelain" 2>/dev/null | tr -dc '0-9')"
-	in_env "wp post meta add $FAQ_ID saai_linked_products $PRODUCT_ID" > /dev/null 2>&1
-	PRODUCT_URL="$(in_env "wp post url $PRODUCT_ID" 2>/dev/null | tr -d '\r' | tail -n 1)"
-	echo "    product $PRODUCT_ID, FAQ $FAQ_ID, $PRODUCT_URL"
+	PRODUCT_ID="$(porcelain_id "wp wc product create --name='QIT smoke product' --regular_price=10 --user=admin --porcelain")" || { echo "    !! could not create the product"; STEP_FAILED=1; }
+	FAQ_ID="$(porcelain_id "wp post create --post_type=saai_faq --post_status=publish --post_title='QIT smoke question' --post_content='QIT smoke answer.' --porcelain")" || { echo "    !! could not create the FAQ"; STEP_FAILED=1; }
+	in_env "wp post meta add ${FAQ_ID:-0} saai_linked_products ${PRODUCT_ID:-0}" > /dev/null 2>&1 || STEP_FAILED=1
+	PRODUCT_URL="$(in_env "wp post url ${PRODUCT_ID:-0}" 2> /dev/null | tr -d '\r' | tail -n 1)" || true
+	case "$PRODUCT_URL" in
+		"$SITE"/*) ;;
+		*) echo "    !! no product URL"; PRODUCT_URL="$SITE/"; STEP_FAILED=1 ;;
+	esac
+	echo "    product ${PRODUCT_ID:-?}, FAQ ${FAQ_ID:-?}, $PRODUCT_URL"
 	in_env "wp rewrite flush" > /dev/null 2>&1 || true
 	# A new store can be in WooCommerce's "coming soon" mode, which shows
 	# logged-out visitors a placeholder instead of the shop (the E2E specs
@@ -151,14 +196,14 @@ for pair in "${MATRIX[@]}"; do
 
 	echo "    crawl (admin)"
 	rm -f "$WORK/cookies"
-	curl -s -o /dev/null -c "$WORK/cookies" "$SITE/wp-login.php"
+	curl -s -o /dev/null -c "$WORK/cookies" "$SITE/wp-login.php" || STEP_FAILED=1
 	curl -s -o /dev/null -b "$WORK/cookies" -c "$WORK/cookies" \
 		--data-urlencode 'log=admin' --data-urlencode 'pwd=password' \
 		--data-urlencode 'testcookie=1' --data-urlencode "redirect_to=$SITE/wp-admin/" \
-		"$SITE/wp-login.php"
+		"$SITE/wp-login.php" || STEP_FAILED=1
 	crawl "$PRODUCT_URL" || STEP_FAILED=1
 	# As a visitor: what a shopper sees.
-	curl -s -o "$LOG/product.html" "$PRODUCT_URL"
+	curl -s -o "$LOG/product.html" "$PRODUCT_URL" || STEP_FAILED=1
 	if grep -q 'tab-title-saai_faq' "$LOG/product.html"; then
 		echo "    product page shows the FAQ tab"
 	else
@@ -190,7 +235,9 @@ for pair in "${MATRIX[@]}"; do
 	# env:exec may print its own status lines; keep only PHP log entries.
 	if grep -E '^\[[0-9]{2}-[A-Za-z]{3}-[0-9]{4} ' "$LOG/debug.log" > "$LOG/debug-entries.log"; then
 		echo "    !! debug.log has $(wc -l < "$LOG/debug-entries.log" | tr -d ' ') entries:"
-		sed 's/^/       /' "$LOG/debug-entries.log" | head -n 20
+		# head first: piping sed into head would SIGPIPE sed on a long log,
+		# and pipefail + set -e would then abort the whole matrix.
+		head -n 20 "$LOG/debug-entries.log" | sed 's/^/       /'
 		STEP_FAILED=1
 	else
 		echo "    debug.log empty"
