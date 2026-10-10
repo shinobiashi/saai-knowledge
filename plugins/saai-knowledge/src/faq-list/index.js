@@ -18,9 +18,13 @@ function Edit( { attributes, setAttributes } ) {
 	const { category, count, orderBy, order, groupByCategory } = attributes;
 	const blockProps = useBlockProps();
 
+	// `view`, not core-data's default `edit` context: the edit context needs
+	// the taxonomy's `edit_terms` (`manage_categories`), so an Author or a
+	// Contributor would get a 403 and see no categories to choose from.
 	const categories = useSelect(
 		( select ) =>
 			select( coreStore ).getEntityRecords( 'taxonomy', 'saai_category', {
+				context: 'view',
 				per_page: -1,
 			} ),
 		[]
