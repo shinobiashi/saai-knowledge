@@ -7,11 +7,16 @@
  * and product categories are searched through core's own /wp/v2/product and
  * /wp/v2/product_cat collections rather than WooCommerce's /wc/v3/products,
  * whose read permission (read_private_products) is limited to administrators
- * and shop managers — see docs/DESIGN.md section 6.1.
+ * and shop managers — see docs/DESIGN.md section 6.1. Every query asks for
+ * the `view` context explicitly: core-data requests post type and taxonomy
+ * records in the `edit` context by default, which those routes refuse to
+ * anyone without product capabilities (403 rest_forbidden_context for an
+ * Editor) — the searches would come back empty and every linked item would
+ * read as "Cannot be shown".
  *
- * Hand-written for the global `wp` object on purpose: the add-on has no build
- * step until the product blocks land, mirroring the free plugin's
- * assets/js/glossary-panel.js.
+ * Hand-written for the global `wp` object, mirroring the free plugin's
+ * assets/js/glossary-panel.js; the add-on's wp-scripts build and lint cover
+ * src/ only (docs/review-backlog.md R1-B2).
  */
 ( function ( wp ) {
 	'use strict';
@@ -150,6 +155,7 @@
 
 				return (
 					select( 'core' ).getEntityRecords( kind, name, {
+						context: 'view',
 						include: ids,
 						per_page: -1,
 					} ) || []
@@ -260,6 +266,7 @@
 
 				return (
 					select( 'core' ).getEntityRecords( 'postType', 'product', {
+						context: 'view',
 						search: productSearch,
 						// Titles only: ComboboxControl re-filters the options it
 						// is given against the typed text, so a product matched
@@ -283,6 +290,7 @@
 
 				return (
 					select( 'core' ).getEntityRecords( 'taxonomy', 'product_cat', {
+						context: 'view',
 						search: categorySearch,
 						per_page: MAX_SUGGESTIONS,
 						orderby: 'name',

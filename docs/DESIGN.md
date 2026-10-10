@@ -181,7 +181,7 @@ CPT 登録変更時のみ `flush_rewrite_rules()`（有効化時 + スラッグ�
 
 #### 検索 API（2026-09-24 に wp-env 実機で確認して決定）
 
-商品・商品カテゴリーの検索は **core REST の `/wp/v2/product` と `/wp/v2/product_cat`**（`@wordpress/core-data` の `getEntityRecords` 経由）を使う。**クエリには `context: 'view'` を明示する**: core-data は投稿タイプ・タクソノミーのエンティティを既定で `context=edit` で取得し、その場合 core のコントローラーは `edit_products` / 商品カテゴリーの編集権限を要求するため、Editor では 403（`rest_forbidden_context`）になる（2026-10-10 に wp-env で実測。商品ブロックのピッカーは対応済み、コンテンツ側パネルは review-backlog R1-X1（issue-23））。WooCommerce が両者を `show_in_rest: true` で登録しているため追加エンドポイントは不要。**WooCommerce 自身の `/wc/v3/products` は使わない**: 読み取り権限が `read_private_products`（既定で administrator / shop_manager のみ）なので、`edit_posts` は持つが商品権限を持たない Editor では検索が 403 になり UI が壊れる。
+商品・商品カテゴリーの検索は **core REST の `/wp/v2/product` と `/wp/v2/product_cat`**（`@wordpress/core-data` の `getEntityRecords` 経由）を使う。**クエリには `context: 'view'` を明示する**: core-data は投稿タイプ・タクソノミーのエンティティを既定で `context=edit` で取得し、その場合 core のコントローラーは `edit_products` / 商品カテゴリーの編集権限を要求するため、Editor では 403（`rest_forbidden_context`）になる（2026-10-10 に wp-env で実測。商品ブロックのピッカー〔Issue #23〕とコンテンツ側パネル〔Issue #71〕の両方で明示している。どちらも Editor ロールの E2E で固定）。WooCommerce が両者を `show_in_rest: true` で登録しているため追加エンドポイントは不要。**WooCommerce 自身の `/wc/v3/products` は使わない**: 読み取り権限が `read_private_products`（既定で administrator / shop_manager のみ）なので、`edit_posts` は持つが商品権限を持たない Editor では検索が 403 になり UI が壊れる。
 
 #### 有料版の REST 名前空間
 
