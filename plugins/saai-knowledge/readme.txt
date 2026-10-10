@@ -3,7 +3,7 @@ Contributors:      shinobiashi
 Tags:               faq, knowledge-base, glossary, search, structured-data
 Requires at least:  6.9
 Tested up to:       7.1
-Stable tag:         1.0.2
+Stable tag:         1.0.3
 Requires PHP:       8.2
 License:            GPLv2 or later
 License URI:        https://www.gnu.org/licenses/gpl-2.0.html
@@ -110,6 +110,9 @@ No. SAAI Knowledge does not call any external API or service; all processing hap
 
 == Changelog ==
 
+= 1.0.3 =
+* Fixed: Authors and Contributors can now choose a category in the FAQ List block's settings. The list of categories was requested in a way that requires permission to manage categories, so for these roles it silently showed only "All categories".
+
 = 1.0.2 =
 * Fixed: an FAQ list (the `[saai_faq]` shortcode or the FAQ List block) in a WooCommerce product description no longer breaks the rest of the product page. Rendering the FAQ answers cleared the product that WooCommerce had set up for the page, so, depending on the theme, the Reviews tab could fail with a fatal error, or the Reviews tab and related products could silently disappear.
 
@@ -123,6 +126,9 @@ No. SAAI Knowledge does not call any external API or service; all processing hap
 * Initial release.
 
 == Upgrade Notice ==
+
+= 1.0.3 =
+Lets Authors and Contributors choose a category in the FAQ List block, which previously offered them only "All categories".
 
 = 1.0.2 =
 Fixes WooCommerce product pages whose description contains an FAQ list: the Reviews tab could fail with a fatal error or disappear. Recommended for all WooCommerce sites.
