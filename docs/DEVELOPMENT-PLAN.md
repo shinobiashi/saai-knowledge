@@ -156,11 +156,11 @@ M1〜M5 の全タスクは GitHub Issues #1〜#27（マイルストーン M1〜M
 - [x] コンテンツ側 UI: エディターサイドバーで商品・商品カテゴリー検索選択（商品検索は Woo REST ではなく core REST `/wp/v2/product` を使う。DESIGN.md §6.1 訂正済み） — Issue #21
 - [x] 商品側 UI: 商品編集画面の逆引きメタボックス（一覧・追加・解除） — Issue #21
 - [x] 商品ページ表示: FAQ セクション（**両テーマとも `woocommerce_product_tabs` のみ**。`woocommerce_product_details_hooked_blocks` は併用しない — 実機検証の結果と理由は DESIGN.md §6.2）、関連 KB セクション、商品説明への用語ツールチップ注入（`saai_autolink_dictionary`）— 各自動挿入は設定で on/off — Issue #22
-- [x] 手動配置ブロック: `product-faq` / `product-docs` / `product-glossary` + ショートコード `[saai_product_faq]` / `[saai_product_docs]` / `[saai_product_glossary]`（有料版で初めてビルドを導入: `package.json` / lint の対象追加。配布 ZIP の CI 検証は #24 で追加。仕様は DESIGN.md §6.2「手動配置ブロック」） — Issue #23
+- [x] 手動配置ブロック: `product-faq` / `product-docs` / `product-glossary` + ショートコード `[saai_product_faq]` / `[saai_product_docs]` / `[saai_product_glossary]`（有料版で初めてビルドを導入: `package.json` / lint の対象追加。配布 ZIP の CI 検証は #74 で追加。仕様は DESIGN.md §6.2「手動配置ブロック」） — Issue #23
 - [x] RAG エクスポートへの商品メタデータ付与（`saai_export_record` で商品ID / SKU / 商品カテゴリーを注入 — 商品対応サポートAI構築用。形状は DESIGN.md §7.4） — Issue #27
 - [x] 紐づけ解決ロジックのユニットテスト — Issue #21
 - [x] 商品ページの E2E テスト（Storefront + ブロックテーマ。ブロックテーマは未カスタマイズ／サイトエディターで Product Details ブロックを入れ直して保存した（アコーディオン）テンプレートの両方） — Issue #22
-- [ ] QIT（Quality Insights Toolkit）テストのパス — Issue #24
+- [ ] QIT（Quality Insights Toolkit）テストのパス — Issue #24（申請前に済ませられる配布物の整備・1.0.0・翻訳同梱・ローカルの QIT 相当チェックは Issue #74。`docs/MARKETPLACE-PREFLIGHT.md`）
 - [ ] WooCommerce.com Marketplace 申請ドキュメント整備 → 申請 → レビュー対応 — Issue #24
 
 ### 完了条件

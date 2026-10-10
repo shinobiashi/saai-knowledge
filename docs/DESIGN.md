@@ -255,8 +255,11 @@ CPT 登録変更時のみ `flush_rewrite_rules()`（有効化時 + スラッグ�
 
 ### 6.3 Marketplace 要件
 
-- ライセンス・更新: WooCommerce.com サブスクリプション機構に委譲（`woo:` ヘッダー等 Marketplace 指定の作法に従う）。
-- HPOS 互換宣言、WooCommerce L-2 バージョンポリシー、QIT（Quality Insights Toolkit）テストのパス。
+- ライセンス・更新: WooCommerce.com サブスクリプション機構に委譲する。Woo ヘッダー（`Woo:`）は Marketplace がアップロード時に付けるもので、プラグイン側では書かない（手で付けると QIT Validation の警告対象。[Validation](https://qit.woo.com/docs/managed-tests/validation/)）。
+- HPOS 互換宣言、WooCommerce L-2 バージョンポリシー（最新と直近 2 メジャー。最新 11.2 に対して `WC requires at least: 11.0`。下限はヘッダーと実行時チェックの `SAAI_WOO_MIN_WC_VERSION` で揃える）、QIT（Quality Insights Toolkit）テストのパス。
+- PHP 要件は 8.2 のまま。提出要件の「Products must support PHP 7.4+ as a minimum (PHP 8.3+ strongly recommended)」は「最低要件を 7.4 以上にする」と読む（2026-10-10 判断。申請時に窓口で確認する）。
+- 配布物: `readme.txt`（無いと QIT Validation が失敗）・`changelog.txt`（`= x.y.z - YYYY-MM-DD =` 形式。最新エントリがヘッダーの `Version` と食い違うとアップロードが拒否される）・`languages/`（§8.3）。中身とバージョンの一致（ヘッダー・`SAAI_KNOWLEDGE_WOO_VERSION`・readme の Stable tag・changelog）は `bin/verify-woo-zip.sh` が検証し、CI の build ジョブで流す。
+- 申請前のローカル確認（Plugin Check・QIT のローカル環境での互換マトリクス）の手順と結果は `docs/MARKETPLACE-PREFLIGHT.md`。
 - 無料版の `saai_` フック群のみに依存し、無料版更新で壊れない互換ポリシー（無料版はフックの後方互換を semver で保証）。
 
 ---
@@ -351,7 +354,7 @@ plugins/saai-knowledge/
 
 - Text Domain = 各プラグインスラッグ。`wp i18n make-pot` / `make-json`（ブロックJS用）の手順は `bin/i18n-build.sh` にまとめる。
 - **無料版（WordPress.org 配布）**: `load_plugin_textdomain()` は呼ばない（WP 4.6 以降不要で、審査の指摘対象）。翻訳は translate.wordpress.org が生成する言語パック（`WP_LANG_DIR/plugins/`）から自動ロードされる。`languages/` は配布ZIPに同梱しない（`package.json` の `files` から除外し、`ci-js.yml` で混入を検知）。リポジトリの `languages/saai-knowledge-ja.po` は GlotPress へインポートする元データとして維持する。
-- **有料版（WooCommerce.com 配布）**: WordPress.org の言語パック配信対象外なので、`load_plugin_textdomain()` による自前ロードを維持する（呼び出しは実装済み。`languages/` 自体は未作成で、翻訳を用意する M5 以降に同梱する）。
+- **有料版（WooCommerce.com 配布）**: WordPress.org の言語パック配信対象外なので、`load_plugin_textdomain()` による自前ロードを維持し、`languages/` に `.pot` と日本語訳（`.po` / `.mo` / `.l10n.php` / スクリプトごとの JSON）を同梱する。生成は `bin/i18n-build-woo.sh`（`src/shared/*.js` は 3 ブロックすべての `index.js` にバンドルされるので、`make-json --use-map` で 3 つに対応付ける）。`Domain Path: /languages` は停止中のプラグイン一覧の翻訳に要るので残す。Plugin Check は `load_plugin_textdomain()` を非推奨として警告するが、WordPress.org 配布向けの指摘なので許容する。
 
 ---
 
