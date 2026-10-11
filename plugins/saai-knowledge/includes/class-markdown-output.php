@@ -332,8 +332,17 @@ final class Markdown_Output {
 
 			if ( is_array( $terms ) && $terms ) {
 				// A term name is as editable/arbitrary as a post title —
-				// escape it the same way (Copilot review).
-				$names   = array_map( array( Markdown_Converter::class, 'escape_text' ), wp_list_pluck( $terms, 'name' ) );
+				// escape it the same way (Copilot review). It is stored
+				// HTML-escaped (`pre_term_name` runs _wp_specialchars), and
+				// escape_text() takes plain text, so decode it first the way
+				// the title is: otherwise "Q&amp;A" would come out as the
+				// literal text "Q&amp;A" (Issue #79).
+				$names   = array_map(
+					static function ( $name ) {
+						return Markdown_Converter::escape_text( html_entity_decode( wp_strip_all_tags( (string) $name ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' ) );
+					},
+					wp_list_pluck( $terms, 'name' )
+				);
 				$lines[] = '**Category:** ' . implode( ', ', $names );
 			}
 		}

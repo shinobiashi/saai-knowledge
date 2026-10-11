@@ -74,7 +74,7 @@ add_action( 'saai_loaded', function ( $plugin ) {
 | --- | --- | --- |
 | `saai_export_record` | `( array $record, WP_Post $post, string $format ): array` | エクスポート1レコードの加工。record 形状は `DESIGN.md` §7.4。**有料版が商品ID / SKU / 商品カテゴリーを付与** |
 | `saai_markdown_output` | `( string $markdown, WP_Post $post ): string` | `?format=markdown` 出力の加工 |
-| `saai_llms_index_items` | `( array $items ): array` | 自名前空間 Markdown インデックス（llms.txt 第2層）の項目加工。item 形状: `[ 'type', 'title', 'url', 'markdown_url' ]` |
+| `saai_llms_index_items` | `( array $items ): array` | 自名前空間 Markdown インデックス（llms.txt 第2層）の項目加工。item 形状: `[ 'type', 'title', 'url', 'markdown_url' ]`。`title` はプレーンテキスト（HTML エスケープしない。Markdown 用のエスケープはプラグインが行う。Issue #79） |
 
 ### 3.5 設定
 
