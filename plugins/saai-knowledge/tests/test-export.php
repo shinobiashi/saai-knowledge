@@ -424,6 +424,25 @@ class Test_Export extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Content_plain carries no HTML character references: the body goes
+	 * through `the_content` (whose wptexturize turns "'" into `&#8217;`) and
+	 * an escaped "&" must come out as the character itself (Issue #49).
+	 */
+	public function test_content_plain_decodes_html_character_references() {
+		$this->create_post(
+			'saai_faq',
+			'Carrier plans',
+			array( 'post_content' => '<!-- wp:paragraph --><p>AT&amp;T\'s plan</p><!-- /wp:paragraph -->' )
+		);
+
+		$request  = new WP_REST_Request( 'GET', '/saai-knowledge/v1/export' );
+		$response = $this->server->dispatch( $request );
+		$record   = $response->get_data()['records'][0];
+
+		$this->assertSame( "AT&T\u{2019}s plan", $record['content_plain'] );
+	}
+
+	/**
 	 * A shortcode inside the exported post's own content that calls the
 	 * argument-less get_post() must see *that* post, not whatever post
 	 * happened to already be the global $post (a stale value from another
