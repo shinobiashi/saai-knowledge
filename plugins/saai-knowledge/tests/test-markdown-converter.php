@@ -232,6 +232,27 @@ class Test_Markdown_Converter extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Inline content right before a block element (a stray <span> in a
+	 * Custom HTML block, a <dt> before a <dd>'s code, a linked image before
+	 * its caption, text before an <hr>) ends with a blank line, so the block
+	 * still starts its own line: "stray ```" isn't a fence in any renderer,
+	 * and CommonMark too then rendered the code's <script> as a raw element
+	 * (Issue #81, review R1-2).
+	 */
+	public function test_block_after_inline_content_starts_a_new_block() {
+		$this->assertSame(
+			"Intro\n\nstray\n\n```\n<script>alert(1)</script>\n```\n",
+			Markdown_Converter::convert( "<p>Intro</p>\n<span>stray</span>\n<pre><code>&lt;script&gt;alert(1)&lt;/script&gt;</code></pre>" )
+		);
+		$this->assertSame( "T\n\n```\nx\n```\n", Markdown_Converter::convert( '<dl><dt>T</dt><dd><pre><code>x</code></pre></dd></dl>' ) );
+		$this->assertSame(
+			"[![C](<https://example.com/a.png>)](<https://example.com/>)\n\ncap\n",
+			Markdown_Converter::convert( '<figure><a href="https://example.com/"><img src="https://example.com/a.png" alt="C"></a><figcaption>cap</figcaption></figure>' )
+		);
+		$this->assertSame( "stray\n\n---\n\nafter\n", Markdown_Converter::convert( '<div>stray<hr>after</div>' ) );
+	}
+
+	/**
 	 * Only whitespace at the start of a line is dropped: whitespace between
 	 * inline elements stays a space, including directly inside a block
 	 * container and inside an inline element with nothing before it.

@@ -27,13 +27,15 @@ defined( 'ABSPATH' ) || exit;
 final class Markdown_Converter {
 
 	/**
-	 * Container elements whose content starts on a new line of the
-	 * Markdown output — see is_line_start_whitespace(). Elements not listed
-	 * (inline ones such as <span>, or unknown ones) keep their whitespace.
+	 * Elements whose Markdown starts on a line of its own: the block
+	 * elements convert_node() emits as Markdown blocks, and the containers
+	 * that hold them. Used by convert_children() to start each one on a new
+	 * block and by is_line_start_whitespace(). Elements not listed (inline
+	 * ones such as <span>, or unknown ones) are treated as inline.
 	 *
 	 * @var string[]
 	 */
-	private const BLOCK_CONTAINERS = array(
+	private const BLOCK_ELEMENTS = array(
 		'address',
 		'article',
 		'aside',
@@ -45,15 +47,29 @@ final class Markdown_Converter {
 		'dl',
 		'dt',
 		'fieldset',
+		'figcaption',
 		'figure',
 		'footer',
 		'form',
+		'h1',
+		'h2',
+		'h3',
+		'h4',
+		'h5',
+		'h6',
 		'header',
 		'hgroup',
+		'hr',
 		'li',
 		'main',
 		'nav',
+		'ol',
+		'p',
+		'pre',
 		'section',
+		'summary',
+		'table',
+		'ul',
 	);
 
 	/**
@@ -200,10 +216,47 @@ final class Markdown_Converter {
 				continue;
 			}
 
+			if ( self::is_block_element( $child ) ) {
+				$out = self::end_block( $out );
+			}
+
 			$out .= self::convert_node( $child, $indent );
 		}
 
 		return $out;
+	}
+
+	/**
+	 * Whether a node is one of BLOCK_ELEMENTS.
+	 *
+	 * @param \DOMNode $node Node to check.
+	 * @return bool
+	 */
+	private static function is_block_element( \DOMNode $node ): bool {
+		return $node instanceof \DOMElement && in_array( strtolower( $node->tagName ), self::BLOCK_ELEMENTS, true );
+	}
+
+	/**
+	 * Ends the output so far with a blank line, so the block element about
+	 * to be appended starts a new Markdown block. Block elements only end
+	 * their own output with one; inline content right before one (a stray
+	 * <span> or text next to a <pre> in a Custom HTML block, a linked image
+	 * before its <figcaption>) would otherwise run into it, e.g. "stray ```"
+	 * — a fence that doesn't start its line, so every renderer, CommonMark
+	 * included, reads the code sample after it as Markdown and its
+	 * `<script>` as a raw element (Issue #81).
+	 *
+	 * @param string $out Output so far.
+	 * @return string
+	 */
+	private static function end_block( string $out ): string {
+		$out = rtrim( $out, ' ' );
+
+		if ( '' === $out || "\n\n" === substr( $out, -2 ) ) {
+			return $out;
+		}
+
+		return $out . ( "\n" === substr( $out, -1 ) ? "\n" : "\n\n" );
 	}
 
 	/**
@@ -236,7 +289,7 @@ final class Markdown_Converter {
 		}
 
 		if ( '' === $out ) {
-			return $container instanceof \DOMElement && in_array( strtolower( $container->tagName ), self::BLOCK_CONTAINERS, true );
+			return self::is_block_element( $container );
 		}
 
 		return "\n" === substr( $out, -1 );
