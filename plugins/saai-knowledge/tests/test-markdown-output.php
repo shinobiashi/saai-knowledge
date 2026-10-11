@@ -187,7 +187,7 @@ class Test_Markdown_Output extends WP_UnitTestCase {
 	/**
 	 * A term name is stored HTML-escaped ("Q&amp;A"), so it is decoded
 	 * before escape_text(): the Category line shows "Q&A" rather than the
-	 * literal text "Q&amp;A", and a literal `<` is escaped (Issue #79).
+	 * literal text "Q&amp;A", and a literal `<` becomes `&lt;` (Issue #79).
 	 */
 	public function test_render_decodes_category_name_before_escaping() {
 		$term    = self::factory()->term->create_and_get(
@@ -207,7 +207,7 @@ class Test_Markdown_Output extends WP_UnitTestCase {
 
 		$markdown = $this->service->render( get_post( $post_id ) );
 
-		$this->assertStringContainsString( "**Category:** Q&A \\< Billing\n", $markdown );
+		$this->assertStringContainsString( "**Category:** Q&A &lt; Billing\n", $markdown );
 	}
 
 	/**
@@ -226,7 +226,7 @@ class Test_Markdown_Output extends WP_UnitTestCase {
 
 		$markdown = $this->service->render( get_post( $post_id ) );
 
-		$this->assertStringStartsWith( "# Use \\<div> and \\&copy; for R&D\n", $markdown );
+		$this->assertStringStartsWith( "# Use &lt;div&gt; and &amp;copy; for R&D\n", $markdown );
 	}
 
 	/**

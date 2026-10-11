@@ -458,9 +458,9 @@ class Test_Export extends WP_UnitTestCase {
 		$response = $this->server->dispatch( $request );
 		$record   = $response->get_data()['records'][0];
 
-		$this->assertStringContainsString( "## \\<div> tips\n\nUse \\<script> and \\&copy; for R&D", $record['content_markdown'] );
+		$this->assertStringContainsString( "## &lt;div&gt; tips\n\nUse &lt;script&gt; and &amp;copy; for R&D", $record['content_markdown'] );
 		$this->assertSame( '<div> tips', $record['sections'][0]['heading'] );
-		$this->assertSame( "## \\<div> tips\n\nUse \\<script> and \\&copy; for R&D", $record['sections'][0]['content_markdown'] );
+		$this->assertSame( "## &lt;div&gt; tips\n\nUse &lt;script&gt; and &amp;copy; for R&D", $record['sections'][0]['content_markdown'] );
 
 		// The DOMDocument-less sections fallback escapes its heading the same way.
 		$method = new ReflectionMethod( $this->export, 'build_sections_via_blocks' );
@@ -468,7 +468,7 @@ class Test_Export extends WP_UnitTestCase {
 
 		$sections = $method->invoke( $this->export, get_post( $record['id'] ) );
 
-		$this->assertStringStartsWith( "## \\<div> tips\n\n", $sections[0]['content_markdown'] );
+		$this->assertStringStartsWith( "## &lt;div&gt; tips\n\n", $sections[0]['content_markdown'] );
 	}
 
 	/**

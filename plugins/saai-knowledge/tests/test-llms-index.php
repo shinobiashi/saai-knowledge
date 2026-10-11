@@ -322,7 +322,7 @@ class Test_Llms_Index extends WP_UnitTestCase {
 
 		$markdown = $this->index->build_index();
 
-		$this->assertStringContainsString( '- [Use \\<div> and \\&copy; for R&D](', $markdown );
+		$this->assertStringContainsString( '- [Use &lt;div&gt; and &amp;copy; for R&D](', $markdown );
 	}
 
 	/**
