@@ -177,6 +177,7 @@ composer lint / lint:fix        # PHPCS / PHPCBF
 composer analyze                # PHPStan
 composer test                   # PHPUnit（ローカルは wp-env の tests-cli コンテナ、CI は bin/install-wp-tests.sh + WP_TESTS_DIR でホスト直実行）
 composer verify                 # lint + analyze + test を一括実行（bin/verify.sh。wp-env が未起動なら起動し、このコマンドが起動した場合のみ終了時に停止）
+bin/markdown-render-check.sh    # Markdown を commonmark.js・markdown-it・Python-Markdown（拡張なし / fenced_code / extra）で描画し、生の HTML 要素が出ないか確かめる（--from-html で HTML を Markdown_Converter に通してから。Markdown 出力を変えたら CommonMark だけで済ませない）
 ```
 
 ローカルでの `composer test` 実行例（`.wp-env.json` の `mappings.saai-monorepo` によりリポジトリルートはコンテナの `wp-content/` 配下ではなく `saai-monorepo/` 直下にマウントされる）:
