@@ -216,7 +216,7 @@ final class Markdown_Converter {
 				continue;
 			}
 
-			if ( self::is_block_element( $child ) ) {
+			if ( self::starts_new_block( $child, $node ) ) {
 				$out = self::end_block( $out );
 			}
 
@@ -234,6 +234,31 @@ final class Markdown_Converter {
 	 */
 	private static function is_block_element( \DOMNode $node ): bool {
 		return $node instanceof \DOMElement && in_array( strtolower( $node->tagName ), self::BLOCK_ELEMENTS, true );
+	}
+
+	/**
+	 * Whether a child must start a new Markdown block (see end_block()).
+	 *
+	 * Inside an inline element (<a>, <strong>, <span>, ...) a blank line
+	 * would split the Markdown construct around it — a Custom HTML card
+	 * `<a href="…"><div>Title</div><div>Desc</div></a>` would become
+	 * "[Title", a new paragraph, "Desc](…)" — so there only a block that is
+	 * or holds a code block gets one: its fence must start a line however
+	 * that leaves the link or emphasis (review R2-1). Other blocks inside an
+	 * inline element run on as before.
+	 *
+	 * @param \DOMNode $child     Child about to be converted.
+	 * @param \DOMNode $container Its parent.
+	 * @return bool
+	 */
+	private static function starts_new_block( \DOMNode $child, \DOMNode $container ): bool {
+		if ( ! $child instanceof \DOMElement || ! self::is_block_element( $child ) ) {
+			return false;
+		}
+
+		return self::is_block_element( $container )
+			|| 'pre' === strtolower( $child->tagName )
+			|| $child->getElementsByTagName( 'pre' )->length > 0;
 	}
 
 	/**

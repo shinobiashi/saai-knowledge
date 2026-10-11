@@ -253,6 +253,21 @@ class Test_Markdown_Converter extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Inside an inline element, only a block that is or holds a code block
+	 * starts a new Markdown block: a Custom HTML card's <div>s inside an <a>
+	 * stay one link instead of splitting it with a blank line (review R2-1),
+	 * while code still gets its fence on a line of its own.
+	 */
+	public function test_inside_inline_element_only_code_starts_a_new_block() {
+		$this->assertSame(
+			"[TitleDesc](<https://example.com/>)\n",
+			Markdown_Converter::convert( '<a href="https://example.com/"><div>Title</div><div>Desc</div></a>' )
+		);
+		$this->assertSame( "s\n\n```\nx\n```\n", Markdown_Converter::convert( '<span>s<pre><code>x</code></pre></span>' ) );
+		$this->assertSame( "s\n\n```\nx\n```\n", Markdown_Converter::convert( '<span>s<div><pre><code>x</code></pre></div></span>' ) );
+	}
+
+	/**
 	 * Only whitespace at the start of a line is dropped: whitespace between
 	 * inline elements stays a space, including directly inside a block
 	 * container and inside an inline element with nothing before it.
