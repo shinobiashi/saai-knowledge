@@ -3,10 +3,10 @@
 - タスク: Issue #81（bug、無料版）— Markdown 出力でブロック間の改行が2つ目以降のブロックの行頭に空白として付き、Python-Markdown（`fenced_code` / `extra` あり）がコードブロックと見出しを認識せず、コード例の `<script>` が生の要素になる問題を直す（backlog R2-X1（issue-79））。無料版 1.0.3（未リリース）に含める
 - 開始: 2026-10-11
 - PR: #83 https://github.com/shinobiashi/saai-knowledge/pull/83
-- 現在のステップ: 6（G3 依頼。Codex のみ）
+- 現在のステップ: 8（最終 CI 待ち → 最終報告）
 - モード: `auto-commit`（確認ゲートなし。ラウンド報告のみ）、Codex は `--request-codex`
 - Copilot: 依頼 2 回 / 収束（G2 で新規指摘なし）
-- Codex: 依頼 2 回 / 未収束
+- Codex: 依頼 3 回 / 上限（G3 でも新規 2 件。修正後の再依頼はしない）
 
 ## ログ
 
@@ -20,3 +20,4 @@
 | 2026-10-11 | 4 | 初回 push（HEAD 4698296、T=2026-10-11T12:36:13Z）、PR #83 作成 |
 | 2026-10-11 | 6-7 | G1: CI green 後に両 bot へ依頼（Copilot は gh pr edit で登録確認、Codex は @codex review）。Copilot 2 件（G1-1 readme の言い過ぎ → 修正 49fc638、G1-3 スクリプトの `style` 許可 → 保留）、Codex 1 件（G1-2 インライン要素で包まれたコードの前に空行が入らない → 修正 fa95282）。返信・Resolve・まとめコメント済み。品質チェック green（PHPUnit 610 件） |
 | 2026-10-11 | 6-7 | G2: Copilot 0 件で収束。Codex 1 件（G2-1 `<div>` 直下で行頭に来たテキストの記号がエスケープされない → 修正 bd90c71。行頭に来るテキストすべてに `escape_line_start()`、`---` も対象、番号は `1\.`）。backlog R1-X1（issue-79）も解消。返信・Resolve・まとめコメント済み。品質チェック green（PHPUnit 611 件） |
+| 2026-10-11 | 6-7 | G3（Codex のみ、3 回目）: 2 件（G3-1 `<span>` で包まれた行頭のテキストがエスケープされない、G3-2 行頭の `~~~` がフェンスを開き、コード中の `~~~` で閉じると `<script>` が外に出る）→ ともに修正 72af1b4。backlog R1-L6（issue-81）も解消。返信・Resolve・まとめコメント済み。品質チェック green（PHPUnit 612 件） |
