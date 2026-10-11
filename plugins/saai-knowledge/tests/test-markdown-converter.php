@@ -268,6 +268,20 @@ class Test_Markdown_Converter extends WP_UnitTestCase {
 	}
 
 	/**
+	 * An inline element between text and a code block (an <ins> or custom
+	 * element in a Custom HTML block) still gets the blank line before it:
+	 * inside it there's no output of its own to end, so "prefix```" came
+	 * out and the code's <script> rendered as a raw element (Codex review
+	 * G1-2).
+	 */
+	public function test_inline_wrapper_holding_code_starts_a_new_block() {
+		$this->assertSame(
+			"prefix\n\n```\n<script>x</script>\n```\n",
+			Markdown_Converter::convert( '<div>prefix<ins><div><pre><code>&lt;script&gt;x&lt;/script&gt;</code></pre></div></ins></div>' )
+		);
+	}
+
+	/**
 	 * Only whitespace at the start of a line is dropped: whitespace between
 	 * inline elements stays a space, including directly inside a block
 	 * container and inside an inline element with nothing before it.

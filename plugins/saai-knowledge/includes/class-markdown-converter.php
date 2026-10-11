@@ -239,26 +239,34 @@ final class Markdown_Converter {
 	/**
 	 * Whether a child must start a new Markdown block (see end_block()).
 	 *
-	 * Inside an inline element (<a>, <strong>, <span>, ...) a blank line
-	 * would split the Markdown construct around it — a Custom HTML card
+	 * Any element that is or holds a code block does — an inline one too:
+	 * otherwise `prefix<ins><div><pre>…` (an inline wrapper between the text
+	 * and the block, where the inner convert_children() call has no output
+	 * of its own to end) still produced "prefix```" (Codex review G1-2).
+	 * The fence must start a line however that leaves a link or emphasis
+	 * around it.
+	 *
+	 * Any other block element does when its parent is a block too, but not
+	 * inside an inline element (<a>, <strong>, <span>, ...), where a blank
+	 * line would split the Markdown construct around it: a Custom HTML card
 	 * `<a href="…"><div>Title</div><div>Desc</div></a>` would become
-	 * "[Title", a new paragraph, "Desc](…)" — so there only a block that is
-	 * or holds a code block gets one: its fence must start a line however
-	 * that leaves the link or emphasis (review R2-1). Other blocks inside an
-	 * inline element run on as before.
+	 * "[Title", a new paragraph, "Desc](…)" (review R2-1). Those blocks run
+	 * on as before.
 	 *
 	 * @param \DOMNode $child     Child about to be converted.
 	 * @param \DOMNode $container Its parent.
 	 * @return bool
 	 */
 	private static function starts_new_block( \DOMNode $child, \DOMNode $container ): bool {
-		if ( ! $child instanceof \DOMElement || ! self::is_block_element( $child ) ) {
+		if ( ! $child instanceof \DOMElement ) {
 			return false;
 		}
 
-		return self::is_block_element( $container )
-			|| 'pre' === strtolower( $child->tagName )
-			|| $child->getElementsByTagName( 'pre' )->length > 0;
+		if ( self::is_block_element( $child ) && self::is_block_element( $container ) ) {
+			return true;
+		}
+
+		return 'pre' === strtolower( $child->tagName ) || $child->getElementsByTagName( 'pre' )->length > 0;
 	}
 
 	/**
