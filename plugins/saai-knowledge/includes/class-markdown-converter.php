@@ -27,6 +27,36 @@ defined( 'ABSPATH' ) || exit;
 final class Markdown_Converter {
 
 	/**
+	 * Container elements whose content starts on a new line of the
+	 * Markdown output — see is_line_start_whitespace(). Elements not listed
+	 * (inline ones such as <span>, or unknown ones) keep their whitespace.
+	 *
+	 * @var string[]
+	 */
+	private const BLOCK_CONTAINERS = array(
+		'address',
+		'article',
+		'aside',
+		'blockquote',
+		'body',
+		'dd',
+		'details',
+		'div',
+		'dl',
+		'dt',
+		'fieldset',
+		'figure',
+		'footer',
+		'form',
+		'header',
+		'hgroup',
+		'li',
+		'main',
+		'nav',
+		'section',
+	);
+
+	/**
 	 * Converts an HTML fragment (as produced by `the_content`) to Markdown.
 	 *
 	 * @param string $html Rendered HTML.
@@ -166,10 +196,50 @@ final class Markdown_Converter {
 		$out = '';
 
 		foreach ( $node->childNodes as $child ) {
+			if ( self::is_line_start_whitespace( $child, $node, $out ) ) {
+				continue;
+			}
+
 			$out .= self::convert_node( $child, $indent );
 		}
 
 		return $out;
+	}
+
+	/**
+	 * Whether a child is a whitespace-only text node whose output would land
+	 * at the start of a Markdown line — the newlines `the_content` puts
+	 * between blocks (e.g. "<p>…</p>\n\n<pre>…</pre>", or the first and
+	 * last child of a core/group <div>), which convert_node() would turn
+	 * into a ' ' prefixed to the next block's first line.
+	 *
+	 * CommonMark allows up to three spaces of indentation there, but
+	 * Python-Markdown — even with its fenced_code/extra extension — only
+	 * recognizes a fence or an ATX heading at column 0: an indented fence
+	 * leaves the code to be parsed as Markdown, so a code sample's
+	 * `<script>` renders as a raw element there (Issue #81). Such
+	 * whitespace isn't displayed in HTML either, so it's dropped. Whitespace
+	 * in the middle of a line (`<em>a</em> <em>b</em>`) is kept.
+	 *
+	 * Judged from the output so far rather than the previous sibling, so a
+	 * node that outputs nothing (a comment, <script>) in between doesn't
+	 * hide the line start.
+	 *
+	 * @param \DOMNode $child     Child about to be converted.
+	 * @param \DOMNode $container Its parent.
+	 * @param string   $out       The parent's output so far.
+	 * @return bool
+	 */
+	private static function is_line_start_whitespace( \DOMNode $child, \DOMNode $container, string $out ): bool {
+		if ( ! $child instanceof \DOMText || '' !== trim( $child->wholeText, " \t\n\r\f" ) ) {
+			return false;
+		}
+
+		if ( '' === $out ) {
+			return $container instanceof \DOMElement && in_array( strtolower( $container->tagName ), self::BLOCK_CONTAINERS, true );
+		}
+
+		return "\n" === substr( $out, -1 );
 	}
 
 	/**

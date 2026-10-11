@@ -184,6 +184,64 @@ class Test_Markdown_Converter extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The newlines the_content puts between blocks don't indent the next
+	 * block: Python-Markdown (even with fenced_code) only recognizes a
+	 * fence or an ATX heading at column 0, so " ```" left the code's
+	 * <script> to render as a raw element there (Issue #81).
+	 */
+	public function test_block_separating_whitespace_does_not_indent_the_next_block() {
+		$html = "<p>Intro</p>\n\n<pre class=\"wp-block-code\"><code>&lt;script&gt;alert(1)&lt;/script&gt;</code></pre>\n\n<h2>Next</h2>\n\n<p>After</p>";
+
+		$this->assertSame( "Intro\n\n```\n<script>alert(1)</script>\n```\n\n## Next\n\nAfter\n", Markdown_Converter::convert( $html ) );
+	}
+
+	/**
+	 * Whitespace that is the first child of a container (core/group's
+	 * <div>, core/details) doesn't indent the container's first block
+	 * either, even though nothing precedes it in the container's own output
+	 * (Issue #81).
+	 */
+	public function test_whitespace_at_the_start_of_a_container_does_not_indent_its_first_block() {
+		$code = '<pre><code>&lt;b&gt;x&lt;/b&gt;</code></pre>';
+
+		$this->assertSame(
+			"Intro\n\n```\n<b>x</b>\n```\n\nAfter\n",
+			Markdown_Converter::convert( "<p>Intro</p>\n\n<div class=\"wp-block-group\">\n" . $code . "\n</div>\n\n<p>After</p>" )
+		);
+		$this->assertSame(
+			"**Q**\n\n```\n<b>x</b>\n```\n",
+			Markdown_Converter::convert( "<details><summary>Q</summary>\n" . $code . "\n</details>" )
+		);
+	}
+
+	/**
+	 * A code block after a list, or inside a blockquote, starts at the
+	 * start of its line (after the "> " prefix in a blockquote) (Issue #81).
+	 */
+	public function test_code_after_a_list_or_inside_a_quote_starts_at_the_line_start() {
+		$code = '<pre><code>&lt;b&gt;x&lt;/b&gt;</code></pre>';
+
+		$this->assertSame(
+			"- a\n- b\n\n```\n<b>x</b>\n```\n",
+			Markdown_Converter::convert( "<ul><li>a</li><li>b</li></ul>\n\n" . $code )
+		);
+		$this->assertSame(
+			"> q\n> \n> ```\n> <b>x</b>\n> ```\n",
+			Markdown_Converter::convert( "<blockquote class=\"wp-block-quote\">\n<p>q</p>\n" . $code . "\n</blockquote>" )
+		);
+	}
+
+	/**
+	 * Only whitespace at the start of a line is dropped: whitespace between
+	 * inline elements stays a space, including directly inside a block
+	 * container and inside an inline element with nothing before it.
+	 */
+	public function test_whitespace_in_the_middle_of_a_line_is_kept() {
+		$this->assertSame( "a _b_ **c** _d_ e\n", Markdown_Converter::convert( "<p>a <em>b</em> <strong>c</strong>\n<em>d</em><span> </span>e</p>" ) );
+		$this->assertSame( "_a_ _b_\n", Markdown_Converter::convert( '<div><em>a</em> <em>b</em></div>' ) );
+	}
+
+	/**
 	 * Literal Markdown syntax characters in ordinary text (not text this
 	 * converter itself wraps in syntax) are escaped so they can't be
 	 * misread as real Markdown once emitted (Codex review).
