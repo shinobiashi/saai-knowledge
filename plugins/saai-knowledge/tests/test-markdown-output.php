@@ -82,6 +82,28 @@ class Test_Markdown_Output extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The newlines do_blocks() leaves between blocks don't indent a code
+	 * block in the output: Python-Markdown only recognizes a fence at
+	 * column 0, and would otherwise render the code's <script> as a raw
+	 * element (Issue #81). The RAG export's content_markdown reuses render().
+	 */
+	public function test_render_starts_code_block_fence_at_the_line_start() {
+		$post_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_kb',
+				'post_title'   => 'Embedding a script',
+				'post_content' => "<!-- wp:paragraph -->\n<p>Add this tag:</p>\n<!-- /wp:paragraph -->\n\n<!-- wp:code -->\n<pre class=\"wp-block-code\"><code>&lt;script&gt;alert(1)&lt;/script&gt;</code></pre>\n<!-- /wp:code -->",
+				'post_status'  => 'publish',
+			)
+		);
+
+		$markdown = $this->service->render( get_post( $post_id ) );
+
+		$this->assertStringContainsString( "Add this tag:\n\n```\n<script>alert(1)</script>\n```\n", $markdown );
+		$this->assertStringNotContainsString( ' ```', $markdown );
+	}
+
+	/**
 	 * The render() method must not leak the rendered post's global postdata (the
 	 * global $post, and the rest of setup_postdata()'s globals) into
 	 * whatever runs after it — this method is public, and a caller other

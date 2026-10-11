@@ -27,6 +27,52 @@ defined( 'ABSPATH' ) || exit;
 final class Markdown_Converter {
 
 	/**
+	 * Elements whose Markdown starts on a line of its own: the block
+	 * elements convert_node() emits as Markdown blocks, and the containers
+	 * that hold them. Used by convert_children() to start each one on a new
+	 * block and by is_line_start_whitespace(). Elements not listed (inline
+	 * ones such as <span>, or unknown ones) are treated as inline.
+	 *
+	 * @var string[]
+	 */
+	private const BLOCK_ELEMENTS = array(
+		'address',
+		'article',
+		'aside',
+		'blockquote',
+		'body',
+		'dd',
+		'details',
+		'div',
+		'dl',
+		'dt',
+		'fieldset',
+		'figcaption',
+		'figure',
+		'footer',
+		'form',
+		'h1',
+		'h2',
+		'h3',
+		'h4',
+		'h5',
+		'h6',
+		'header',
+		'hgroup',
+		'hr',
+		'li',
+		'main',
+		'nav',
+		'ol',
+		'p',
+		'pre',
+		'section',
+		'summary',
+		'table',
+		'ul',
+	);
+
+	/**
 	 * Converts an HTML fragment (as produced by `the_content`) to Markdown.
 	 *
 	 * @param string $html Rendered HTML.
@@ -166,10 +212,160 @@ final class Markdown_Converter {
 		$out = '';
 
 		foreach ( $node->childNodes as $child ) {
-			$out .= self::convert_node( $child, $indent );
+			if ( self::is_line_start_whitespace( $child, $node, $out ) ) {
+				continue;
+			}
+
+			if ( self::starts_new_block( $child, $node ) ) {
+				$out = self::end_block( $out );
+			}
+
+			$markdown = self::convert_node( $child, $indent );
+
+			// Inline content that starts a line can start Markdown syntax
+			// there, which only the <p>/<li>/<blockquote> branches escaped:
+			// text directly in a <div> after inline content became
+			// "prefix\n\n# literal" once end_block() separated them — a
+			// heading (Codex review G2-1) — and the same text wrapped in a
+			// <span> after a block did too (G3-1).
+			if ( self::is_inline_content( $child ) && self::at_line_start( $node, $out ) ) {
+				$markdown = self::escape_line_start( ltrim( $markdown, ' ' ) );
+			}
+
+			$out .= $markdown;
 		}
 
 		return $out;
+	}
+
+	/**
+	 * Whether a node is inline content whose output escape_line_start()
+	 * applies to when it starts a line: text, or an element that isn't a
+	 * block. A <br> is left alone — its output is the "  " that marks the
+	 * hard break, which ltrim() would remove.
+	 *
+	 * @param \DOMNode $node Node to check.
+	 * @return bool
+	 */
+	private static function is_inline_content( \DOMNode $node ): bool {
+		if ( $node instanceof \DOMText ) {
+			return true;
+		}
+
+		return $node instanceof \DOMElement && ! self::is_block_element( $node ) && 'br' !== strtolower( $node->tagName );
+	}
+
+	/**
+	 * Whether the next output of a parent lands at the start of a Markdown
+	 * line: its output so far ends with a newline, or it has none yet and
+	 * is a block element (so its own output starts a line).
+	 *
+	 * Judged from the output rather than the previous sibling, so a node
+	 * that outputs nothing (a comment, <script>) in between doesn't hide the
+	 * line start.
+	 *
+	 * @param \DOMNode $container The parent.
+	 * @param string   $out       Its output so far.
+	 * @return bool
+	 */
+	private static function at_line_start( \DOMNode $container, string $out ): bool {
+		if ( '' === $out ) {
+			return self::is_block_element( $container );
+		}
+
+		return "\n" === substr( $out, -1 );
+	}
+
+	/**
+	 * Whether a node is one of BLOCK_ELEMENTS.
+	 *
+	 * @param \DOMNode $node Node to check.
+	 * @return bool
+	 */
+	private static function is_block_element( \DOMNode $node ): bool {
+		return $node instanceof \DOMElement && in_array( strtolower( $node->tagName ), self::BLOCK_ELEMENTS, true );
+	}
+
+	/**
+	 * Whether a child must start a new Markdown block (see end_block()).
+	 *
+	 * Any element that is or holds a code block does — an inline one too:
+	 * otherwise `prefix<ins><div><pre>…` (an inline wrapper between the text
+	 * and the block, where the inner convert_children() call has no output
+	 * of its own to end) still produced "prefix```" (Codex review G1-2).
+	 * The fence must start a line however that leaves a link or emphasis
+	 * around it.
+	 *
+	 * Any other block element does when its parent is a block too, but not
+	 * inside an inline element (<a>, <strong>, <span>, ...), where a blank
+	 * line would split the Markdown construct around it: a Custom HTML card
+	 * `<a href="…"><div>Title</div><div>Desc</div></a>` would become
+	 * "[Title", a new paragraph, "Desc](…)" (review R2-1). Those blocks run
+	 * on as before.
+	 *
+	 * @param \DOMNode $child     Child about to be converted.
+	 * @param \DOMNode $container Its parent.
+	 * @return bool
+	 */
+	private static function starts_new_block( \DOMNode $child, \DOMNode $container ): bool {
+		if ( ! $child instanceof \DOMElement ) {
+			return false;
+		}
+
+		if ( self::is_block_element( $child ) && self::is_block_element( $container ) ) {
+			return true;
+		}
+
+		return 'pre' === strtolower( $child->tagName ) || $child->getElementsByTagName( 'pre' )->length > 0;
+	}
+
+	/**
+	 * Ends the output so far with a blank line, so the block element about
+	 * to be appended starts a new Markdown block. Block elements only end
+	 * their own output with one; inline content right before one (a stray
+	 * <span> or text next to a <pre> in a Custom HTML block, a linked image
+	 * before its <figcaption>) would otherwise run into it, e.g. "stray ```"
+	 * — a fence that doesn't start its line, so every renderer, CommonMark
+	 * included, reads the code sample after it as Markdown and its
+	 * `<script>` as a raw element (Issue #81).
+	 *
+	 * @param string $out Output so far.
+	 * @return string
+	 */
+	private static function end_block( string $out ): string {
+		$out = rtrim( $out, ' ' );
+
+		if ( '' === $out || "\n\n" === substr( $out, -2 ) ) {
+			return $out;
+		}
+
+		return $out . ( "\n" === substr( $out, -1 ) ? "\n" : "\n\n" );
+	}
+
+	/**
+	 * Whether a child is a whitespace-only text node whose output would land
+	 * at the start of a Markdown line — the newlines `the_content` puts
+	 * between blocks (e.g. "<p>…</p>\n\n<pre>…</pre>", or the first and
+	 * last child of a core/group <div>), which convert_node() would turn
+	 * into a ' ' prefixed to the next block's first line.
+	 *
+	 * CommonMark allows up to three spaces of indentation there, but
+	 * Python-Markdown — even with its fenced_code/extra extension — only
+	 * recognizes a fence or an ATX heading at column 0: an indented fence
+	 * leaves the code to be parsed as Markdown, so a code sample's
+	 * `<script>` renders as a raw element there (Issue #81). Such
+	 * whitespace isn't displayed in HTML either, so it's dropped. Whitespace
+	 * in the middle of a line (`<em>a</em> <em>b</em>`) is kept.
+	 *
+	 * @param \DOMNode $child     Child about to be converted.
+	 * @param \DOMNode $container Its parent.
+	 * @param string   $out       The parent's output so far.
+	 * @return bool
+	 */
+	private static function is_line_start_whitespace( \DOMNode $child, \DOMNode $container, string $out ): bool {
+		return $child instanceof \DOMText
+			&& '' === trim( $child->wholeText, " \t\n\r\f" )
+			&& self::at_line_start( $container, $out );
 	}
 
 	/**
@@ -373,25 +569,44 @@ final class Markdown_Converter {
 
 	/**
 	 * Escapes a leading block-syntax marker at the very start of an
-	 * assembled line — a heading `#`, blockquote `>`, list `-`/`+`, or
+	 * assembled line — a heading `#`, blockquote `>`, list `-`/`+`, thematic
+	 * break `---` (a `-` followed by another), code fence `~~~`, or
 	 * ordered-list `1.`/`1)` — so literal text that happens to start with
 	 * one (e.g. a paragraph that is itself just the sentence "- reminder:
 	 * ...") isn't misread as that construct once emitted. escape_text()
 	 * can't do this itself: it runs per DOMText node, with no notion of
 	 * whether its text ends up at the start of the final rendered line —
 	 * this instead runs once on each fully assembled paragraph/list-item/
-	 * blockquote line, in convert_node()/convert_list().
+	 * blockquote line, in convert_node()/convert_list(), and on the inline
+	 * content convert_children() places at the start of a line (text or an
+	 * inline element directly in a <div>, or after a block or a <br>).
 	 *
 	 * Asterisk/underscore-based markers aren't handled here because
 	 * escape_text() already escapes every literal `*`/`_`, unconditionally
 	 * and everywhere, which already prevents them from being read as a
 	 * list marker or emphasis.
 	 *
+	 * A tilde fence `~~~` gets its first `~` as a character reference
+	 * instead: Python-Markdown doesn't treat `\~` as an escape. Text that
+	 * opened a fence would otherwise take the converter's own code block
+	 * that follows into it, and a `~~~` line in that code sample would
+	 * close it and put the rest of the sample — its `<script>` — outside
+	 * any fence (Codex review G3-2). Backtick fences need nothing here:
+	 * escape_text() already escapes every literal backtick.
+	 *
+	 * An ordered-list marker gets its `.`/`)` escaped ("1\. "), not the
+	 * digits: a backslash only escapes punctuation, so "\1. " showed the
+	 * backslash — now also on the "1. Install" lines after a <br> that
+	 * convert_children() escapes (Codex review G2-1).
+	 *
 	 * @param string $line One fully assembled line of output.
 	 * @return string
 	 */
 	private static function escape_line_start( string $line ): string {
-		return (string) preg_replace( '/^(#{1,6}(?=\s|$)|>|[-+](?=\s|$)|\d+[.)](?=\s|$))/', '\\\\$1', $line );
+		$line = (string) preg_replace( '/^(#{1,6}(?=\s|$)|>|\+(?=\s|$)|-(?=[\s-]|$))/', '\\\\$1', $line );
+		$line = (string) preg_replace( '/^~(?=~~)/', '&#126;', $line );
+
+		return (string) preg_replace( '/^(\d+)([.)])(?=\s|$)/', '$1\\\\$2', $line );
 	}
 
 	/**

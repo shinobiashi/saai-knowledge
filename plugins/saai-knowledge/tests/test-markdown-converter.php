@@ -184,6 +184,146 @@ class Test_Markdown_Converter extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The newlines the_content puts between blocks don't indent the next
+	 * block: Python-Markdown (even with fenced_code) only recognizes a
+	 * fence or an ATX heading at column 0, so " ```" left the code's
+	 * <script> to render as a raw element there (Issue #81).
+	 */
+	public function test_block_separating_whitespace_does_not_indent_the_next_block() {
+		$html = "<p>Intro</p>\n\n<pre class=\"wp-block-code\"><code>&lt;script&gt;alert(1)&lt;/script&gt;</code></pre>\n\n<h2>Next</h2>\n\n<p>After</p>";
+
+		$this->assertSame( "Intro\n\n```\n<script>alert(1)</script>\n```\n\n## Next\n\nAfter\n", Markdown_Converter::convert( $html ) );
+	}
+
+	/**
+	 * Whitespace that is the first child of a container (core/group's
+	 * <div>, core/details) doesn't indent the container's first block
+	 * either, even though nothing precedes it in the container's own output
+	 * (Issue #81).
+	 */
+	public function test_whitespace_at_the_start_of_a_container_does_not_indent_its_first_block() {
+		$code = '<pre><code>&lt;b&gt;x&lt;/b&gt;</code></pre>';
+
+		$this->assertSame(
+			"Intro\n\n```\n<b>x</b>\n```\n\nAfter\n",
+			Markdown_Converter::convert( "<p>Intro</p>\n\n<div class=\"wp-block-group\">\n" . $code . "\n</div>\n\n<p>After</p>" )
+		);
+		$this->assertSame(
+			"**Q**\n\n```\n<b>x</b>\n```\n",
+			Markdown_Converter::convert( "<details><summary>Q</summary>\n" . $code . "\n</details>" )
+		);
+	}
+
+	/**
+	 * A code block after a list, or inside a blockquote, starts at the
+	 * start of its line (after the "> " prefix in a blockquote) (Issue #81).
+	 */
+	public function test_code_after_a_list_or_inside_a_quote_starts_at_the_line_start() {
+		$code = '<pre><code>&lt;b&gt;x&lt;/b&gt;</code></pre>';
+
+		$this->assertSame(
+			"- a\n- b\n\n```\n<b>x</b>\n```\n",
+			Markdown_Converter::convert( "<ul><li>a</li><li>b</li></ul>\n\n" . $code )
+		);
+		$this->assertSame(
+			"> q\n> \n> ```\n> <b>x</b>\n> ```\n",
+			Markdown_Converter::convert( "<blockquote class=\"wp-block-quote\">\n<p>q</p>\n" . $code . "\n</blockquote>" )
+		);
+	}
+
+	/**
+	 * Inline content right before a block element (a stray <span> in a
+	 * Custom HTML block, a <dt> before a <dd>'s code, a linked image before
+	 * its caption, text before an <hr>) ends with a blank line, so the block
+	 * still starts its own line: "stray ```" isn't a fence in any renderer,
+	 * and CommonMark too then rendered the code's <script> as a raw element
+	 * (Issue #81, review R1-2).
+	 */
+	public function test_block_after_inline_content_starts_a_new_block() {
+		$this->assertSame(
+			"Intro\n\nstray\n\n```\n<script>alert(1)</script>\n```\n",
+			Markdown_Converter::convert( "<p>Intro</p>\n<span>stray</span>\n<pre><code>&lt;script&gt;alert(1)&lt;/script&gt;</code></pre>" )
+		);
+		$this->assertSame( "T\n\n```\nx\n```\n", Markdown_Converter::convert( '<dl><dt>T</dt><dd><pre><code>x</code></pre></dd></dl>' ) );
+		$this->assertSame(
+			"[![C](<https://example.com/a.png>)](<https://example.com/>)\n\ncap\n",
+			Markdown_Converter::convert( '<figure><a href="https://example.com/"><img src="https://example.com/a.png" alt="C"></a><figcaption>cap</figcaption></figure>' )
+		);
+		$this->assertSame( "stray\n\n---\n\nafter\n", Markdown_Converter::convert( '<div>stray<hr>after</div>' ) );
+	}
+
+	/**
+	 * Inside an inline element, only a block that is or holds a code block
+	 * starts a new Markdown block: a Custom HTML card's <div>s inside an <a>
+	 * stay one link instead of splitting it with a blank line (review R2-1),
+	 * while code still gets its fence on a line of its own.
+	 */
+	public function test_inside_inline_element_only_code_starts_a_new_block() {
+		$this->assertSame(
+			"[TitleDesc](<https://example.com/>)\n",
+			Markdown_Converter::convert( '<a href="https://example.com/"><div>Title</div><div>Desc</div></a>' )
+		);
+		$this->assertSame( "s\n\n```\nx\n```\n", Markdown_Converter::convert( '<span>s<pre><code>x</code></pre></span>' ) );
+		$this->assertSame( "s\n\n```\nx\n```\n", Markdown_Converter::convert( '<span>s<div><pre><code>x</code></pre></div></span>' ) );
+	}
+
+	/**
+	 * An inline element between text and a code block (an <ins> or custom
+	 * element in a Custom HTML block) still gets the blank line before it:
+	 * inside it there's no output of its own to end, so "prefix```" came
+	 * out and the code's <script> rendered as a raw element (Codex review
+	 * G1-2).
+	 */
+	public function test_inline_wrapper_holding_code_starts_a_new_block() {
+		$this->assertSame(
+			"prefix\n\n```\n<script>x</script>\n```\n",
+			Markdown_Converter::convert( '<div>prefix<ins><div><pre><code>&lt;script&gt;x&lt;/script&gt;</code></pre></div></ins></div>' )
+		);
+	}
+
+	/**
+	 * Text that ends up at the start of a line gets its block markers
+	 * escaped like a paragraph's first line, wherever it sits: directly in
+	 * a <div> that end_block() now separates from the inline content before
+	 * it (Codex review G2-1), or after a block, possibly indented.
+	 */
+	public function test_text_at_the_start_of_a_line_escapes_block_markers() {
+		$this->assertSame( "prefix\n\n\\# literal\n", Markdown_Converter::convert( '<div>prefix<div># literal</div></div>' ) );
+		$this->assertSame( "prefix\n\n\\- item\n", Markdown_Converter::convert( '<div>prefix<div>- item</div></div>' ) );
+		$this->assertSame( "prefix\n\n\\---\n", Markdown_Converter::convert( '<div>prefix<div>---</div></div>' ) );
+		$this->assertSame( "a\n\n\\# x\n", Markdown_Converter::convert( "<div><p>a</p>\n  # x</div>" ) );
+		$this->assertSame( "Steps:  \n1\\. Install  \n2\\. Run\n", Markdown_Converter::convert( '<p>Steps:<br>1. Install<br>2. Run</p>' ) );
+	}
+
+	/**
+	 * Inline elements that start a line get the same escaping as text
+	 * (a <span> after a block, Codex review G3-1), and a `~~~` that starts
+	 * a line becomes "&#126;~~": a fence opened by text would take the
+	 * code block after it in, and a "~~~" line in that code would close it
+	 * and leave the code's <script> outside any fence, a raw element even
+	 * in CommonMark (G3-2). A <br> keeps its hard-break spaces.
+	 */
+	public function test_inline_content_at_the_start_of_a_line_escapes_markers_and_tilde_fences() {
+		$this->assertSame( "a\n\n\\# literal\n", Markdown_Converter::convert( '<div><p>a</p><span># literal</span></div>' ) );
+		$this->assertSame( "intro\n\n&#126;~~\n\nhidden\n", Markdown_Converter::convert( '<div>intro<div>~~~</div><div>hidden</div></div>' ) );
+		$this->assertSame(
+			"&#126;~~\n\n```\n~~~\n<script>alert(1)</script>\n```\n",
+			Markdown_Converter::convert( "<p>~~~</p>\n<pre><code>~~~\n&lt;script&gt;alert(1)&lt;/script&gt;</code></pre>" )
+		);
+		$this->assertSame( "a  \n  \nb\n", Markdown_Converter::convert( '<p>a<br><br>b</p>' ) );
+	}
+
+	/**
+	 * Only whitespace at the start of a line is dropped: whitespace between
+	 * inline elements stays a space, including directly inside a block
+	 * container and inside an inline element with nothing before it.
+	 */
+	public function test_whitespace_in_the_middle_of_a_line_is_kept() {
+		$this->assertSame( "a _b_ **c** _d_ e\n", Markdown_Converter::convert( "<p>a <em>b</em> <strong>c</strong>\n<em>d</em><span> </span>e</p>" ) );
+		$this->assertSame( "_a_ _b_\n", Markdown_Converter::convert( '<div><em>a</em> <em>b</em></div>' ) );
+	}
+
+	/**
 	 * Literal Markdown syntax characters in ordinary text (not text this
 	 * converter itself wraps in syntax) are escaped so they can't be
 	 * misread as real Markdown once emitted (Codex review).
@@ -369,7 +509,8 @@ class Test_Markdown_Converter extends WP_UnitTestCase {
 		$this->assertStringContainsString( '\\# literal', Markdown_Converter::convert( '<p># literal</p>' ) );
 		$this->assertStringContainsString( '&gt; literal', Markdown_Converter::convert( '<p>&gt; literal</p>' ) );
 		$this->assertStringContainsString( '\\- literal', Markdown_Converter::convert( '<p>- literal</p>' ) );
-		$this->assertStringContainsString( '\\1. literal', Markdown_Converter::convert( '<p>1. literal</p>' ) );
+		$this->assertStringContainsString( '1\\. literal', Markdown_Converter::convert( '<p>1. literal</p>' ) );
+		$this->assertStringContainsString( '2026\\) literal', Markdown_Converter::convert( '<p>2026) literal</p>' ) );
 	}
 
 	/**
