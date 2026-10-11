@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 #
 # Render Markdown with several Markdown libraries and report, for each one,
-# whether the page it produces contains HTML elements Markdown itself never
-# generates — i.e. whether text in the Markdown reached the page as markup.
+# whether the page it produces contains raw HTML — an element Markdown itself
+# never generates (<script>, <b>, <div>, ...), or an attribute it never
+# generates on that element (an on* handler, a style, ...) or a javascript:
+# URL — i.e. whether text in the Markdown reached the page as markup.
 #
 #   bin/markdown-render-check.sh [options] <file.md | -> ...
 #   bin/markdown-render-check.sh --from-html [options] <file.html | -> ...
@@ -30,7 +32,11 @@
 #   --from-html          The inputs are HTML (as the_content outputs it):
 #                        convert each one with Markdown_Converter::convert()
 #                        in the wp-env development environment (which must be
-#                        running) before rendering.
+#                        running) before rendering. The text of each <pre> in
+#                        the input must then also be shown as text, so a code
+#                        block a renderer didn't recognize is caught even when
+#                        its HTML only uses elements Markdown also generates
+#                        (a sample's <p>hi</p> rendered as a paragraph).
 #   --renderers LIST     Comma-separated subset of the renderers above.
 #   --expect-text TEXT   The rendered page must show TEXT as text (compared
 #                        with whitespace runs collapsed), e.g. '<script>' or
@@ -178,31 +184,71 @@ render() {
 
 # Prints "ok", or what is wrong with the HTML file argv[1], and exits 1 in
 # that case. The remaining arguments are the (kind, value) expectations.
-# An allowed tag is one some renderer above generates from Markdown syntax;
-# anything else (<script>, <b>, <div>, ...) came from raw HTML in the input.
+# ALLOWED lists the elements some renderer above generates from Markdown
+# syntax, each with the attributes it may carry there; any other element or
+# attribute came from raw HTML in the input.
 ANALYZE='
 import html.parser, re, sys
 
 ALLOWED = {
-    "a", "blockquote", "br", "code", "del", "em", "h1", "h2", "h3", "h4",
-    "h5", "h6", "hr", "img", "li", "ol", "p", "pre", "s", "strong",
-    "table", "tbody", "td", "th", "thead", "tr", "ul",
+    "a": {"href", "title"},
+    "blockquote": set(),
+    "br": set(),
+    "code": {"class"},
+    "del": set(),
+    "em": set(),
+    "h1": set(),
+    "h2": set(),
+    "h3": set(),
+    "h4": set(),
+    "h5": set(),
+    "h6": set(),
+    "hr": set(),
+    "img": {"alt", "src", "title"},
+    "li": set(),
+    "ol": {"start"},
+    "p": set(),
+    "pre": set(),
+    "s": set(),
+    "strong": set(),
+    "table": set(),
+    "tbody": set(),
+    "td": {"align", "style"},
+    "th": {"align", "style"},
+    "thead": set(),
+    "tr": set(),
+    "ul": set(),
 }
 
 class Page(html.parser.HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
-        self.tags = set()
+        self.raw = set()
         self.text = []
 
     def handle_starttag(self, tag, attrs):
-        self.tags.add(tag)
+        if tag not in ALLOWED:
+            self.raw.add("<%s>" % tag)
+            return
+        for name, value in attrs:
+            if name not in ALLOWED[tag]:
+                self.raw.add("<%s %s>" % (tag, name))
+            elif name in ("href", "src") and is_script_url(value):
+                self.raw.add("<%s %s=%s>" % (tag, name, (value or "").split(":")[0] + ":"))
 
     def handle_data(self, data):
         self.text.append(data)
 
+def is_script_url(url):
+    # Browsers ignore control characters and spaces inside the scheme.
+    url = re.sub(r"[\x00-\x20]", "", url or "").lower()
+    return url.startswith(("javascript:", "vbscript:"))
+
 def squash(text):
     return re.sub(r"\s+", " ", text).strip()
+
+def quoted(text):
+    return repr(text if len(text) <= 60 else text[:57] + "...")
 
 source = open(sys.argv[1], encoding="utf-8").read()
 page = Page()
@@ -211,18 +257,50 @@ page.close()
 shown = squash("".join(page.text))
 
 problems = []
-raw = sorted(page.tags - ALLOWED)
-if raw:
-    problems.append("raw HTML " + " ".join("<%s>" % tag for tag in raw))
+if page.raw:
+    problems.append("raw HTML " + " ".join(sorted(page.raw)))
 args = sys.argv[2:]
 for kind, value in zip(args[0::2], args[1::2]):
     if kind == "text" and squash(value) not in shown:
-        problems.append("not shown as text: %r" % value)
+        problems.append("not shown as text: " + quoted(value))
     if kind == "html" and not re.search(value, source):
-        problems.append("HTML does not match %r" % value)
+        problems.append("HTML does not match " + quoted(value))
 
 print("FAIL  " + "; ".join(problems) if problems else "ok")
 sys.exit(1 if problems else 0)
+'
+
+# Prints the text of each <pre> in the HTML file argv[1], NUL-terminated (the
+# --from-html expectations; see the header).
+PRE_TEXTS='
+import html.parser, sys
+
+class Pre(html.parser.HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.depth = 0
+        self.texts = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "pre":
+            if not self.depth:
+                self.texts.append("")
+            self.depth += 1
+
+    def handle_endtag(self, tag):
+        if tag == "pre" and self.depth:
+            self.depth -= 1
+
+    def handle_data(self, data):
+        if self.depth:
+            self.texts[-1] += data
+
+parser = Pre()
+parser.feed(open(sys.argv[1], encoding="utf-8").read())
+parser.close()
+for text in parser.texts:
+    if text.strip():
+        sys.stdout.write(text + "\0")
 '
 
 # Prints a file, ending it with a newline if it lacks one (Python-Markdown's
@@ -237,8 +315,12 @@ for index in $(seq 1 ${#inputs[@]}); do
 	name="${names[$((index - 1))]}"
 	markdown="$WORK/$index.md"
 
+	pre_texts=()
 	if [ "$from_html" = 1 ]; then
 		to_markdown "$WORK/$index.src" "$markdown"
+		while IFS= read -r -d '' text; do
+			pre_texts+=(text "$text")
+		done < <(python3 -I -X utf8 -c "$PRE_TEXTS" "$WORK/$index.src")
 		echo "== $name (converted by Markdown_Converter)"
 	else
 		cp "$WORK/$index.src" "$markdown"
@@ -259,7 +341,7 @@ for index in $(seq 1 ${#inputs[@]}); do
 			print_file "$out"
 		fi
 
-		if ! result="$(python3 -I -X utf8 -c "$ANALYZE" "$out" ${expectations[@]+"${expectations[@]}"})"; then
+		if ! result="$(python3 -I -X utf8 -c "$ANALYZE" "$out" ${expectations[@]+"${expectations[@]}"} ${pre_texts[@]+"${pre_texts[@]}"})"; then
 			# A crash prints nothing on stdout, unlike a reported failure.
 			[ -n "$result" ] || die "could not analyze the $renderer output"
 			failed=1
