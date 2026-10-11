@@ -307,6 +307,25 @@ class Test_Llms_Index extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Markup or a character reference shown as text in a title comes out
+	 * escaped in the item's link label, while an ordinary "&" stays as it is
+	 * (Issue #79).
+	 */
+	public function test_build_index_escapes_angle_brackets_and_character_references_in_title() {
+		self::factory()->post->create(
+			array(
+				'post_type'   => 'saai_faq',
+				'post_title'  => 'Use &lt;div&gt; and &amp;copy; for R&amp;D',
+				'post_status' => 'publish',
+			)
+		);
+
+		$markdown = $this->index->build_index();
+
+		$this->assertStringContainsString( '- [Use \\<div> and \\&copy; for R&D](', $markdown );
+	}
+
+	/**
 	 * The maybe_remove_canonical_redirect() method only strips redirect_canonical for
 	 * the real `/{kb slug}/llms.txt` route, not for an unrelated article
 	 * whose slug merely starts with the same characters (e.g.

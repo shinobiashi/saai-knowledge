@@ -185,6 +185,51 @@ class Test_Markdown_Output extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A term name is stored HTML-escaped ("Q&amp;A"), so it is decoded
+	 * before escape_text(): the Category line shows "Q&A" rather than the
+	 * literal text "Q&amp;A", and a literal `<` is escaped (Issue #79).
+	 */
+	public function test_render_decodes_category_name_before_escaping() {
+		$term    = self::factory()->term->create_and_get(
+			array(
+				'taxonomy' => 'saai_category',
+				'name'     => 'Q&A < Billing',
+			)
+		);
+		$post_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_faq',
+				'post_content' => 'Answer text.',
+				'post_status'  => 'publish',
+			)
+		);
+		wp_set_object_terms( $post_id, array( $term->term_id ), 'saai_category' );
+
+		$markdown = $this->service->render( get_post( $post_id ) );
+
+		$this->assertStringContainsString( "**Category:** Q&A \\< Billing\n", $markdown );
+	}
+
+	/**
+	 * Markup or a character reference shown as text in the title comes out
+	 * escaped in the H1 line, so a Markdown renderer shows it as text
+	 * (Issue #79).
+	 */
+	public function test_render_escapes_angle_brackets_and_character_references_in_title() {
+		$post_id = self::factory()->post->create(
+			array(
+				'post_type'   => 'saai_kb',
+				'post_title'  => 'Use &lt;div&gt; and &amp;copy; for R&amp;D',
+				'post_status' => 'publish',
+			)
+		);
+
+		$markdown = $this->service->render( get_post( $post_id ) );
+
+		$this->assertStringStartsWith( "# Use \\<div> and \\&copy; for R&D\n", $markdown );
+	}
+
+	/**
 	 * The render() method does not add a Category line for saai_glossary,
 	 * which doesn't use saai_category (docs/DESIGN.md section 3.2).
 	 */

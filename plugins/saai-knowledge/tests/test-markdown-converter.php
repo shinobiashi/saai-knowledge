@@ -196,6 +196,74 @@ class Test_Markdown_Converter extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Markup an article shows as text (`&lt;script&gt;` in the HTML) comes
+	 * out with its `<` escaped, so a Markdown renderer that allows raw HTML
+	 * shows it as text instead of running it as markup (Issue #79).
+	 */
+	public function test_literal_angle_brackets_are_escaped() {
+		$markdown = Markdown_Converter::convert( '<p>Use &lt;script&gt;alert(1)&lt;/script&gt; and &lt;div&gt; and a &lt; b here</p>' );
+
+		$this->assertSame( "Use \\<script>alert(1)\\</script> and \\<div> and a \\< b here\n", $markdown );
+	}
+
+	/**
+	 * `<` is escaped even with nothing after it in its own text node: an
+	 * empty inline element splits `&lt;script&gt;` into the runs "<" and
+	 * "script>", which only form a tag once concatenated (Issue #79).
+	 */
+	public function test_literal_angle_bracket_split_across_text_nodes_is_escaped() {
+		$markdown = Markdown_Converter::convert( '<p>&lt;<em></em>script&gt;alert(1)</p>' );
+
+		$this->assertSame( "\\<script>alert(1)\n", $markdown );
+	}
+
+	/**
+	 * A literal `<https://...>` would otherwise become an autolink, with its
+	 * angle brackets disappearing from the rendered text (Issue #79).
+	 */
+	public function test_literal_autolink_is_escaped() {
+		$markdown = Markdown_Converter::convert( '<p>See &lt;https://example.com&gt;</p>' );
+
+		$this->assertSame( "See \\<https://example.com>\n", $markdown );
+	}
+
+	/**
+	 * An `&` that would start a character reference is escaped, so a literal
+	 * "&copy;" isn't rendered as "©"; any other `&` (by far the common case:
+	 * "Q&A", "AT&T", "a & b") is left readable (Issue #79).
+	 */
+	public function test_ampersand_is_escaped_only_where_it_starts_a_character_reference() {
+		$markdown = Markdown_Converter::convert( '<p>Write &amp;copy; &amp;#169; &amp;#x00A9; for Q&amp;A, AT&amp;T &amp; R&amp;D;</p>' );
+
+		$this->assertSame( "Write \\&copy; \\&#169; \\&#x00A9; for Q&A, AT&T & R\\&D;\n", $markdown );
+	}
+
+	/**
+	 * Image alt text and the titles/names other classes pass straight to
+	 * escape_text() get the same `<`/`&` escaping as body text, and the
+	 * backslash escape_text() adds before `&` isn't itself doubled (Issue
+	 * #79).
+	 */
+	public function test_escape_text_escapes_angle_brackets_and_character_references() {
+		$this->assertSame( 'a \\<b> \\&amp; Q&A \\\\', Markdown_Converter::escape_text( 'a <b> &amp; Q&A \\' ) );
+
+		$markdown = Markdown_Converter::convert( '<img src="https://example.com/a.png" alt="&lt;b&gt;bold&lt;/b&gt; &amp;amp;">' );
+		$this->assertStringContainsString( '![\\<b>bold\\</b> \\&amp;](<https://example.com/a.png>)', $markdown );
+	}
+
+	/**
+	 * Code is emitted as-is: CommonMark reads neither raw HTML nor character
+	 * references inside a code span or fenced block, so escaping there
+	 * would show up as stray backslashes (Issue #79).
+	 */
+	public function test_code_keeps_angle_brackets_and_ampersands_unescaped() {
+		$markdown = Markdown_Converter::convert( '<p><code>&lt;div&gt; &amp;amp;</code></p><pre><code>&lt;?php echo "&amp;copy;";</code></pre>' );
+
+		$this->assertStringContainsString( '`<div> &amp;`', $markdown );
+		$this->assertStringContainsString( "```\n<?php echo \"&copy;\";\n```", $markdown );
+	}
+
+	/**
 	 * An <ol start="N"> begins numbering at N instead of always at 1
 	 * (Codex review).
 	 */

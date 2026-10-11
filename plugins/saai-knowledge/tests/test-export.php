@@ -443,6 +443,35 @@ class Test_Export extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Markup or a character reference shown as text in the body and in an
+	 * h2 comes out escaped in content_markdown and in each section's
+	 * content_markdown, including its own "## " heading line, while the
+	 * plain `heading` field keeps the text as it is (Issue #79).
+	 */
+	public function test_content_markdown_escapes_angle_brackets_and_character_references() {
+		$content  = '<!-- wp:heading --><h2>&lt;div&gt; tips</h2><!-- /wp:heading -->';
+		$content .= '<!-- wp:paragraph --><p>Use &lt;script&gt; and &amp;copy; for R&amp;D</p><!-- /wp:paragraph -->';
+
+		$this->create_post( 'saai_kb', 'Markup guide', array( 'post_content' => $content ) );
+
+		$request  = new WP_REST_Request( 'GET', '/saai-knowledge/v1/export' );
+		$response = $this->server->dispatch( $request );
+		$record   = $response->get_data()['records'][0];
+
+		$this->assertStringContainsString( "## \\<div> tips\n\nUse \\<script> and \\&copy; for R&D", $record['content_markdown'] );
+		$this->assertSame( '<div> tips', $record['sections'][0]['heading'] );
+		$this->assertSame( "## \\<div> tips\n\nUse \\<script> and \\&copy; for R&D", $record['sections'][0]['content_markdown'] );
+
+		// The DOMDocument-less sections fallback escapes its heading the same way.
+		$method = new ReflectionMethod( $this->export, 'build_sections_via_blocks' );
+		$method->setAccessible( true );
+
+		$sections = $method->invoke( $this->export, get_post( $record['id'] ) );
+
+		$this->assertStringStartsWith( "## \\<div> tips\n\n", $sections[0]['content_markdown'] );
+	}
+
+	/**
 	 * A shortcode inside the exported post's own content that calls the
 	 * argument-less get_post() must see *that* post, not whatever post
 	 * happened to already be the global $post (a stale value from another

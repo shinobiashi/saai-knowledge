@@ -314,15 +314,37 @@ final class Markdown_Converter {
 	 * "arbitrary editable string next to syntax this plugin emits" problem,
 	 * just outside an HTML document this class is parsing.
 	 *
+	 * The text is plain text, i.e. already decoded (a DOMText value, or a
+	 * title/term name passed through html_entity_decode()): a literal `<`
+	 * or `&` here is a character the article actually contains, so it must
+	 * not reach the Markdown as raw HTML or a character reference (Issue
+	 * #79). Callers must not pass HTML-escaped text — `&amp;` would come out
+	 * as the literal text "&amp;".
+	 *
+	 * - `<` is always escaped. CommonMark reads `<` followed by a tag name,
+	 *   `/`, `!` or `?` as raw HTML and `<scheme:...>` as an autolink, and
+	 *   checking what follows can't be done per text node: `&lt;<em></em>
+	 *   script&gt;` is the two runs "<" and "script>", which only become
+	 *   `<script>` once concatenated.
+	 * - `&` is escaped only where it starts a character reference (`&name;`,
+	 *   `&#123;`, `&#x1F;`), leaving the far more common "Q&A"/"AT&T"
+	 *   readable. A reference split across two text nodes (`&<span>copy;
+	 *   </span>`) is missed, but a reference only ever renders as a
+	 *   character, never as markup.
+	 *
 	 * @param string $text Plain text.
 	 * @return string
 	 */
 	public static function escape_text( string $text ): string {
-		return str_replace(
-			array( '\\', '`', '*', '_', '[', ']' ),
-			array( '\\\\', '\\`', '\\*', '\\_', '\\[', '\\]' ),
+		$escaped = str_replace(
+			array( '\\', '`', '*', '_', '[', ']', '<' ),
+			array( '\\\\', '\\`', '\\*', '\\_', '\\[', '\\]', '\\<' ),
 			$text
 		);
+
+		// After the str_replace() above, so the backslash added here isn't
+		// doubled by its `\` replacement.
+		return (string) preg_replace( '/&(?=[A-Za-z][A-Za-z0-9]*;|#[0-9]{1,7};|#[xX][0-9a-fA-F]{1,6};)/', '\\\\&', $escaped );
 	}
 
 	/**
