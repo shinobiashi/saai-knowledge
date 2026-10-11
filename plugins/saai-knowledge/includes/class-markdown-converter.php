@@ -530,13 +530,21 @@ final class Markdown_Converter {
 	 * across two text nodes (`&<span>copy;</span>`) is missed, but a
 	 * reference only ever renders as a character, never as markup.
 	 *
+	 * `{`/`}` are backslash-escaped too: Python-Markdown's attr_list (part
+	 * of its extra extension) reads a `{: ... }` at the end of a heading or
+	 * right after an inline element as that element's attributes, so a
+	 * literal `{: onclick=alert(1) }` became an event handler (Issue #82).
+	 * Unlike `\<`, `\{` is an escape in every dialect: CommonMark escapes
+	 * any ASCII punctuation, and Markdown.pl, PHP Markdown and
+	 * Python-Markdown all list `{`/`}` among their escapable characters.
+	 *
 	 * @param string $text Plain text.
 	 * @return string
 	 */
 	public static function escape_text( string $text ): string {
 		$escaped = str_replace(
-			array( '\\', '`', '*', '_', '[', ']' ),
-			array( '\\\\', '\\`', '\\*', '\\_', '\\[', '\\]' ),
+			array( '\\', '`', '*', '_', '[', ']', '{', '}' ),
+			array( '\\\\', '\\`', '\\*', '\\_', '\\[', '\\]', '\\{', '\\}' ),
 			$text
 		);
 
