@@ -3,9 +3,9 @@
 - タスク: Issue #79（bug、無料版）— Markdown 出力（`?format=markdown` / llms.txt / RAG エクスポートの `content_markdown`）で、本文に文字として書かれた `<` と `&` がエスケープされず、生の HTML・文字参照として出る問題を直す。無料版 1.0.3（未リリース）に含める
 - 開始: 2026-10-11
 - PR: #80 https://github.com/shinobiashi/saai-knowledge/pull/80
-- 現在のステップ: 6（G2 依頼・待ち）
+- 現在のステップ: **完了**（マージ待ち）
 - モード: `auto-commit`（確認ゲートなし。ラウンド報告のみ）、Codex は `--request-codex`
-- Copilot: 依頼 1 回 / 未収束（G1 で新規 2 件）
+- Copilot: 依頼 2 回 / 収束（G2 で新規指摘なし）
 - Codex: 依頼 1 回 / 収束（G1 で新規指摘なし。`--request-codex` の手動依頼に応答）
 
 ## ログ
@@ -19,3 +19,5 @@
 | 2026-10-11 | 3 | review-loop R2: **APPROVE**（R1-1 解消、新規 Critical/High なし）。独立サブエージェント（Fable）併用、ミューテーション 3 件 CAUGHT。新規 Low 1（R2-1: `escape_line_start()` の `>` 分岐）と対象外 Medium 1（R2-X1: Python-Markdown ではコードのフェンスが効かず、コード例の `<script>` が生の要素になる。既存挙動）を backlog へ。R2 での修正なし |
 | 2026-10-11 | 4 | 初回 push（`d5258d9`、T=2026-10-11T07:05:11Z）+ PR #80 作成 |
 | 2026-10-11 | 6-7 | G1: CI 12 チェック green 後に両 bot へ依頼。Codex「Didn't find any major issues」→ 収束。Copilot 新規 2 件: G1-2（Medium、readme の「any Markdown renderer」がコードブロックまで保証して読める）を修正（`0ec908e`）、G1-1（Low、`&` と参照名がテキストノードをまたぐと素通り。既知の制約）を保留して backlog へ |
+| 2026-10-11 | 6-7 | G2: CI green 後に Copilot へ再依頼。「🟢 Approval recommended / 0 open findings」→ 収束。G1-1 のスレッドは Copilot 自身が Resolve |
+| 2026-10-11 | 8 | 最終報告を作成し完了 |
