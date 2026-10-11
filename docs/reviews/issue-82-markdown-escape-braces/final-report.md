@@ -9,7 +9,8 @@
   - 8457879 fix: escape curly braces in Markdown text so attr_list can't add attributes
   - fac0bc5 docs: record issue 82 progress and backlog updates
   - c4918b5 docs: record review-loop round 1 for issue 82
-  - （本報告）docs: record dev-cycle gate round 1 and final report for issue 82
+  - 5f2e89f docs: record dev-cycle gate round 1 for issue 82
+  - 2cd1036 docs: record dev-cycle final report for issue 82
 - 設計ドキュメントからの逸脱: なし（§7.3 の方針の範囲内の追加。§7.3 は更新済み）
 
 ## review-loop（PR 前）
