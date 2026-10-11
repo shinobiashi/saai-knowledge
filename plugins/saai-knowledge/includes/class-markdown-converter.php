@@ -222,11 +222,13 @@ final class Markdown_Converter {
 
 			$markdown = self::convert_node( $child, $indent );
 
-			// Text that starts a line can start Markdown syntax there, which
-			// only the <p>/<li>/<blockquote> branches escaped: text directly
-			// in a <div> after inline content became "prefix\n\n# literal"
-			// once end_block() separated them — a heading (Codex review G2-1).
-			if ( $child instanceof \DOMText && self::at_line_start( $node, $out ) ) {
+			// Inline content that starts a line can start Markdown syntax
+			// there, which only the <p>/<li>/<blockquote> branches escaped:
+			// text directly in a <div> after inline content became
+			// "prefix\n\n# literal" once end_block() separated them — a
+			// heading (Codex review G2-1) — and the same text wrapped in a
+			// <span> after a block did too (G3-1).
+			if ( self::is_inline_content( $child ) && self::at_line_start( $node, $out ) ) {
 				$markdown = self::escape_line_start( ltrim( $markdown, ' ' ) );
 			}
 
@@ -234,6 +236,23 @@ final class Markdown_Converter {
 		}
 
 		return $out;
+	}
+
+	/**
+	 * Whether a node is inline content whose output escape_line_start()
+	 * applies to when it starts a line: text, or an element that isn't a
+	 * block. A <br> is left alone — its output is the "  " that marks the
+	 * hard break, which ltrim() would remove.
+	 *
+	 * @param \DOMNode $node Node to check.
+	 * @return bool
+	 */
+	private static function is_inline_content( \DOMNode $node ): bool {
+		if ( $node instanceof \DOMText ) {
+			return true;
+		}
+
+		return $node instanceof \DOMElement && ! self::is_block_element( $node ) && 'br' !== strtolower( $node->tagName );
 	}
 
 	/**
@@ -551,21 +570,29 @@ final class Markdown_Converter {
 	/**
 	 * Escapes a leading block-syntax marker at the very start of an
 	 * assembled line — a heading `#`, blockquote `>`, list `-`/`+`, thematic
-	 * break `---` (a `-` followed by another), or ordered-list `1.`/`1)` —
-	 * so literal text that happens to start with one (e.g. a paragraph that
-	 * is itself just the sentence "- reminder: ...") isn't misread as that
-	 * construct once emitted. escape_text() can't do this itself: it runs
-	 * per DOMText node, with no notion of whether its text ends up at the
-	 * start of the final rendered line — this instead runs once on each
-	 * fully assembled paragraph/list-item/blockquote line, in
-	 * convert_node()/convert_list(), and on each text node
-	 * convert_children() places at the start of a line (text directly in a
-	 * <div>, or after a block or a <br>).
+	 * break `---` (a `-` followed by another), code fence `~~~`, or
+	 * ordered-list `1.`/`1)` — so literal text that happens to start with
+	 * one (e.g. a paragraph that is itself just the sentence "- reminder:
+	 * ...") isn't misread as that construct once emitted. escape_text()
+	 * can't do this itself: it runs per DOMText node, with no notion of
+	 * whether its text ends up at the start of the final rendered line —
+	 * this instead runs once on each fully assembled paragraph/list-item/
+	 * blockquote line, in convert_node()/convert_list(), and on the inline
+	 * content convert_children() places at the start of a line (text or an
+	 * inline element directly in a <div>, or after a block or a <br>).
 	 *
 	 * Asterisk/underscore-based markers aren't handled here because
 	 * escape_text() already escapes every literal `*`/`_`, unconditionally
 	 * and everywhere, which already prevents them from being read as a
 	 * list marker or emphasis.
+	 *
+	 * A tilde fence `~~~` gets its first `~` as a character reference
+	 * instead: Python-Markdown doesn't treat `\~` as an escape. Text that
+	 * opened a fence would otherwise take the converter's own code block
+	 * that follows into it, and a `~~~` line in that code sample would
+	 * close it and put the rest of the sample — its `<script>` — outside
+	 * any fence (Codex review G3-2). Backtick fences need nothing here:
+	 * escape_text() already escapes every literal backtick.
 	 *
 	 * An ordered-list marker gets its `.`/`)` escaped ("1\. "), not the
 	 * digits: a backslash only escapes punctuation, so "\1. " showed the
@@ -577,6 +604,7 @@ final class Markdown_Converter {
 	 */
 	private static function escape_line_start( string $line ): string {
 		$line = (string) preg_replace( '/^(#{1,6}(?=\s|$)|>|\+(?=\s|$)|-(?=[\s-]|$))/', '\\\\$1', $line );
+		$line = (string) preg_replace( '/^~(?=~~)/', '&#126;', $line );
 
 		return (string) preg_replace( '/^(\d+)([.)])(?=\s|$)/', '$1\\\\$2', $line );
 	}

@@ -296,6 +296,24 @@ class Test_Markdown_Converter extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Inline elements that start a line get the same escaping as text
+	 * (a <span> after a block, Codex review G3-1), and a `~~~` that starts
+	 * a line becomes "&#126;~~": a fence opened by text would take the
+	 * code block after it in, and a "~~~" line in that code would close it
+	 * and leave the code's <script> outside any fence, a raw element even
+	 * in CommonMark (G3-2). A <br> keeps its hard-break spaces.
+	 */
+	public function test_inline_content_at_the_start_of_a_line_escapes_markers_and_tilde_fences() {
+		$this->assertSame( "a\n\n\\# literal\n", Markdown_Converter::convert( '<div><p>a</p><span># literal</span></div>' ) );
+		$this->assertSame( "intro\n\n&#126;~~\n\nhidden\n", Markdown_Converter::convert( '<div>intro<div>~~~</div><div>hidden</div></div>' ) );
+		$this->assertSame(
+			"&#126;~~\n\n```\n~~~\n<script>alert(1)</script>\n```\n",
+			Markdown_Converter::convert( "<p>~~~</p>\n<pre><code>~~~\n&lt;script&gt;alert(1)&lt;/script&gt;</code></pre>" )
+		);
+		$this->assertSame( "a  \n  \nb\n", Markdown_Converter::convert( '<p>a<br><br>b</p>' ) );
+	}
+
+	/**
 	 * Only whitespace at the start of a line is dropped: whitespace between
 	 * inline elements stays a space, including directly inside a block
 	 * container and inside an inline element with nothing before it.
