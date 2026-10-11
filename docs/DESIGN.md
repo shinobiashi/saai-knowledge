@@ -295,7 +295,7 @@ FAQ を生成AIクローラーに発見されやすくし、サイト独自の�
 
 - REST: `GET /saai-knowledge/v1/export?types=faq,kb,glossary&format=jsonl|json&modified_after={ISO8601}&page=N`
   - 1レコード: `{ id, type, title, content_markdown, content_plain, categories, tags, url, updated_at }`（公開コンテンツのみ）
-  - `content_plain` は全文検索・embedding 用のプレーンテキスト（`Markdown_Converter::to_plain_text()`）。Markdown 記法を含まず、ブロック境界は空行、表のセルは空白で区切る。`the_content` 出力の HTML 文字参照（wptexturize の `&#8217;`、`&amp;` 等）はタグ除去の後にデコードする（本文の `&lt;br&gt;` は `<br>` という文字列として残る）。同じタグ除去を共有する、DOMDocument が無い環境の Markdown 変換のフォールバック（`fallback_plain_text()`）はデコードしない（出力が Markdown で、CommonMark では文字参照がそのまま文字を表すため。Issue #49）
+  - `content_plain` は全文検索・embedding 用のプレーンテキスト（`Markdown_Converter::to_plain_text()`）。Markdown 記法を含まず、ブロック境界は空行、表のセルは空白で区切る。`the_content` 出力の HTML 文字参照（wptexturize の `&#8217;`、`&amp;` 等）はタグ除去の後にデコードする（本文の `&lt;br&gt;` は `<br>` という文字列として残る）。そのため `title` と同じく、HTML に差し込むときのエスケープは利用側が行う。同じタグ除去を共有する、DOMDocument が無い環境の Markdown 変換のフォールバック（`fallback_plain_text()`）はデコードしない（出力が Markdown で、CommonMark では文字参照がそのまま文字を表すため。Issue #49）
   - `modified_after` で増分同期に対応（サポートAI側の再取り込みを差分だけにできる）
   - KB 記事は h2 単位のセクション配列 `sections: [ { heading, anchor, content_markdown } ]` を併せて出力（チャンク化しやすく）
   - JSONL は1行1レコード（埋め込みパイプラインの標準形式）
