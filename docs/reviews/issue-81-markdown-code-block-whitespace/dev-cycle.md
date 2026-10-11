@@ -3,10 +3,10 @@
 - タスク: Issue #81（bug、無料版）— Markdown 出力でブロック間の改行が2つ目以降のブロックの行頭に空白として付き、Python-Markdown（`fenced_code` / `extra` あり）がコードブロックと見出しを認識せず、コード例の `<script>` が生の要素になる問題を直す（backlog R2-X1（issue-79））。無料版 1.0.3（未リリース）に含める
 - 開始: 2026-10-11
 - PR: #83 https://github.com/shinobiashi/saai-knowledge/pull/83
-- 現在のステップ: 6（G2 依頼）
+- 現在のステップ: 6（G3 依頼。Codex のみ）
 - モード: `auto-commit`（確認ゲートなし。ラウンド報告のみ）、Codex は `--request-codex`
-- Copilot: 依頼 1 回 / 未収束
-- Codex: 依頼 1 回 / 未収束
+- Copilot: 依頼 2 回 / 収束（G2 で新規指摘なし）
+- Codex: 依頼 2 回 / 未収束
 
 ## ログ
 
@@ -19,3 +19,4 @@
 | 2026-10-11 | 3 | review-loop R2: APPROVE（R1-1・R1-2 とも解消、新規 Critical/High なし）。R1-2 が持ち込んだ R2-1（Low、インライン要素の中の空行でリンクが割れる）は R2 で修正（007d287。インライン要素の中ではコードを含むブロックの前だけ空行）。Low 2 件・範囲外 3 件（R2-X1 引用の中のコード〔Medium〕、R2-X2 インライン構文の中のコード〔Medium〕、R2-X3）を backlog へ。品質チェック green（PHPUnit 609 件） |
 | 2026-10-11 | 4 | 初回 push（HEAD 4698296、T=2026-10-11T12:36:13Z）、PR #83 作成 |
 | 2026-10-11 | 6-7 | G1: CI green 後に両 bot へ依頼（Copilot は gh pr edit で登録確認、Codex は @codex review）。Copilot 2 件（G1-1 readme の言い過ぎ → 修正 49fc638、G1-3 スクリプトの `style` 許可 → 保留）、Codex 1 件（G1-2 インライン要素で包まれたコードの前に空行が入らない → 修正 fa95282）。返信・Resolve・まとめコメント済み。品質チェック green（PHPUnit 610 件） |
+| 2026-10-11 | 6-7 | G2: Copilot 0 件で収束。Codex 1 件（G2-1 `<div>` 直下で行頭に来たテキストの記号がエスケープされない → 修正 bd90c71。行頭に来るテキストすべてに `escape_line_start()`、`---` も対象、番号は `1\.`）。backlog R1-X1（issue-79）も解消。返信・Resolve・まとめコメント済み。品質チェック green（PHPUnit 611 件） |
