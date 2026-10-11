@@ -1,0 +1,17 @@
+# dev-cycle 状態: issue-81-markdown-code-block-whitespace
+
+- タスク: Issue #81（bug、無料版）— Markdown 出力でブロック間の改行が2つ目以降のブロックの行頭に空白として付き、Python-Markdown（`fenced_code` / `extra` あり）がコードブロックと見出しを認識せず、コード例の `<script>` が生の要素になる問題を直す（backlog R2-X1（issue-79））。無料版 1.0.3（未リリース）に含める
+- 開始: 2026-10-11
+- PR: 未作成
+- 現在のステップ: 3（review-loop）
+- モード: `auto-commit`（確認ゲートなし。ラウンド報告のみ）、Codex は `--request-codex`
+- Copilot: 依頼 0 回 / 未収束
+- Codex: 依頼 0 回 / 未収束
+
+## ログ
+
+| 日時(JST) | ステップ | 内容 |
+| --- | --- | --- |
+| 2026-10-11 | 0 | ブランチ `issue-81-markdown-code-block-whitespace` は作成済み（main e929071 から。描画比較スクリプト `bin/markdown-render-check.sh` の 138d0b0 をユーザー指示でこの PR に含める）。作業ツリー clean、wp-env 起動中、PR なし |
+| 2026-10-11 | 1 | 計画承認（フェンスのまま、行頭に来る空白だけのテキストノードを出力しない。インデントのコードは不採用） |
+| 2026-10-11 | 2 | 実装（`Markdown_Converter::is_line_start_whitespace()`、テスト 5 件、readme 1.0.3・DESIGN §7.3・CLAUDE.md・backlog）。品質チェック green（PHPCS / PHPStan / PHPUnit 607 件 / build）。ミューテーション 4 件すべて CAUGHT。描画比較: 修正前は段落・Group・リスト・details の後のコードで Python-Markdown 3 設定とも生の `<script>`、修正後は `fenced_code` / `extra` が合格（拡張なしは既知の制約）。dev の `?format=markdown`・エクスポート（本文・KB セクション）でも合格、テスト投稿は削除済み |
