@@ -220,10 +220,41 @@ final class Markdown_Converter {
 				$out = self::end_block( $out );
 			}
 
-			$out .= self::convert_node( $child, $indent );
+			$markdown = self::convert_node( $child, $indent );
+
+			// Text that starts a line can start Markdown syntax there, which
+			// only the <p>/<li>/<blockquote> branches escaped: text directly
+			// in a <div> after inline content became "prefix\n\n# literal"
+			// once end_block() separated them — a heading (Codex review G2-1).
+			if ( $child instanceof \DOMText && self::at_line_start( $node, $out ) ) {
+				$markdown = self::escape_line_start( ltrim( $markdown, ' ' ) );
+			}
+
+			$out .= $markdown;
 		}
 
 		return $out;
+	}
+
+	/**
+	 * Whether the next output of a parent lands at the start of a Markdown
+	 * line: its output so far ends with a newline, or it has none yet and
+	 * is a block element (so its own output starts a line).
+	 *
+	 * Judged from the output rather than the previous sibling, so a node
+	 * that outputs nothing (a comment, <script>) in between doesn't hide the
+	 * line start.
+	 *
+	 * @param \DOMNode $container The parent.
+	 * @param string   $out       Its output so far.
+	 * @return bool
+	 */
+	private static function at_line_start( \DOMNode $container, string $out ): bool {
+		if ( '' === $out ) {
+			return self::is_block_element( $container );
+		}
+
+		return "\n" === substr( $out, -1 );
 	}
 
 	/**
@@ -307,25 +338,15 @@ final class Markdown_Converter {
 	 * whitespace isn't displayed in HTML either, so it's dropped. Whitespace
 	 * in the middle of a line (`<em>a</em> <em>b</em>`) is kept.
 	 *
-	 * Judged from the output so far rather than the previous sibling, so a
-	 * node that outputs nothing (a comment, <script>) in between doesn't
-	 * hide the line start.
-	 *
 	 * @param \DOMNode $child     Child about to be converted.
 	 * @param \DOMNode $container Its parent.
 	 * @param string   $out       The parent's output so far.
 	 * @return bool
 	 */
 	private static function is_line_start_whitespace( \DOMNode $child, \DOMNode $container, string $out ): bool {
-		if ( ! $child instanceof \DOMText || '' !== trim( $child->wholeText, " \t\n\r\f" ) ) {
-			return false;
-		}
-
-		if ( '' === $out ) {
-			return self::is_block_element( $container );
-		}
-
-		return "\n" === substr( $out, -1 );
+		return $child instanceof \DOMText
+			&& '' === trim( $child->wholeText, " \t\n\r\f" )
+			&& self::at_line_start( $container, $out );
 	}
 
 	/**
@@ -529,25 +550,35 @@ final class Markdown_Converter {
 
 	/**
 	 * Escapes a leading block-syntax marker at the very start of an
-	 * assembled line — a heading `#`, blockquote `>`, list `-`/`+`, or
-	 * ordered-list `1.`/`1)` — so literal text that happens to start with
-	 * one (e.g. a paragraph that is itself just the sentence "- reminder:
-	 * ...") isn't misread as that construct once emitted. escape_text()
-	 * can't do this itself: it runs per DOMText node, with no notion of
-	 * whether its text ends up at the start of the final rendered line —
-	 * this instead runs once on each fully assembled paragraph/list-item/
-	 * blockquote line, in convert_node()/convert_list().
+	 * assembled line — a heading `#`, blockquote `>`, list `-`/`+`, thematic
+	 * break `---` (a `-` followed by another), or ordered-list `1.`/`1)` —
+	 * so literal text that happens to start with one (e.g. a paragraph that
+	 * is itself just the sentence "- reminder: ...") isn't misread as that
+	 * construct once emitted. escape_text() can't do this itself: it runs
+	 * per DOMText node, with no notion of whether its text ends up at the
+	 * start of the final rendered line — this instead runs once on each
+	 * fully assembled paragraph/list-item/blockquote line, in
+	 * convert_node()/convert_list(), and on each text node
+	 * convert_children() places at the start of a line (text directly in a
+	 * <div>, or after a block or a <br>).
 	 *
 	 * Asterisk/underscore-based markers aren't handled here because
 	 * escape_text() already escapes every literal `*`/`_`, unconditionally
 	 * and everywhere, which already prevents them from being read as a
 	 * list marker or emphasis.
 	 *
+	 * An ordered-list marker gets its `.`/`)` escaped ("1\. "), not the
+	 * digits: a backslash only escapes punctuation, so "\1. " showed the
+	 * backslash — now also on the "1. Install" lines after a <br> that
+	 * convert_children() escapes (Codex review G2-1).
+	 *
 	 * @param string $line One fully assembled line of output.
 	 * @return string
 	 */
 	private static function escape_line_start( string $line ): string {
-		return (string) preg_replace( '/^(#{1,6}(?=\s|$)|>|[-+](?=\s|$)|\d+[.)](?=\s|$))/', '\\\\$1', $line );
+		$line = (string) preg_replace( '/^(#{1,6}(?=\s|$)|>|\+(?=\s|$)|-(?=[\s-]|$))/', '\\\\$1', $line );
+
+		return (string) preg_replace( '/^(\d+)([.)])(?=\s|$)/', '$1\\\\$2', $line );
 	}
 
 	/**

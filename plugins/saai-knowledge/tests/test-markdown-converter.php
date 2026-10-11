@@ -282,6 +282,20 @@ class Test_Markdown_Converter extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Text that ends up at the start of a line gets its block markers
+	 * escaped like a paragraph's first line, wherever it sits: directly in
+	 * a <div> that end_block() now separates from the inline content before
+	 * it (Codex review G2-1), or after a block, possibly indented.
+	 */
+	public function test_text_at_the_start_of_a_line_escapes_block_markers() {
+		$this->assertSame( "prefix\n\n\\# literal\n", Markdown_Converter::convert( '<div>prefix<div># literal</div></div>' ) );
+		$this->assertSame( "prefix\n\n\\- item\n", Markdown_Converter::convert( '<div>prefix<div>- item</div></div>' ) );
+		$this->assertSame( "prefix\n\n\\---\n", Markdown_Converter::convert( '<div>prefix<div>---</div></div>' ) );
+		$this->assertSame( "a\n\n\\# x\n", Markdown_Converter::convert( "<div><p>a</p>\n  # x</div>" ) );
+		$this->assertSame( "Steps:  \n1\\. Install  \n2\\. Run\n", Markdown_Converter::convert( '<p>Steps:<br>1. Install<br>2. Run</p>' ) );
+	}
+
+	/**
 	 * Only whitespace at the start of a line is dropped: whitespace between
 	 * inline elements stays a space, including directly inside a block
 	 * container and inside an inline element with nothing before it.
@@ -477,7 +491,8 @@ class Test_Markdown_Converter extends WP_UnitTestCase {
 		$this->assertStringContainsString( '\\# literal', Markdown_Converter::convert( '<p># literal</p>' ) );
 		$this->assertStringContainsString( '&gt; literal', Markdown_Converter::convert( '<p>&gt; literal</p>' ) );
 		$this->assertStringContainsString( '\\- literal', Markdown_Converter::convert( '<p>- literal</p>' ) );
-		$this->assertStringContainsString( '\\1. literal', Markdown_Converter::convert( '<p>1. literal</p>' ) );
+		$this->assertStringContainsString( '1\\. literal', Markdown_Converter::convert( '<p>1. literal</p>' ) );
+		$this->assertStringContainsString( '2026\\) literal', Markdown_Converter::convert( '<p>2026) literal</p>' ) );
 	}
 
 	/**
