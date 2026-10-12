@@ -560,7 +560,7 @@ final class Template_Loader {
 	 * Restricts the saai_category taxonomy archive's main query to saai_kb posts.
 	 *
 	 * `saai_category` is registered on both saai_kb and saai_faq (DESIGN.md
-	 * section 3.5 / CLAUDE.md), but the bundled taxonomy-saai_category
+	 * section 3.2), but the bundled taxonomy-saai_category
 	 * template (block and classic) is entirely KB-branded — sidebar,
 	 * breadcrumbs, and empty-state copy all read as a Knowledge Base page.
 	 * Left unrestricted, a term shared with FAQ content would list saai_faq
