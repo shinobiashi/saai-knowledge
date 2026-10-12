@@ -439,6 +439,37 @@ class Test_Faq_Question extends WP_UnitTestCase {
 	}
 
 	/**
+	 * "<!--<script>" in an answer's inline code (wptexturize leaves code
+	 * alone, so its "--" isn't turned into a dash) reaches the answer text
+	 * decoded. Written into the script tag as-is, it would put the HTML
+	 * parser in the script's double-escaped state, where the real
+	 * </script> no longer closes it and the rest of the page disappears
+	 * (Issue #90).
+	 */
+	public function test_output_structured_data_escapes_angle_brackets() {
+		$post = $this->create_faq(
+			array(
+				'post_title'   => 'Question',
+				'post_content' => '<p>Type <code>&lt;!--&lt;script&gt;</code> here.</p>',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+		$this->render_content_in_the_loop();
+
+		ob_start();
+		$this->faq_question->output_structured_data();
+		$output = ob_get_clean();
+
+		$this->assertSame( 1, preg_match( '#<script type="application/ld\+json">(.*)</script>#s', $output, $matches ) );
+		$this->assertStringNotContainsString( '<', $matches[1] );
+		$this->assertStringNotContainsString( '>', $matches[1] );
+
+		$schema = json_decode( $matches[1], true );
+		$this->assertSame( 'Type <!--<script> here.', $schema['mainEntity']['acceptedAnswer']['text'] );
+	}
+
+	/**
 	 * A block theme's core/post-content render never calls WP_Query::the_post(),
 	 * so in_the_loop() stays false throughout and capture_answer_content()
 	 * alone never captures there — capture_answer_content_for_block_theme()

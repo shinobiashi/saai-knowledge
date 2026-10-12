@@ -328,6 +328,37 @@ class Test_Breadcrumbs extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A category saved as "&lt;!--&lt;script&gt;" reaches the BreadcrumbList
+	 * decoded (term names, unlike titles, don't go through wptexturize, so
+	 * the "--" stays), and must not leave the script tag unclosed (Issue
+	 * #90; see the Faq_Question test of the same name).
+	 */
+	public function test_render_escapes_angle_brackets_in_json_ld() {
+		$term_id = self::factory()->term->create(
+			array(
+				'taxonomy' => 'saai_category',
+				'name'     => '&lt;!--&lt;script&gt;',
+			)
+		);
+		$post_id = self::factory()->post->create(
+			array(
+				'post_type'  => 'saai_kb',
+				'post_title' => 'Article',
+			)
+		);
+		wp_set_object_terms( $post_id, $term_id, 'saai_category' );
+
+		$output = $this->render_kb_breadcrumbs( $post_id );
+
+		$this->assertSame( 1, preg_match( '#<script type="application/ld\+json">(.*)</script>#s', $output, $matches ) );
+		$this->assertStringNotContainsString( '<', $matches[1] );
+		$this->assertStringNotContainsString( '>', $matches[1] );
+
+		$schema = json_decode( $matches[1], true );
+		$this->assertSame( '<!--<script>', $schema['itemListElement'][1]['name'] );
+	}
+
+	/**
 	 * A URL carrying a disallowed protocol is dropped rather than emitted
 	 * into the structured data as-is, since esc_url_raw() reduces it to an
 	 * empty string.
