@@ -60,7 +60,7 @@ composer test                   # PHPUnit
 composer verify                 # lint + analyze + test を一括実行
 ```
 
-コーディング規約・プロジェクト固有の詳細は [`CLAUDE.md`](CLAUDE.md) を参照してください。
+コーディング規約と作業の進め方は [`CLAUDE.md`](CLAUDE.md)、分野ごとのプロジェクト固有の注意点は [`.claude/rules/`](.claude/rules/) を参照してください。
 
 ## ライセンス
 

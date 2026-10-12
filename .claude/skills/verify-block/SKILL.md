@@ -27,7 +27,7 @@ ServerSideRender（REST block-renderer）経路はユニットテストでは踏
 - 本スキルは development 環境（`npx wp-env run cli`）を使う。tests 環境（`tests-cli`）で
   確認する場合は、直前に `composer test` を走らせているとプラグインの有効化とパーマリンク
   設定がリセットされているので、`wp plugin activate saai-knowledge` と
-  `bash bin/wp-env-configure-permalinks.sh` を先に実行する（CLAUDE.md）。
+  `bash bin/wp-env-configure-permalinks.sh` を先に実行する（`.claude/rules/testing.md`）。
 
 ## 手順
 

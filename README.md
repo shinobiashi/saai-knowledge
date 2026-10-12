@@ -60,7 +60,7 @@ composer test                   # PHPUnit
 composer verify                 # lint + analyze + test in one pass
 ```
 
-See [`CLAUDE.md`](CLAUDE.md) for detailed coding conventions and project-specific notes.
+See [`CLAUDE.md`](CLAUDE.md) for the coding conventions and workflow, and [`.claude/rules/`](.claude/rules/) for project-specific notes by area.
 
 ## License
 

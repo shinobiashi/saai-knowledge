@@ -23,7 +23,7 @@ description: >
 すべて実装済み（2026-10 時点）。その後の faq-list / glossary-index / search / tooltip で
 見つかった落とし穴（SSR の `open` 属性、投機的レンダリングと JSON-LD のスロット、
 `wp_footer` での late-enqueue 優先度、`withScope` と generator、`@container` の対象など）は
-`CLAUDE.md` の「ブロック / テンプレート / フロントエンド」「レンダリング文脈・キャッシュ」節に
+`.claude/rules/blocks-frontend.md`・`.claude/rules/rendering-cache.md` に
 蒸留済みなので、§6 のチェックリストと**併せて**読む（ここには重複して書かない）。
 次に作るブロックは有料版の商品ブロック（Issue #23）で、差分は末尾の節にまとめてある。
 
@@ -86,7 +86,7 @@ AskUserQuestion または会話文脈から以下を確定する（Issue に書�
   非配列フォールバック）がユニットテスト不能になる（§6-11 参照）。
 - **includes/class-{Name}.php**（ロジック分離する場合） — namespace `SAAI\Knowledge`。
   クラス名は `Post_Types` 形式のアンダースコア区切り PascalCase。ファイル名は
-  `class-` + ハイフン区切り小文字（オートローダーの変換規則、CLAUDE.md 参照）。
+  `class-` + ハイフン区切り小文字（オートローダーの変換規則、`.claude/rules/php-lint.md` 参照）。
 
 ### 3. ブロックを登録する
 
@@ -204,7 +204,7 @@ Issue #23 の `product-faq` / `product-docs` / `product-glossary` が対象。�
      から登録。`Plugin::register_services()` から `( new Blocks() )->register()` する。
   4. `package-lock.json` が変わるので、push 前に
      `docker run --rm -v "$(pwd)":/work -w /work node:24 bash -c "npm ci && npm run lint:js"`
-     で Linux CI 相当を通す（CLAUDE.md の fsevents の罠）。
+     で Linux CI 相当を通す（`.claude/rules/build-packaging.md` の fsevents の罠）。
   5. `ci-js.yml` の Build ジョブと ZIP 検証は `plugins/saai-knowledge` 決め打ち。有料版の ZIP を
      組む段階（M5-5）で同じ検証を有料版にも足す。
 - **商品コンテキスト**: `usesContext: [ "postId" ]` で商品 ID を取り、`is_singular( 'product' )`
