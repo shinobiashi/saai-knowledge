@@ -233,6 +233,32 @@ class Test_Markdown_Output extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A `&#10;` in a term name is stored as is and decodes to a newline,
+	 * which became a space on the Category line rather than a new line whose
+	 * `~~~` opened a fence (Issue #84 review R1-2).
+	 */
+	public function test_render_turns_line_endings_in_category_name_into_spaces() {
+		$term    = self::factory()->term->create_and_get(
+			array(
+				'taxonomy' => 'saai_category',
+				'name'     => 'Cat&#10;~~~',
+			)
+		);
+		$post_id = self::factory()->post->create(
+			array(
+				'post_type'    => 'saai_faq',
+				'post_content' => 'Answer text.',
+				'post_status'  => 'publish',
+			)
+		);
+		wp_set_object_terms( $post_id, array( $term->term_id ), 'saai_category' );
+
+		$markdown = $this->service->render( get_post( $post_id ) );
+
+		$this->assertStringContainsString( "**Category:** Cat ~~~\n", $markdown );
+	}
+
+	/**
 	 * Markup or a character reference shown as text in the title comes out
 	 * escaped in the H1 line, so a Markdown renderer shows it as text
 	 * (Issue #79).

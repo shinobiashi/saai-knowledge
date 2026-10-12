@@ -640,11 +640,19 @@ final class Markdown_Converter {
 	 * that code into ordinary Markdown and starting a stray new block at
 	 * the original closing fence.
 	 *
+	 * Line endings are normalized to "\n" first: the code is still split on
+	 * "\n" afterwards (a blockquote prefixes each line with "> ", a table
+	 * cell turns each into a space), but every renderer also ends a line at
+	 * a lone "\r", so code containing one (`&#13;` survives kses and
+	 * the_content) left the rest of that line outside the quote's fence or
+	 * split the table row, and its `<img onerror>` rendered as raw HTML
+	 * (Issue #84 review R1-1).
+	 *
 	 * @param string $code Raw <pre> text content.
 	 * @return string
 	 */
 	private static function render_code_fence( string $code ): string {
-		$code = trim( $code, "\n" );
+		$code = trim( (string) preg_replace( '/\r\n?/', "\n", $code ), "\n" );
 
 		$fence = str_repeat( '`', max( 3, self::longest_backtick_run( $code ) + 1 ) );
 
@@ -812,12 +820,13 @@ final class Markdown_Converter {
 
 	/**
 	 * Escapes characters that would otherwise break a Markdown table cell's
-	 * `|`-delimited structure.
+	 * `|`-delimited structure. A "\r" ends the row's line just as "\n" does
+	 * (Issue #84 review R1-1).
 	 *
 	 * @param string $text Cell text.
 	 * @return string
 	 */
 	private static function escape_table_cell( string $text ): string {
-		return str_replace( array( "\n", '|' ), array( ' ', '\\|' ), $text );
+		return str_replace( array( "\r", "\n", '|' ), array( ' ', ' ', '\\|' ), $text );
 	}
 }

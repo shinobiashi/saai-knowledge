@@ -188,6 +188,27 @@ class Test_Markdown_Converter extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A lone "\r" in a code block becomes "\n" (and "\r\n" one "\n"), so
+	 * every line of it gets the quote's "> " prefix and a table row stays on
+	 * one line: renderers also end a line at "\r", so the rest of the line
+	 * left the quote's fence or split the row, and its `<img onerror>`
+	 * rendered as raw HTML (Issue #84 review R1-1).
+	 */
+	public function test_code_block_carriage_returns_stay_inside_a_quote_and_a_table_cell() {
+		$code = 'a&#13;&lt;img src=x onerror=alert(1)&gt;&#13;&#10;b';
+
+		$this->assertSame(
+			"> ```\n> a\n> <img src=x onerror=alert(1)>\n> b\n> ```\n",
+			Markdown_Converter::convert( '<blockquote class="wp-block-quote"><pre><code>' . $code . '</code></pre></blockquote>' )
+		);
+
+		$table = Markdown_Converter::convert( '<table><tr><th>A</th></tr><tr><td><pre>' . $code . '</pre></td></tr></table>' );
+
+		$this->assertStringContainsString( "| ``` a <img src=x onerror=alert(1)> b ``` |\n", $table );
+		$this->assertStringNotContainsString( "\r", $table );
+	}
+
+	/**
 	 * Whitespace runs in alt text collapse to one space, as in a text run:
 	 * an alt of "x⏎~~~" opened a fence on its second line that a `~~~` line
 	 * in the code sample after it closed, so the rest of that sample's

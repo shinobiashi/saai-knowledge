@@ -336,10 +336,15 @@ final class Markdown_Output {
 				// HTML-escaped (`pre_term_name` runs _wp_specialchars), and
 				// escape_text() takes plain text, so decode it first the way
 				// the title is: otherwise "Q&amp;A" would come out as the
-				// literal text "Q&amp;A" (Issue #79).
+				// literal text "Q&amp;A" (Issue #79). Its line endings
+				// become spaces, as the title's do: a `&#10;` in a name is
+				// stored as is and decodes to a newline, after which a `~~~`
+				// opened a fence below this line (Issue #84 review R1-2).
 				$names   = array_map(
 					static function ( $name ) {
-						return Markdown_Converter::escape_text( html_entity_decode( wp_strip_all_tags( (string) $name ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' ) );
+						$name = html_entity_decode( wp_strip_all_tags( (string) $name ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' );
+
+						return Markdown_Converter::escape_text( str_replace( array( "\r", "\n" ), ' ', $name ) );
 					},
 					wp_list_pluck( $terms, 'name' )
 				);
