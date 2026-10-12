@@ -24,8 +24,9 @@ defined( 'ABSPATH' ) || exit;
 final class Autolinker {
 
 	/**
-	 * Option holding the built dictionary, keyed by the generation it was
-	 * built for: [ 'generation' => int, 'entries' => array ]. autoload: no.
+	 * Option holding the built dictionary, keyed by the revision it was
+	 * built for (see dictionary_revision()):
+	 * [ 'revision' => string, 'entries' => array ]. autoload: no.
 	 *
 	 * @var string
 	 */
@@ -605,15 +606,15 @@ final class Autolinker {
 	}
 
 	/**
-	 * Reads the dictionary for the current generation, rebuilding it if the
+	 * Reads the dictionary for the current revision, rebuilding it if the
 	 * cached/persisted copy is stale or missing.
 	 *
 	 * @return array<int, array<string, mixed>>
 	 */
 	private function get_cached_dictionary_entries(): array {
-		$generation = (int) get_option( self::GENERATION_OPTION, 1 );
-		$cache_key  = 'saai_autolink_dict_v' . $generation;
-		$cached     = wp_cache_get( $cache_key, self::CACHE_GROUP );
+		$revision  = $this->dictionary_revision();
+		$cache_key = 'saai_autolink_dict_' . $revision;
+		$cached    = wp_cache_get( $cache_key, self::CACHE_GROUP );
 
 		if ( is_array( $cached ) ) {
 			return $cached;
@@ -621,7 +622,7 @@ final class Autolinker {
 
 		$stored = get_option( self::DICTIONARY_OPTION );
 
-		if ( is_array( $stored ) && ( $stored['generation'] ?? null ) === $generation && isset( $stored['entries'] ) && is_array( $stored['entries'] ) ) {
+		if ( is_array( $stored ) && ( $stored['revision'] ?? null ) === $revision && isset( $stored['entries'] ) && is_array( $stored['entries'] ) ) {
 			wp_cache_set( $cache_key, $stored['entries'], self::CACHE_GROUP );
 
 			return $stored['entries'];
@@ -645,8 +646,8 @@ final class Autolinker {
 		update_option(
 			self::DICTIONARY_OPTION,
 			array(
-				'generation' => $generation,
-				'entries'    => $entries,
+				'revision' => $revision,
+				'entries'  => $entries,
 			),
 			false
 		);
@@ -830,6 +831,24 @@ final class Autolinker {
 	}
 
 	/**
+	 * Identifies the dictionary a cached/persisted copy must have been built
+	 * for: the plugin version plus the generation number.
+	 *
+	 * The generation alone only changes when glossary terms change, but the
+	 * persisted dictionary never expires — so after an update that changes
+	 * how entries are built (1.0.3's excerpts, Issue #56), every site would
+	 * keep serving the old entries until someone edited a term. Folding the
+	 * version in rebuilds the dictionary once per update, at the cost of
+	 * saving one term. A dictionary persisted before this existed has no
+	 * `revision` at all, so it's rebuilt too.
+	 *
+	 * @return string
+	 */
+	private function dictionary_revision(): string {
+		return SAAI_KNOWLEDGE_VERSION . '-' . (int) get_option( self::GENERATION_OPTION, 1 );
+	}
+
+	/**
 	 * The maximum number of auto-links to insert per post.
 	 *
 	 * Reads the `autolink_max_links` key of the `saai_knowledge_settings`
@@ -857,8 +876,9 @@ final class Autolinker {
 	 * Builds the object-cache key for a processed HTML string.
 	 *
 	 * Per docs/DESIGN-AUTOLINK.md section 2.3: keyed off the dictionary
-	 * generation, the settings that affect output, the post's modified time
-	 * (when a post is known), and always a content hash. The content hash is
+	 * revision (dictionary_revision()), the settings that affect output, the
+	 * post's modified time (when a post is known), and always a content
+	 * hash. The content hash is
 	 * not optional even when a post is known: process() is a public service
 	 * (docs/DESIGN-HOOKS-API.md section 5) an add-on can call more than once
 	 * for the *same* post_id with different HTML in one request — e.g. a
@@ -878,12 +898,11 @@ final class Autolinker {
 	 * @return string
 	 */
 	private function cache_key( string $html, ?\WP_Post $post, array $context ): string {
-		$generation = (int) get_option( self::GENERATION_OPTION, 1 );
-		$identity   = $post instanceof \WP_Post
+		$identity = $post instanceof \WP_Post
 			? $post->ID . '|' . $post->post_modified_gmt . '|' . md5( $html )
 			: 'raw|' . md5( $html );
 
-		return 'saai_al_' . self::CACHE_SCHEMA_VERSION . '_' . md5( $generation . '|' . $this->max_links() . '|' . $identity . '|' . $this->context_identity( $context ) );
+		return 'saai_al_' . self::CACHE_SCHEMA_VERSION . '_' . md5( $this->dictionary_revision() . '|' . $this->max_links() . '|' . $identity . '|' . $this->context_identity( $context ) );
 	}
 
 	/**

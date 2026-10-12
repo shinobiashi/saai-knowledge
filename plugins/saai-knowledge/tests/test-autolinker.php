@@ -421,6 +421,41 @@ class Test_Autolinker extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A dictionary persisted for the current revision is served as is, but
+	 * one persisted by an earlier plugin version — before the revision
+	 * existed (only a generation), or under another version — is rebuilt,
+	 * so an update that changes how entries are built (1.0.3's excerpts)
+	 * reaches existing sites without anyone editing a term.
+	 */
+	public function test_a_dictionary_persisted_by_another_version_is_rebuilt() {
+		$post_id    = $this->create_term( 'API', array( 'content' => 'The current definition.' ) );
+		$generation = (int) get_option( 'saai_dict_generation', 1 );
+		$entries    = array(
+			array(
+				'post_id'  => $post_id,
+				'url'      => get_permalink( $post_id ),
+				'label'    => 'API',
+				'patterns' => array( 'API' ),
+				'excerpt'  => 'A stale excerpt.',
+			),
+		);
+		$cases      = array(
+			'current revision' => array( array( 'revision' => SAAI_KNOWLEDGE_VERSION . '-' . $generation ), 'A stale excerpt.' ),
+			'generation only'  => array( array( 'generation' => $generation ), 'The current definition.' ),
+			'another version'  => array( array( 'revision' => '0.9.0-' . $generation ), 'The current definition.' ),
+		);
+
+		foreach ( $cases as $label => list( $stored, $tooltip ) ) {
+			update_option( 'saai_autolink_dict', $stored + array( 'entries' => $entries ), false );
+			wp_cache_flush();
+
+			$result = $this->autolinker->process( 'This mentions API directly.' );
+
+			$this->assertStringContainsString( 'data-saai-tooltip="' . $tooltip . '"', $result, $label );
+		}
+	}
+
+	/**
 	 * The `saai_autolink_dictionary` filter can inject/override entries.
 	 */
 	public function test_dictionary_filter_can_inject_entries() {
