@@ -3,10 +3,10 @@
 - タスク: Issue #56（無料版）— 手動の抜粋が無い用語の抜粋（自動リンクのツールチップ・用語ページの JSON-LD の description）を `wp_trim_words()` のサイトの言語依存の数え方ではなく、文章の文字種で切り詰める。無料版 1.0.3（未リリース）に含める
 - 開始: 2026-10-12
 - PR: #91 https://github.com/shinobiashi/saai-knowledge/pull/91
-- 現在のステップ: 6（G2・CI 待ちと bot への依頼）
+- 現在のステップ: **完了**（マージ待ち）
 - モード: `auto-commit`（確認ゲートなし。ラウンド報告のみ）、Codex は `--request-codex`
-- Copilot: 依頼 1 回 / 未収束
-- Codex: 依頼 1 回 / 未収束
+- Copilot: 依頼 2 回 / 収束（G2 で新規指摘なし）
+- Codex: 依頼 2 回 / 収束（G2 で新規指摘なし）
 
 ## ログ
 
@@ -20,3 +20,6 @@
 | 2026-10-12 | 4 | 初回 push（HEAD 8a70fdc、T=2026-10-12T07:24:52Z）、PR #91 作成 |
 | 2026-10-12 | 4 | 状態ファイルの PR 欄を更新して push（HEAD 5f94f26、T=2026-10-12T07:25:35Z） |
 | 2026-10-12 | 6-7 | G1: CI green の後に両 bot へ依頼（Copilot は gh pr edit で登録確認、Codex は @codex review）。Copilot 1 件（G1-1、会員制プラグインの `the_content` 保護の迂回）は差分範囲外・共有キャッシュでは直せないため保留（backlog）。Codex 1 件（G1-2、文字参照をデコードする前に数えていた）を a791f04 で修正。返信・Resolve・サマリコメント済み |
+| 2026-10-12 | 4 | G1 の記録を push（HEAD f68be26、T=2026-10-12T07:41:28Z） |
+| 2026-10-12 | 6-7 | G2: CI 12 チェック green の後に両 bot へ再依頼。Copilot「Approval recommended」（open finding は保留済みの G1-1 のみ）、Codex「Didn't find any major issues」で両 bot 収束。修正なし |
+| 2026-10-12 | 8 | 最終報告（final-report.md）。マージ待ち |
