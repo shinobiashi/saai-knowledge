@@ -3,10 +3,10 @@
 - タスク: Issue #56（無料版）— 手動の抜粋が無い用語の抜粋（自動リンクのツールチップ・用語ページの JSON-LD の description）を `wp_trim_words()` のサイトの言語依存の数え方ではなく、文章の文字種で切り詰める。無料版 1.0.3（未リリース）に含める
 - 開始: 2026-10-12
 - PR: #91 https://github.com/shinobiashi/saai-knowledge/pull/91
-- 現在のステップ: 6（G1・CI 待ちと bot への依頼）
+- 現在のステップ: 6（G2・CI 待ちと bot への依頼）
 - モード: `auto-commit`（確認ゲートなし。ラウンド報告のみ）、Codex は `--request-codex`
-- Copilot: 依頼 0 回 / 未収束
-- Codex: 依頼 0 回 / 未収束
+- Copilot: 依頼 1 回 / 未収束
+- Codex: 依頼 1 回 / 未収束
 
 ## ログ
 
@@ -18,3 +18,5 @@
 | 2026-10-12 | 3 | review-loop R1: APPROVE（差分内は Low のみ。独立レビュー〔Opus〕と突き合わせ）。範囲外の R1-1（High。パスワード保護された用語の本文・手動の抜粋がツールチップで全訪問者に出る。dev で再現）をユーザー判断でこの PR に取り込み、`entry_excerpt()` が `post_password` のある用語に空を返すよう修正（8d3bf09。ミューテーション CAUGHT）。R1-L3〜L5（この差分で書いた文言の誤り）も修正（8b8606c）。R1-X1（Medium。JSON-LD の `<!--<script>` でページの残りが消える）はユーザー判断で Issue #90 を起票。R1-L1・R1-L2・R1-X1〜X3 を backlog へ。PHPUnit 633 件 green |
 | 2026-10-12 | 3 | review-loop R2: APPROVE（R1-1 解消。独立レビューの別観点の変異3通りも CAUGHT）。新規 Low の R2-1（保護された用語はタイトルに「保護中: 」が付き同義語でしかリンクされない）・R2-2（ページキャッシュの案内）を readme・docblock・DESIGN で修正（ff3910d）。範囲外の R2-X1 を backlog へ。ループ終了 |
 | 2026-10-12 | 4 | 初回 push（HEAD 8a70fdc、T=2026-10-12T07:24:52Z）、PR #91 作成 |
+| 2026-10-12 | 4 | 状態ファイルの PR 欄を更新して push（HEAD 5f94f26、T=2026-10-12T07:25:35Z） |
+| 2026-10-12 | 6-7 | G1: CI green の後に両 bot へ依頼（Copilot は gh pr edit で登録確認、Codex は @codex review）。Copilot 1 件（G1-1、会員制プラグインの `the_content` 保護の迂回）は差分範囲外・共有キャッシュでは直せないため保留（backlog）。Codex 1 件（G1-2、文字参照をデコードする前に数えていた）を a791f04 で修正。返信・Resolve・サマリコメント済み |
