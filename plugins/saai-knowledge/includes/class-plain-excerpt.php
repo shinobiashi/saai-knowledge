@@ -19,9 +19,11 @@ defined( 'ABSPATH' ) || exit;
  * count type, which a locale such as `ja` sets to characters. On such a
  * site an English definition was cut after 55 characters, mid-word; on an
  * English site a Japanese definition, having no spaces, was one "word" and
- * never shortened at all. That type can't be overridden for one call
- * either: WP_Locale::init() stores it once, and wp_get_word_count_type()
- * has no filter, so a gettext filter added at call time changes nothing.
+ * never shortened at all. Switching core to the other mode wouldn't do
+ * either: a definition can mix Japanese and English, which neither mode
+ * counts sensibly. (No filter switches it anyway: WP_Locale::init() stores
+ * the type once and wp_get_word_count_type() has no filter, so a gettext
+ * filter added at call time changes nothing.)
  */
 final class Plain_Excerpt {
 
@@ -87,8 +89,9 @@ final class Plain_Excerpt {
 	 * none is kept at either end. The text is cut only between units, so
 	 * neither a word nor a character reference such as `&amp;` is ever
 	 * split. Unlike wp_trim_words(), the result doesn't go through core's
-	 * `wp_trim_words` filter: a site customizing its post excerpts there
-	 * doesn't change these.
+	 * `wp_trim_words` filter, so a site customizing its post excerpts there
+	 * doesn't change these, and the ellipsis is always `&hellip;` rather than
+	 * core's translatable one.
 	 *
 	 * @param string $text      Text to trim; may contain HTML.
 	 * @param int    $num_words Number of units to keep.
@@ -97,8 +100,10 @@ final class Plain_Excerpt {
 	public static function trim_words( string $text, int $num_words = self::WORDS ): string {
 		$plain = preg_replace( '/[\n\r\t ]+/', ' ', wp_strip_all_tags( $text ) );
 
-		// UNIT_PATTERN fails on invalid UTF-8, which core's own trim still
-		// returns something readable for.
+		// UNIT_PATTERN fails on invalid UTF-8. Hand that to core's trim, as
+		// before this class existed: it cuts at 55 words where the site
+		// language counts words, and returns an empty string where it counts
+		// characters (its own /u pattern fails too).
 		if ( ! is_string( $plain ) || false === preg_match_all( self::UNIT_PATTERN, $plain, $matches, PREG_OFFSET_CAPTURE ) ) {
 			return wp_trim_words( $text, $num_words );
 		}

@@ -136,8 +136,8 @@ class Test_Plain_Excerpt extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Invalid UTF-8 fails the unit pattern, so core's trim takes over rather
-	 * than returning nothing.
+	 * Invalid UTF-8 fails the unit pattern, so core's trim takes over, as it
+	 * did before Plain_Excerpt existed.
 	 */
 	public function test_invalid_utf8_falls_back_to_core() {
 		$text = "bad \xff text";
