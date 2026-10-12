@@ -3,9 +3,9 @@
 - タスク: Issue #84（bug、無料版）— Markdown 出力で改行を含む値（インラインコード・リンク先・画像の alt・エクスポートの KB セクション見出し）が1行の構文を壊し、本文の `<img onerror>` やコード例の `<script>` が生の HTML になる問題を直す。無料版 1.0.3（未リリース）に含める
 - 開始: 2026-10-12
 - PR: #86 https://github.com/shinobiashi/saai-knowledge/pull/86
-- 現在のステップ: 6（ゲート G2・Copilot へ再依頼）
+- 現在のステップ: **完了**（マージ待ち）
 - モード: `auto-commit`（確認ゲートなし。ラウンド報告のみ）、Codex は `--request-codex`
-- Copilot: 依頼 1 回 / 未収束（G1 で 1 件）
+- Copilot: 依頼 2 回 / 収束（G2 で新規指摘なし）
 - Codex: 依頼 1 回 / 収束（G1 で新規指摘なし）
 
 ## ログ
@@ -19,3 +19,5 @@
 | 2026-10-12 | 3 | review-loop R2: APPROVE（R1-1〜R1-3 すべて解消。ミューテーション 3 件とも CAUGHT。独立レビュー〔Opus〕と突き合わせ）。新規 Low の R2-1（DESIGN §7.3 の文言でターム名を `Llms_Index` にも結び付けていた）はその場で修正。範囲外の R2-X1（表のセルの中の引用 + コード、見た目のみ）を backlog へ。ループ終了 |
 | 2026-10-12 | 4 | 初回 push（HEAD e3f40a6、T=2026-10-12T01:40:53Z）、PR #86 作成 |
 | 2026-10-12 | 6-7 | G1: CI 12 チェック green の後に両 bot へ依頼（Copilot は gh pr edit で登録確認、Codex は @codex review）。Codex「Didn't find any major issues」で収束。Copilot は「Approval recommended」+ 1 件（G1-1、Low: 状態ファイルの PR 欄が未作成のまま）→ 作業ツリーで更新済みだった状態ファイルをこの記録コミットで push して解消。コードの変更なし |
+| 2026-10-12 | 6-7 | G2: CI 12 チェック green の後に Copilot へ再依頼（gh pr edit で登録確認）。「Approval recommended / 0 open findings」で収束 |
+| 2026-10-12 | 8 | 最終報告（final-report.md）。マージ待ち |
