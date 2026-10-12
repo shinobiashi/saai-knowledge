@@ -84,10 +84,14 @@ if ( ! function_exists( 'saai_render_breadcrumbs_json_ld' ) ) {
 	 * @return string
 	 */
 	function saai_render_breadcrumbs_json_ld( array $schema ): string {
-		// wp_json_encode() escapes forward slashes by default, which turns
-		// any "</script>" appearing inside a crumb label into "<\/script>"
-		// and keeps it from breaking out of this script tag.
-		$encoded = wp_json_encode( $schema, JSON_UNESCAPED_UNICODE );
+		// wp_json_encode() escapes forward slashes by default, so a
+		// "</script>" inside a crumb label can't close this script tag, but
+		// it leaves "<" and ">" alone: "<!--<script>" in a label would put
+		// the HTML parser in the script's double-escaped state, where the
+		// real "</script>" no longer closes it and the rest of the page
+		// becomes its text. JSON_HEX_TAG writes them as \u003C / \u003E,
+		// the same JSON string.
+		$encoded = wp_json_encode( $schema, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG );
 
 		if ( ! is_string( $encoded ) ) {
 			return '';

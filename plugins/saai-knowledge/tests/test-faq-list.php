@@ -904,6 +904,45 @@ class Test_Faq_List extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The FAQPage script tag must not be left unclosed by "<!--<script>" in
+	 * a value (Issue #90; see the Faq_Question test of the same name). An
+	 * answer keeps its markup and escaped text, and wptexturize turns "--"
+	 * in a title into a dash, so the value here comes from a
+	 * saai_structured_data callback, which can return any text.
+	 */
+	public function test_block_escapes_angle_brackets_in_json_ld() {
+		$this->create_faq(
+			array(
+				'post_title'   => 'Question',
+				'post_content' => '<p>Answer.</p>',
+			)
+		);
+
+		$original = $this->register_src_faq_list_block();
+		$filter   = static function ( $schema ) {
+			$schema['mainEntity'][0]['name'] .= ' <!--<script>';
+
+			return $schema;
+		};
+		add_filter( 'saai_structured_data', $filter );
+
+		try {
+			$output = do_blocks( '<!-- wp:saai-knowledge/faq-list /-->' );
+		} finally {
+			remove_filter( 'saai_structured_data', $filter );
+			$this->restore_faq_list_block( $original );
+		}
+
+		$this->assertSame( 1, preg_match( '#<script type="application/ld\+json">(.*)</script>#s', $output, $matches ) );
+		$this->assertStringNotContainsString( '<', $matches[1] );
+		$this->assertStringNotContainsString( '>', $matches[1] );
+
+		$schema = json_decode( $matches[1], true );
+		$this->assertSame( 'Question <!--<script>', $schema['mainEntity'][0]['name'] );
+		$this->assertSame( '<p>Answer.</p>', trim( $schema['mainEntity'][0]['acceptedAnswer']['text'] ) );
+	}
+
+	/**
 	 * A saai_faq_before_list / saai_faq_after_list callback rendering another
 	 * FAQ list must be rejected by the render guard rather than recursing
 	 * forever through the same insertion hook.

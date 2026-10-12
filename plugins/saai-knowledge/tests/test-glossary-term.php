@@ -238,6 +238,34 @@ class Test_Glossary_Term extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A definition saved as "&lt;!--&lt;script&gt;" (what the block editor
+	 * stores for the typed text) reaches the description decoded, and must
+	 * not leave the script tag unclosed (Issue #90; see the Faq_Question
+	 * test of the same name).
+	 */
+	public function test_output_structured_data_escapes_angle_brackets() {
+		$post = $this->create_term(
+			array(
+				'post_title'   => 'Comment',
+				'post_excerpt' => 'Starts with &lt;!--&lt;script&gt; here.',
+			)
+		);
+
+		$this->go_to( get_permalink( $post ) );
+
+		ob_start();
+		$this->glossary_term->output_structured_data();
+		$output = ob_get_clean();
+
+		$this->assertSame( 1, preg_match( '#<script type="application/ld\+json">(.*)</script>#s', $output, $matches ) );
+		$this->assertStringNotContainsString( '<', $matches[1] );
+		$this->assertStringNotContainsString( '>', $matches[1] );
+
+		$schema = json_decode( $matches[1], true );
+		$this->assertSame( 'Starts with <!--<script> here.', $schema['description'] );
+	}
+
+	/**
 	 * An unauthenticated visitor to a password-protected term must not be
 	 * able to read its definition out of the page source via JSON-LD.
 	 */

@@ -1171,7 +1171,9 @@ final class Faq_Question {
 			return;
 		}
 
-		$encoded = wp_json_encode( $this->json_ld( $post ), JSON_UNESCAPED_UNICODE );
+		// JSON_HEX_TAG keeps "<!--<script>" in a value from leaving this
+		// script tag unclosed — see saai_render_faq_list_json_ld().
+		$encoded = wp_json_encode( $this->json_ld( $post ), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG );
 
 		if ( ! is_string( $encoded ) ) {
 			return;

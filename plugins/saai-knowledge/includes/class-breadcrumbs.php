@@ -100,9 +100,17 @@ final class Breadcrumbs {
 			}
 
 			$label = $node['label'] ?? '';
+			$label = is_scalar( $label ) ? (string) $label : '';
+
+			// An article's label comes from get_the_title(), whose the_title
+			// filters encode characters as HTML references (' → &#8217;), and
+			// a category's from the term name, escaped when saved (& → &amp;).
+			// JSON-LD consumers never HTML-decode, so decode to plain text
+			// after stripping tags — same as Faq_List::json_ld().
+			$name = html_entity_decode( wp_strip_all_tags( $label ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' );
 
 			// Not empty(): a crumb legitimately titled "0" must not be dropped.
-			if ( ! is_scalar( $label ) || '' === (string) $label ) {
+			if ( '' === $name ) {
 				// A third-party saai_breadcrumbs_items callback returned an entry with no usable label; skip it.
 				continue;
 			}
@@ -110,7 +118,7 @@ final class Breadcrumbs {
 			$item = array(
 				'@type'    => 'ListItem',
 				'position' => $position,
-				'name'     => (string) $label,
+				'name'     => $name,
 			);
 
 			$url = $node['url'] ?? '';
