@@ -73,7 +73,7 @@ class Test_Plain_Excerpt extends WP_UnitTestCase {
 				$this->assertSame( 'A second verification step, in addition to your passwor&hellip;', wp_trim_words( self::ISSUE_SENTENCE, 55 ) );
 
 				$this->assertSame( self::ISSUE_SENTENCE, Plain_Excerpt::trim_words( self::ISSUE_SENTENCE ) );
-				$this->assertSame( implode( ' ', $this->words( 55 ) ) . '&hellip;', Plain_Excerpt::trim_words( $long ) );
+				$this->assertSame( implode( ' ', $this->words( 55 ) ) . '…', Plain_Excerpt::trim_words( $long ) );
 			}
 		);
 	}
@@ -91,7 +91,7 @@ class Test_Plain_Excerpt extends WP_UnitTestCase {
 			function () use ( $eleven, $text ) {
 				$this->assertSame( $text, wp_trim_words( $text, 55 ) );
 
-				$this->assertSame( str_repeat( $eleven, 5 ) . '&hellip;', Plain_Excerpt::trim_words( $text ) );
+				$this->assertSame( str_repeat( $eleven, 5 ) . '…', Plain_Excerpt::trim_words( $text ) );
 			}
 		);
 	}
@@ -103,7 +103,7 @@ class Test_Plain_Excerpt extends WP_UnitTestCase {
 	public function test_a_latin_word_inside_cjk_text_counts_as_one_unit() {
 		$text = str_repeat( 'あ', 54 ) . 'WordPressのプラグイン';
 
-		$this->assertSame( str_repeat( 'あ', 54 ) . 'WordPress&hellip;', Plain_Excerpt::trim_words( $text ) );
+		$this->assertSame( str_repeat( 'あ', 54 ) . 'WordPress…', Plain_Excerpt::trim_words( $text ) );
 	}
 
 	/**
@@ -111,8 +111,8 @@ class Test_Plain_Excerpt extends WP_UnitTestCase {
 	 * whether or not the server's PCRE reads them as part of a script.
 	 */
 	public function test_japanese_punctuation_and_fullwidth_forms_count_one_character_each() {
-		$this->assertSame( 'これは、ＡＢ&hellip;', Plain_Excerpt::trim_words( 'これは、ＡＢＣ。', 6 ) );
-		$this->assertSame( 'サーバー（TLS）&hellip;', Plain_Excerpt::trim_words( 'サーバー（TLS）で暗号化', 7 ) );
+		$this->assertSame( 'これは、ＡＢ…', Plain_Excerpt::trim_words( 'これは、ＡＢＣ。', 6 ) );
+		$this->assertSame( 'サーバー（TLS）…', Plain_Excerpt::trim_words( 'サーバー（TLS）で暗号化', 7 ) );
 	}
 
 	/**
@@ -123,26 +123,32 @@ class Test_Plain_Excerpt extends WP_UnitTestCase {
 	public function test_whitespace_separates_units_without_counting() {
 		$this->assertSame( 'One two three', Plain_Excerpt::trim_words( "<p>One  two</p>\n\n<p>three</p>" ) );
 		$this->assertSame( 'あ　い', Plain_Excerpt::trim_words( '　あ　い　' ) );
-		$this->assertSame( 'あ&hellip;', Plain_Excerpt::trim_words( '　あ　い　', 1 ) );
+		$this->assertSame( 'あ…', Plain_Excerpt::trim_words( '　あ　い　', 1 ) );
 		$this->assertSame( '', Plain_Excerpt::trim_words( "<p> \n </p>" ) );
 	}
 
 	/**
-	 * A character reference is part of the unit it's in, so the cut never
-	 * leaves half of one ("&am…") — core's character count could.
+	 * Units are counted in the decoded text: a space written as `&nbsp;`
+	 * separates words, and a character reference for a kana counts as that
+	 * kana. Counted before decoding, each of these was one unit, never cut
+	 * (Codex, PR #91). The result is plain text, so `&amp;` comes back as
+	 * "&", and `&amp;lt;` as the text "&lt;", not decoded a second time.
 	 */
-	public function test_a_character_reference_is_never_split() {
-		$this->assertSame( 'あ&amp;&hellip;', Plain_Excerpt::trim_words( 'あ&amp;い', 2 ) );
+	public function test_units_are_counted_after_character_references_are_decoded() {
+		$this->assertSame( "w1\u{00A0}w2…", Plain_Excerpt::trim_words( 'w1&nbsp;w2&nbsp;w3', 2 ) );
+		$this->assertSame( 'ああ…', Plain_Excerpt::trim_words( '&#x3042;&#x3042;&#x3042;', 2 ) );
+		$this->assertSame( 'Fish & &lt;chips&gt;', Plain_Excerpt::trim_words( 'Fish &amp; &amp;lt;chips&amp;gt;' ) );
 	}
 
 	/**
 	 * Invalid UTF-8 fails the unit pattern, so core's trim takes over, as it
-	 * did before Plain_Excerpt existed.
+	 * did before Plain_Excerpt existed, and its result is made plain text too.
 	 */
 	public function test_invalid_utf8_falls_back_to_core() {
-		$text = "bad \xff text";
+		$text = "<b>bad</b> \xff &amp; text";
 
-		$this->assertSame( wp_trim_words( $text, 55 ), Plain_Excerpt::trim_words( $text ) );
+		$this->assertSame( html_entity_decode( wp_strip_all_tags( wp_trim_words( $text, 55 ) ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' ), Plain_Excerpt::trim_words( $text ) );
+		$this->assertStringNotContainsString( '<b>', Plain_Excerpt::trim_words( $text ) );
 	}
 
 	/**

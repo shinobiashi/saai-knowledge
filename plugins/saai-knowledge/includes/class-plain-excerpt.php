@@ -66,46 +66,44 @@ final class Plain_Excerpt {
 	 * A term's excerpt as plain text: its manual excerpt if set, otherwise
 	 * the first WORDS units of its body.
 	 *
-	 * Tags are stripped before character references are decoded, never the
-	 * other way round: decoding first would turn text such as `&lt;br&gt;`
-	 * written in the definition into a tag, which stripping then removes.
-	 *
 	 * @param \WP_Post $post The glossary term.
-	 * @return string
+	 * @return string Plain text, not HTML: escape it for wherever it's output.
 	 */
 	public static function for_post( \WP_Post $post ): string {
-		$text = has_excerpt( $post ) ? get_the_excerpt( $post ) : self::trim_words( $post->post_content );
-
-		return html_entity_decode( wp_strip_all_tags( $text ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' );
+		return has_excerpt( $post ) ? self::plain_text( get_the_excerpt( $post ) ) : self::trim_words( $post->post_content );
 	}
 
 	/**
-	 * Strips tags and keeps the first $num_words units (see UNIT_PATTERN),
-	 * appending `&hellip;` when anything was cut.
+	 * Converts $text to plain text and keeps the first $num_words units (see
+	 * UNIT_PATTERN), appending "…" when anything was cut.
+	 *
+	 * Units are counted in the decoded text, so a space written as `&nbsp;`
+	 * separates words and `&#x3042;` counts as the kana it is. Counted
+	 * before decoding, a definition whose words were all joined by `&nbsp;`
+	 * was one unit and never cut.
 	 *
 	 * Whitespace is handled as wp_trim_words() does: each run of ASCII
 	 * whitespace becomes one space, while any other space, such as the
-	 * ideographic one, stays as written. Any of them separates units, and
-	 * none is kept at either end. The text is cut only between units, so
-	 * neither a word nor a character reference such as `&amp;` is ever
-	 * split. Unlike wp_trim_words(), the result doesn't go through core's
-	 * `wp_trim_words` filter, so a site customizing its post excerpts there
-	 * doesn't change these, and the ellipsis is always `&hellip;` rather than
-	 * core's translatable one.
+	 * ideographic one or a no-break space, stays as written. Any of them
+	 * separates units, and none is kept at either end. The text is cut only
+	 * between units, so a word is never split. Unlike wp_trim_words(), the
+	 * result doesn't go through core's `wp_trim_words` filter, so a site
+	 * customizing its post excerpts there doesn't change these, and the
+	 * ellipsis is always "…" rather than core's translatable one.
 	 *
 	 * @param string $text      Text to trim; may contain HTML.
 	 * @param int    $num_words Number of units to keep.
-	 * @return string May contain character references, as $text did.
+	 * @return string Plain text, not HTML: escape it for wherever it's output.
 	 */
 	public static function trim_words( string $text, int $num_words = self::WORDS ): string {
-		$plain = preg_replace( '/[\n\r\t ]+/', ' ', wp_strip_all_tags( $text ) );
+		$plain = preg_replace( '/[\n\r\t ]+/', ' ', self::plain_text( $text ) );
 
 		// UNIT_PATTERN fails on invalid UTF-8. Hand that to core's trim, as
 		// before this class existed: it cuts at 55 words where the site
 		// language counts words, and returns an empty string where it counts
 		// characters (its own /u pattern fails too).
 		if ( ! is_string( $plain ) || false === preg_match_all( self::UNIT_PATTERN, $plain, $matches, PREG_OFFSET_CAPTURE ) ) {
-			return wp_trim_words( $text, $num_words );
+			return self::plain_text( wp_trim_words( $text, $num_words ) );
 		}
 
 		$units = $matches[0];
@@ -119,6 +117,19 @@ final class Plain_Excerpt {
 		$last  = end( $kept );
 		$end   = false === $last ? $start : $last[1] + strlen( $last[0] );
 
-		return substr( $plain, $start, $end - $start ) . ( count( $units ) > count( $kept ) ? '&hellip;' : '' );
+		return substr( $plain, $start, $end - $start ) . ( count( $units ) > count( $kept ) ? '…' : '' );
+	}
+
+	/**
+	 * Strips tags, then decodes character references — never the other way
+	 * round: decoding first would turn text such as `&lt;br&gt;` written in
+	 * a definition into a tag, which stripping then removes. Nothing is
+	 * decoded twice either, which would turn `&amp;lt;` into `<`.
+	 *
+	 * @param string $html HTML.
+	 * @return string
+	 */
+	private static function plain_text( string $html ): string {
+		return html_entity_decode( wp_strip_all_tags( $html ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' );
 	}
 }
