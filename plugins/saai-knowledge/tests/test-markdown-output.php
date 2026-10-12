@@ -252,6 +252,25 @@ class Test_Markdown_Output extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A `{: ... }` at the end of the title is escaped in the H1 line, so
+	 * Python-Markdown's attr_list can't read it as attributes of the
+	 * heading (Issue #82).
+	 */
+	public function test_render_escapes_curly_braces_in_title() {
+		$post_id = self::factory()->post->create(
+			array(
+				'post_type'   => 'saai_kb',
+				'post_title'  => 'Reset {: onclick=alert(1) }',
+				'post_status' => 'publish',
+			)
+		);
+
+		$markdown = $this->service->render( get_post( $post_id ) );
+
+		$this->assertStringStartsWith( "# Reset \\{: onclick=alert(1) \\}\n", $markdown );
+	}
+
+	/**
 	 * The render() method does not add a Category line for saai_glossary,
 	 * which doesn't use saai_category (docs/DESIGN.md section 3.2).
 	 */

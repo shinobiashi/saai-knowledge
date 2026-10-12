@@ -406,6 +406,31 @@ class Test_Markdown_Converter extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A literal `{: ... }` at the end of a heading or right after an inline
+	 * element comes out as `\{: ... \}`, so Python-Markdown's attr_list
+	 * (part of its extra extension) can't read it as an attribute list and
+	 * put an onclick on the <h2>/<em> (Issue #82).
+	 */
+	public function test_curly_braces_are_escaped_so_attr_list_cannot_add_attributes() {
+		$markdown = Markdown_Converter::convert( '<h2>Title {: onclick=alert(1) }</h2><p>Some <em>text</em>{: onclick=alert(2)} here</p>' );
+
+		$this->assertSame( "## Title \\{: onclick=alert(1) \\}\n\nSome _text_\\{: onclick=alert(2)\\} here\n", $markdown );
+
+		$this->assertSame( 'pic \\{#x onclick=alert(3)\\}', Markdown_Converter::escape_text( 'pic {#x onclick=alert(3)}' ) );
+	}
+
+	/**
+	 * Braces in code are emitted as-is, like the rest of the code: a
+	 * backslash there would show up as a literal `\` (Issue #82).
+	 */
+	public function test_code_keeps_curly_braces_unescaped() {
+		$markdown = Markdown_Converter::convert( '<p><code>{a}</code></p><pre><code>function () {}</code></pre>' );
+
+		$this->assertStringContainsString( '`{a}`', $markdown );
+		$this->assertStringContainsString( "```\nfunction () {}\n```", $markdown );
+	}
+
+	/**
 	 * An <ol start="N"> begins numbering at N instead of always at 1
 	 * (Codex review).
 	 */
