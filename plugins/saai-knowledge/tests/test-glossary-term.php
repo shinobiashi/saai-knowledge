@@ -91,6 +91,36 @@ class Test_Glossary_Term extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Where the site language counts characters, as `ja` does, the
+	 * description still keeps whole English words rather than core's 55
+	 * characters (Issue #56; the trimming itself is covered in
+	 * test-plain-excerpt.php).
+	 */
+	public function test_json_ld_description_keeps_whole_words_when_the_locale_counts_characters() {
+		global $wp_locale;
+
+		$sentence = 'A second verification step, in addition to your password, that confirms it is really you signing in.';
+		$post     = $this->create_term(
+			array(
+				'post_title'   => 'Two-factor authentication',
+				'post_excerpt' => '',
+				'post_content' => '<p>' . $sentence . '</p>',
+			)
+		);
+
+		$previous                   = $wp_locale->word_count_type;
+		$wp_locale->word_count_type = 'characters_including_spaces';
+
+		try {
+			$schema = $this->glossary_term->json_ld( $post );
+		} finally {
+			$wp_locale->word_count_type = $previous;
+		}
+
+		$this->assertSame( $sentence, $schema['description'] );
+	}
+
+	/**
 	 * HTML character references produced by the_title filters (& → &#038;)
 	 * should be decoded to plain text in the name — JSON-LD contents are
 	 * never HTML-entity-decoded by consumers.

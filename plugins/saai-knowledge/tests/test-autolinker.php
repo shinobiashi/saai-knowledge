@@ -398,6 +398,100 @@ class Test_Autolinker extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A term's tooltip keeps whole English words even where the site
+	 * language counts characters, as `ja` does (Issue #56; the trimming
+	 * itself is covered in test-plain-excerpt.php).
+	 */
+	public function test_tooltip_excerpt_keeps_whole_words_when_the_locale_counts_characters() {
+		global $wp_locale;
+
+		$sentence = 'A second verification step, in addition to your password, that confirms it is really you signing in.';
+		$this->create_term( 'API', array( 'content' => '<p>' . $sentence . '</p>' ) );
+
+		$previous                   = $wp_locale->word_count_type;
+		$wp_locale->word_count_type = 'characters_including_spaces';
+
+		try {
+			$result = $this->autolinker->process( 'This mentions API directly.' );
+		} finally {
+			$wp_locale->word_count_type = $previous;
+		}
+
+		$this->assertStringContainsString( 'data-saai-tooltip="' . esc_attr( $sentence ) . '"', $result );
+	}
+
+	/**
+	 * A password-protected term's body and manual excerpt never reach the
+	 * tooltip, even when the request that builds the dictionary comes from
+	 * a visitor who has entered the password: the dictionary is shared by
+	 * every visitor. The term still links (here through its synonym; the
+	 * title gains core's "Protected: " prefix).
+	 */
+	public function test_tooltip_excerpt_is_empty_for_a_password_protected_term() {
+		foreach ( array( '', 'A secret manual excerpt.' ) as $excerpt ) {
+			$post_id = self::factory()->post->create(
+				array(
+					'post_type'     => 'saai_glossary',
+					'post_status'   => 'publish',
+					'post_title'    => 'Zqxsecret',
+					'post_password' => 'secret',
+					'post_excerpt'  => $excerpt,
+					'post_content'  => 'A secret definition.',
+				)
+			);
+			update_post_meta( $post_id, \SAAI\Knowledge\Post_Meta::SYNONYMS, 'Zqx' );
+
+			add_filter( 'post_password_required', '__return_false' );
+
+			try {
+				$result = $this->autolinker->process( 'This mentions Zqx directly.' );
+			} finally {
+				remove_filter( 'post_password_required', '__return_false' );
+			}
+
+			$this->assertStringContainsString( 'data-saai-tooltip=""', $result );
+			$this->assertStringNotContainsString( 'A secret', $result );
+
+			wp_delete_post( $post_id, true );
+		}
+	}
+
+	/**
+	 * A dictionary persisted for the current revision is served as is, but
+	 * one persisted by an earlier plugin version — before the revision
+	 * existed (only a generation), or under another version — is rebuilt,
+	 * so an update that changes how entries are built (1.0.3's excerpts)
+	 * reaches existing sites without anyone editing a term.
+	 */
+	public function test_a_dictionary_persisted_by_another_version_is_rebuilt() {
+		$post_id    = $this->create_term( 'API', array( 'content' => 'The current definition.' ) );
+		$generation = (int) get_option( 'saai_dict_generation', 1 );
+		$entries    = array(
+			array(
+				'post_id'  => $post_id,
+				'url'      => get_permalink( $post_id ),
+				'label'    => 'API',
+				'patterns' => array( 'API' ),
+				'excerpt'  => 'A stale excerpt.',
+			),
+		);
+		$cases      = array(
+			'current revision' => array( array( 'revision' => SAAI_KNOWLEDGE_VERSION . '-' . $generation ), 'A stale excerpt.' ),
+			'generation only'  => array( array( 'generation' => $generation ), 'The current definition.' ),
+			'another version'  => array( array( 'revision' => '0.9.0-' . $generation ), 'The current definition.' ),
+		);
+
+		foreach ( $cases as $label => list( $stored, $tooltip ) ) {
+			update_option( 'saai_autolink_dict', $stored + array( 'entries' => $entries ), false );
+			wp_cache_flush();
+
+			$result = $this->autolinker->process( 'This mentions API directly.' );
+
+			$this->assertStringContainsString( 'data-saai-tooltip="' . $tooltip . '"', $result, $label );
+		}
+	}
+
+	/**
 	 * The `saai_autolink_dictionary` filter can inject/override entries.
 	 */
 	public function test_dictionary_filter_can_inject_entries() {
