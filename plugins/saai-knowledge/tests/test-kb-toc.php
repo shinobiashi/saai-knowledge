@@ -17,8 +17,8 @@ class Test_Kb_Toc extends WP_UnitTestCase {
 	 * ob_start(); require $template_path; return ob_get_clean();) — rather
 	 * than registering the block and rendering it via do_blocks(), which
 	 * would depend on the webpack-built build/kb-toc/ directory that CI's
-	 * PHP-only workflow (composer test) never generates (see CLAUDE.md on
-	 * build/ vs src/).
+	 * PHP-only workflow (composer test) never generates (see
+	 * .claude/rules/testing.md on build/ vs src/).
 	 *
 	 * $block is a plain stdClass, not a real WP_Block: render.php only ever
 	 * reads $block->context['postId'], which doesn't need the real class.

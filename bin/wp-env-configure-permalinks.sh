@@ -8,7 +8,8 @@
 # step a site owner would otherwise have to do by hand. Runs as the wp-env
 # "afterStart" lifecycle script, and again from package.json's
 # `pretest:e2e`: `composer test` reinstalls the tests-cli site's DB via the
-# WP core test bootstrap, which resets both of these (CLAUDE.md), so E2E
+# WP core test bootstrap, which resets both of these
+# (.claude/rules/testing.md), so E2E
 # needs them restored again if it runs after PHPUnit. Re-activating an
 # already-active plugin is a harmless no-op, so running this unconditionally
 # from both callers is safe.
