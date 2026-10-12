@@ -398,6 +398,29 @@ class Test_Autolinker extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A term's tooltip keeps whole English words even where the site
+	 * language counts characters, as `ja` does (Issue #56; the trimming
+	 * itself is covered in test-plain-excerpt.php).
+	 */
+	public function test_tooltip_excerpt_keeps_whole_words_when_the_locale_counts_characters() {
+		global $wp_locale;
+
+		$sentence = 'A second verification step, in addition to your password, that confirms it is really you signing in.';
+		$this->create_term( 'API', array( 'content' => '<p>' . $sentence . '</p>' ) );
+
+		$previous                   = $wp_locale->word_count_type;
+		$wp_locale->word_count_type = 'characters_including_spaces';
+
+		try {
+			$result = $this->autolinker->process( 'This mentions API directly.' );
+		} finally {
+			$wp_locale->word_count_type = $previous;
+		}
+
+		$this->assertStringContainsString( 'data-saai-tooltip="' . esc_attr( $sentence ) . '"', $result );
+	}
+
+	/**
 	 * The `saai_autolink_dictionary` filter can inject/override entries.
 	 */
 	public function test_dictionary_filter_can_inject_entries() {

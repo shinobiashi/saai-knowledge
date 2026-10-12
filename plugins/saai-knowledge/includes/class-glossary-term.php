@@ -432,14 +432,13 @@ final class Glossary_Term {
 
 	/**
 	 * A plain-text description for a term's DefinedTerm: its excerpt if set,
-	 * otherwise the first words of its definition body.
+	 * otherwise the first words of its definition body. Shared with the
+	 * auto-link tooltip through Plain_Excerpt.
 	 *
 	 * @param \WP_Post $post The glossary term.
 	 * @return string
 	 */
 	private function description( \WP_Post $post ): string {
-		$text = has_excerpt( $post ) ? get_the_excerpt( $post ) : wp_trim_words( $post->post_content, 55 );
-
-		return html_entity_decode( wp_strip_all_tags( $text ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' );
+		return Plain_Excerpt::for_post( $post );
 	}
 }
