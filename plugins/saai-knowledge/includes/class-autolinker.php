@@ -753,8 +753,10 @@ final class Autolinker {
 	 * is built once and served to every visitor, so it can't hold anything
 	 * only some of them may read. Glossary_Term gates its JSON-LD with
 	 * post_password_required() instead, because that is built per request.
-	 * An empty excerpt shows no tooltip; the link to the term's page, which
-	 * asks for the password, stays.
+	 * An empty excerpt shows no tooltip; a link to the term's page, which
+	 * asks for the password, is still made through its synonyms (on the
+	 * front end its title carries core's "Protected: " prefix, so the title
+	 * itself rarely matches).
 	 *
 	 * @param \WP_Post $post The glossary term.
 	 * @return string
