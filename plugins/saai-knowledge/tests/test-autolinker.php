@@ -421,6 +421,42 @@ class Test_Autolinker extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A password-protected term's body and manual excerpt never reach the
+	 * tooltip, even when the request that builds the dictionary comes from
+	 * a visitor who has entered the password: the dictionary is shared by
+	 * every visitor. The term still links (here through its synonym; the
+	 * title gains core's "Protected: " prefix).
+	 */
+	public function test_tooltip_excerpt_is_empty_for_a_password_protected_term() {
+		foreach ( array( '', 'A secret manual excerpt.' ) as $excerpt ) {
+			$post_id = self::factory()->post->create(
+				array(
+					'post_type'     => 'saai_glossary',
+					'post_status'   => 'publish',
+					'post_title'    => 'Zqxsecret',
+					'post_password' => 'secret',
+					'post_excerpt'  => $excerpt,
+					'post_content'  => 'A secret definition.',
+				)
+			);
+			update_post_meta( $post_id, \SAAI\Knowledge\Post_Meta::SYNONYMS, 'Zqx' );
+
+			add_filter( 'post_password_required', '__return_false' );
+
+			try {
+				$result = $this->autolinker->process( 'This mentions Zqx directly.' );
+			} finally {
+				remove_filter( 'post_password_required', '__return_false' );
+			}
+
+			$this->assertStringContainsString( 'data-saai-tooltip=""', $result );
+			$this->assertStringNotContainsString( 'A secret', $result );
+
+			wp_delete_post( $post_id, true );
+		}
+	}
+
+	/**
 	 * A dictionary persisted for the current revision is served as is, but
 	 * one persisted by an earlier plugin version — before the revision
 	 * existed (only a generation), or under another version — is rebuilt,

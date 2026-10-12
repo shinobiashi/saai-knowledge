@@ -748,10 +748,22 @@ final class Autolinker {
 	 * the first words of its definition body. Shared with
 	 * Glossary_Term::description() through Plain_Excerpt.
 	 *
+	 * Empty for a password-protected term, whether or not the visitor whose
+	 * request builds the dictionary has entered the password: the dictionary
+	 * is built once and served to every visitor, so it can't hold anything
+	 * only some of them may read. Glossary_Term gates its JSON-LD with
+	 * post_password_required() instead, because that is built per request.
+	 * An empty excerpt shows no tooltip; the link to the term's page, which
+	 * asks for the password, stays.
+	 *
 	 * @param \WP_Post $post The glossary term.
 	 * @return string
 	 */
 	private function entry_excerpt( \WP_Post $post ): string {
+		if ( '' !== $post->post_password ) {
+			return '';
+		}
+
 		return Plain_Excerpt::for_post( $post );
 	}
 
@@ -878,8 +890,8 @@ final class Autolinker {
 	 * Per docs/DESIGN-AUTOLINK.md section 2.3: keyed off the dictionary
 	 * revision (dictionary_revision()), the settings that affect output, the
 	 * post's modified time (when a post is known), and always a content
-	 * hash. The content hash is
-	 * not optional even when a post is known: process() is a public service
+	 * hash. The content hash is not optional even when a post is known:
+	 * process() is a public service
 	 * (docs/DESIGN-HOOKS-API.md section 5) an add-on can call more than once
 	 * for the *same* post_id with different HTML in one request — e.g. a
 	 * WooCommerce product's short description and full description both tied
