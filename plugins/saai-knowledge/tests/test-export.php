@@ -472,6 +472,41 @@ class Test_Export extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A line ending in an h2 becomes a space in its section's "## " line: the
+	 * heading ended at the newline and the `~~~` line after it opened a
+	 * fence that the code sample's own `~~~` closed, so the rest of the
+	 * sample's `<script>` rendered as raw HTML (Issue #84). The plain
+	 * `heading` field keeps the text as it is, and the anchor still matches
+	 * Heading_Anchors' id for it: the heading has an explicit anchor, which
+	 * a section only gets when matching_anchor() agrees with that text —
+	 * otherwise it falls back to sanitize_title(), "setup" (review R1-3).
+	 */
+	public function test_section_heading_line_endings_become_spaces() {
+		$content  = "<!-- wp:heading {\"anchor\":\"fence-setup\"} --><h2 class=\"wp-block-heading\" id=\"fence-setup\">Setup\n~~~</h2><!-- /wp:heading -->";
+		$content .= "<!-- wp:code --><pre class=\"wp-block-code\"><code>~~~\n&lt;script&gt;alert(1)&lt;/script&gt;</code></pre><!-- /wp:code -->";
+
+		$this->create_post( 'saai_kb', 'Fence guide', array( 'post_content' => $content ) );
+
+		$request  = new WP_REST_Request( 'GET', '/saai-knowledge/v1/export' );
+		$response = $this->server->dispatch( $request );
+		$record   = $response->get_data()['records'][0];
+
+		$this->assertStringStartsWith( "## Setup ~~~\n\n```\n~~~\n<script>", $record['sections'][0]['content_markdown'] );
+		$this->assertSame( "Setup\n~~~", $record['sections'][0]['heading'] );
+		$this->assertSame( 'fence-setup', $record['sections'][0]['anchor'] );
+
+		// The DOMDocument-less sections fallback writes its heading line the same way.
+		$method = new ReflectionMethod( $this->export, 'build_sections_via_blocks' );
+		$method->setAccessible( true );
+
+		$sections = $method->invoke( $this->export, get_post( $record['id'] ) );
+
+		$this->assertStringStartsWith( "## Setup ~~~\n\n", $sections[0]['content_markdown'] );
+		$this->assertSame( "Setup\n~~~", $sections[0]['heading'] );
+		$this->assertSame( 'fence-setup', $sections[0]['anchor'] );
+	}
+
+	/**
 	 * A shortcode inside the exported post's own content that calls the
 	 * argument-less get_post() must see *that* post, not whatever post
 	 * happened to already be the global $post (a stale value from another

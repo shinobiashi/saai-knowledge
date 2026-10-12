@@ -461,8 +461,13 @@ final class Markdown_Converter {
 				// alt is an arbitrary editable string, same as any DOMText
 				// run — without escaping, an alt like "x](/other) [y" would
 				// close this image's label early and start a second,
-				// unintended image/link (Codex review).
-				$alt = self::escape_text( trim( (string) $node->getAttribute( 'alt' ) ) );
+				// unintended image/link (Codex review). Its whitespace runs
+				// are collapsed the way a DOMText run's are: a newline in it
+				// split the label over two lines, and an alt of "x⏎~~~"
+				// opened a fence there that a `~~~` line in a code sample
+				// after it closed, leaving the rest of that sample's
+				// `<script>` outside any fence (Issue #84).
+				$alt = self::escape_text( trim( (string) preg_replace( '/\s+/', ' ', $node->getAttribute( 'alt' ) ) ) );
 				return '![' . $alt . '](' . self::markdown_link_destination( $src ) . ")\n\n";
 
 			case 'blockquote':
@@ -568,10 +573,19 @@ final class Markdown_Converter {
 	 * trusted to hand back a value free of the same characters (Copilot
 	 * review).
 	 *
+	 * ASCII tabs and newlines are removed first: the `<...>` form can't
+	 * contain a line ending, so an href of "img⏎src=x⏎onerror=alert(1)"
+	 * left the link unparsed and CommonMark read the destination as a raw
+	 * `<img onerror>` tag instead (Issue #84). Removing them doesn't change
+	 * where the link goes — the WHATWG URL parser, which browsers use,
+	 * removes every ASCII tab and newline from a URL before parsing it.
+	 *
 	 * @param string $url The href/src attribute value.
 	 * @return string
 	 */
 	public static function markdown_link_destination( string $url ): string {
+		$url = str_replace( array( "\t", "\n", "\r" ), '', $url );
+
 		return '<' . str_replace( array( '\\', '<', '>' ), array( '\\\\', '\\<', '\\>' ), $url ) . '>';
 	}
 
@@ -626,11 +640,19 @@ final class Markdown_Converter {
 	 * that code into ordinary Markdown and starting a stray new block at
 	 * the original closing fence.
 	 *
+	 * Line endings are normalized to "\n" first: the code is still split on
+	 * "\n" afterwards (a blockquote prefixes each line with "> ", a table
+	 * cell turns each into a space), but every renderer also ends a line at
+	 * a lone "\r", so code containing one (`&#13;` survives kses and
+	 * the_content) left the rest of that line outside the quote's fence or
+	 * split the table row, and its `<img onerror>` rendered as raw HTML
+	 * (Issue #84 review R1-1).
+	 *
 	 * @param string $code Raw <pre> text content.
 	 * @return string
 	 */
 	private static function render_code_fence( string $code ): string {
-		$code = trim( $code, "\n" );
+		$code = trim( (string) preg_replace( '/\r\n?/', "\n", $code ), "\n" );
 
 		$fence = str_repeat( '`', max( 3, self::longest_backtick_run( $code ) + 1 ) );
 
@@ -647,11 +669,19 @@ final class Markdown_Converter {
 	 * backtick additionally needs a padding space on that side so the
 	 * delimiter itself isn't misread as touching the code's own backtick.
 	 *
+	 * Each line ending in the code becomes a space, so the span stays on one
+	 * line: a newline let the line after it start Markdown syntax of its
+	 * own (in a heading, it ended the heading there), and a blank line
+	 * ended the paragraph, so the span never closed and its `<img onerror>`
+	 * rendered as raw HTML in every renderer, CommonMark included (Issue
+	 * #84). CommonMark itself shows a line ending in a code span as a space,
+	 * so this doesn't change what the code looks like.
+	 *
 	 * @param string $code Raw inline <code> text content.
 	 * @return string
 	 */
 	private static function render_inline_code( string $code ): string {
-		$code = trim( $code );
+		$code = (string) preg_replace( '/\r\n?|\n/', ' ', trim( $code ) );
 
 		$delimiter = str_repeat( '`', max( 1, self::longest_backtick_run( $code ) + 1 ) );
 		$padding   = ( '' !== $code && ( '`' === $code[0] || '`' === substr( $code, -1 ) ) ) ? ' ' : '';
@@ -790,12 +820,13 @@ final class Markdown_Converter {
 
 	/**
 	 * Escapes characters that would otherwise break a Markdown table cell's
-	 * `|`-delimited structure.
+	 * `|`-delimited structure. A "\r" ends the row's line just as "\n" does
+	 * (Issue #84 review R1-1).
 	 *
 	 * @param string $text Cell text.
 	 * @return string
 	 */
 	private static function escape_table_cell( string $text ): string {
-		return str_replace( array( "\n", '|' ), array( ' ', '\\|' ), $text );
+		return str_replace( array( "\r", "\n", '|' ), array( ' ', ' ', '\\|' ), $text );
 	}
 }

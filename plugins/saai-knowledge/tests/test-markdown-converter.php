@@ -161,6 +161,66 @@ class Test_Markdown_Converter extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A line ending in inline code becomes a space, so the code span stays on
+	 * one line: a blank line in it ended the paragraph before the span
+	 * closed, and a newline in a heading ended the heading, so the code's
+	 * `<img onerror>` rendered as raw HTML in every renderer (Issue #84).
+	 */
+	public function test_inline_code_line_endings_become_spaces() {
+		$paragraph = Markdown_Converter::convert( "<p>Run <code>a\n\n&lt;img src=x onerror=alert(1)&gt;</code> now.</p>" );
+		$this->assertSame( "Run `a  <img src=x onerror=alert(1)>` now.\n", $paragraph );
+
+		$heading = Markdown_Converter::convert( "<h2>Install <code>a\r\n&lt;img src=x onerror=alert(1)&gt;</code></h2>" );
+		$this->assertSame( "## Install `a <img src=x onerror=alert(1)>`\n", $heading );
+	}
+
+	/**
+	 * ASCII tabs and newlines are removed from a link/image destination: the
+	 * `<...>` form can't contain a line ending, so the link went unparsed and
+	 * CommonMark read the destination as a raw `<img onerror>` tag (Issue
+	 * #84). Browsers remove them from a URL too, so the target is the same.
+	 */
+	public function test_link_destination_drops_ascii_tabs_and_newlines() {
+		$markdown = Markdown_Converter::convert( '<p><a href="img&#10;src=x&#10;onerror=alert(1)">t</a></p>' );
+		$this->assertSame( "[t](<imgsrc=xonerror=alert(1)>)\n", $markdown );
+
+		$this->assertSame( '<https://example.com/a/b/c>', Markdown_Converter::markdown_link_destination( "https://example.com/a\t/b\r\n/c" ) );
+	}
+
+	/**
+	 * A lone "\r" in a code block becomes "\n" (and "\r\n" one "\n"), so
+	 * every line of it gets the quote's "> " prefix and a table row stays on
+	 * one line: renderers also end a line at "\r", so the rest of the line
+	 * left the quote's fence or split the row, and its `<img onerror>`
+	 * rendered as raw HTML (Issue #84 review R1-1).
+	 */
+	public function test_code_block_carriage_returns_stay_inside_a_quote_and_a_table_cell() {
+		$code = 'a&#13;&lt;img src=x onerror=alert(1)&gt;&#13;&#10;b';
+
+		$this->assertSame(
+			"> ```\n> a\n> <img src=x onerror=alert(1)>\n> b\n> ```\n",
+			Markdown_Converter::convert( '<blockquote class="wp-block-quote"><pre><code>' . $code . '</code></pre></blockquote>' )
+		);
+
+		$table = Markdown_Converter::convert( '<table><tr><th>A</th></tr><tr><td><pre>' . $code . '</pre></td></tr></table>' );
+
+		$this->assertStringContainsString( "| ``` a <img src=x onerror=alert(1)> b ``` |\n", $table );
+		$this->assertStringNotContainsString( "\r", $table );
+	}
+
+	/**
+	 * Whitespace runs in alt text collapse to one space, as in a text run:
+	 * an alt of "x⏎~~~" opened a fence on its second line that a `~~~` line
+	 * in the code sample after it closed, so the rest of that sample's
+	 * `<script>` rendered as raw HTML (Issue #84).
+	 */
+	public function test_image_alt_text_whitespace_is_collapsed() {
+		$markdown = Markdown_Converter::convert( '<img src="https://example.com/a.png" alt="x&#10;~~~&#9; y">' );
+
+		$this->assertStringContainsString( '![x ~~~ y](<https://example.com/a.png>)', $markdown );
+	}
+
+	/**
 	 * <script>/<style> contents are dropped entirely, not leaked as text.
 	 */
 	public function test_script_and_style_are_stripped() {

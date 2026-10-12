@@ -771,7 +771,7 @@ final class Export {
 			$sections[] = array(
 				'heading'          => $chunk['heading'],
 				'anchor'           => $anchor,
-				'content_markdown' => trim( '## ' . Markdown_Converter::escape_text( $chunk['heading'] ) . "\n\n" . $body_markdown ),
+				'content_markdown' => self::section_markdown( $chunk['heading'], $body_markdown ),
 			);
 		}
 
@@ -840,11 +840,35 @@ final class Export {
 			$sections[] = array(
 				'heading'          => $chunk['heading'],
 				'anchor'           => $anchor,
-				'content_markdown' => trim( '## ' . Markdown_Converter::escape_text( $chunk['heading'] ) . "\n\n" . $body_markdown ),
+				'content_markdown' => self::section_markdown( $chunk['heading'], $body_markdown ),
 			);
 		}
 
 		return $sections;
+	}
+
+	/**
+	 * A section's self-contained `content_markdown`: its heading as a "## "
+	 * line, then its body. Shared by build_sections_via_dom() and
+	 * build_sections_via_blocks().
+	 *
+	 * The heading's line endings become spaces, as Markdown_Output and
+	 * Llms_Index do for a title in their own headings: an ATX heading is a
+	 * single line, so a heading of "Setup⏎~~~" ended at the newline and the
+	 * `~~~` line after it opened a fence, which a `~~~` line in a code
+	 * sample below closed, leaving the rest of that sample's `<script>`
+	 * outside any fence (Issue #84). Only this Markdown line changes: the
+	 * plain `heading` field keeps the text as it is, which is also what
+	 * matching_anchor() compares with Heading_Anchors' own heading text.
+	 *
+	 * @param string $heading       The section's (decoded) heading text.
+	 * @param string $body_markdown The section's body, already converted to Markdown.
+	 * @return string
+	 */
+	private static function section_markdown( string $heading, string $body_markdown ): string {
+		$heading_line = '## ' . Markdown_Converter::escape_text( str_replace( array( "\r", "\n" ), ' ', $heading ) );
+
+		return trim( $heading_line . "\n\n" . $body_markdown );
 	}
 
 	/**
