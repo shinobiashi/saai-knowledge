@@ -274,6 +274,60 @@ class Test_Breadcrumbs extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Crumb labels reach the JSON-LD as plain text: an article title from
+	 * get_the_title() carries character references (wptexturize turns ' into
+	 * &#8217;), a category name its save-time escaping (Q&amp;A), and
+	 * JSON-LD consumers never HTML-decode either.
+	 */
+	public function test_json_ld_decodes_html_entities_in_labels() {
+		$term_id = self::factory()->term->create(
+			array(
+				'taxonomy' => 'saai_category',
+				'name'     => 'Q&A',
+			)
+		);
+		$post_id = self::factory()->post->create(
+			array(
+				'post_type'  => 'saai_kb',
+				'post_title' => "Don't <em>panic</em>",
+			)
+		);
+		wp_set_object_terms( $post_id, $term_id, 'saai_category' );
+
+		$breadcrumbs = new \SAAI\Knowledge\Breadcrumbs();
+		$schema      = $breadcrumbs->json_ld( $breadcrumbs->build( get_post( $post_id ) ) );
+
+		$this->assertCount( 3, $schema['itemListElement'] );
+		$this->assertSame( 'Q&A', $schema['itemListElement'][1]['name'] );
+		$this->assertSame( 'Don’t panic', $schema['itemListElement'][2]['name'] );
+	}
+
+	/**
+	 * A label that is nothing but markup has no text to name the crumb with,
+	 * so it is skipped like a missing label, while "0" is kept.
+	 */
+	public function test_json_ld_skips_labels_that_strip_to_empty() {
+		$trail = array(
+			array(
+				'label'   => '<img src="x.png">',
+				'url'     => 'https://example.com/image/',
+				'current' => false,
+			),
+			array(
+				'label'   => '0',
+				'url'     => '',
+				'current' => true,
+			),
+		);
+
+		$schema = ( new \SAAI\Knowledge\Breadcrumbs() )->json_ld( $trail );
+
+		$this->assertCount( 1, $schema['itemListElement'] );
+		$this->assertSame( 1, $schema['itemListElement'][0]['position'] );
+		$this->assertSame( '0', $schema['itemListElement'][0]['name'] );
+	}
+
+	/**
 	 * A URL carrying a disallowed protocol is dropped rather than emitted
 	 * into the structured data as-is, since esc_url_raw() reduces it to an
 	 * empty string.
