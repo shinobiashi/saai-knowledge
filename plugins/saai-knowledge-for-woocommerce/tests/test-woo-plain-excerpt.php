@@ -152,11 +152,68 @@ class Test_Woo_Plain_Excerpt extends WP_UnitTestCase {
 	}
 
 	/**
-	 * The add-on's copy trims exactly as the free plugin's Plain_Excerpt,
-	 * which the tooltip uses, under either word count type. The add-on may
-	 * not call that class (it depends only on the free plugin's public
-	 * hooks), so this is what keeps the two from drifting apart: change one,
-	 * and this fails until the other matches.
+	 * The tokens of a method's body, without whitespace and comments, so
+	 * two copies compare equal however they are indented or commented.
+	 *
+	 * @param string $class_name Class name.
+	 * @param string $method     Method name.
+	 * @return string[]
+	 */
+	private static function body_tokens( string $class_name, string $method ): array {
+		$reflection = new ReflectionMethod( $class_name, $method );
+		$lines      = file( (string) $reflection->getFileName() );
+		$source     = implode( '', array_slice( $lines, $reflection->getStartLine() - 1, $reflection->getEndLine() - $reflection->getStartLine() + 1 ) );
+		$tokens     = array();
+
+		foreach ( token_get_all( '<?php ' . $source ) as $token ) {
+			if ( is_array( $token ) && in_array( $token[0], array( T_OPEN_TAG, T_WHITESPACE, T_COMMENT, T_DOC_COMMENT ), true ) ) {
+				continue;
+			}
+
+			$text = is_array( $token ) ? $token[1] : $token;
+
+			// The body starts at the first brace; the signatures differ (the
+			// free plugin's $num_words has a default).
+			if ( array() !== $tokens || '{' === $text ) {
+				$tokens[] = $text;
+			}
+		}
+
+		return $tokens;
+	}
+
+	/**
+	 * The add-on's copy is the free plugin's Plain_Excerpt, which the
+	 * tooltip uses: the same constants, and the same code in trim_words()
+	 * and plain_text(). The add-on may not call that class (it depends only
+	 * on the free plugin's public hooks), so this is what keeps the two from
+	 * drifting apart: change one, and this fails until the other matches.
+	 * Comparing the code catches what comparing results can't, such as a
+	 * script added to the pattern that this server's PCRE already matches
+	 * through another script property.
+	 */
+	public function test_copies_the_free_plugin_code() {
+		$this->assertTrue( class_exists( \SAAI\Knowledge\Plain_Excerpt::class ), 'The tests load the free plugin.' );
+
+		foreach ( array( 'NO_SPACE_CHARACTERS', 'UNIT_PATTERN' ) as $constant ) {
+			$this->assertSame(
+				( new ReflectionClassConstant( \SAAI\Knowledge\Plain_Excerpt::class, $constant ) )->getValue(),
+				( new ReflectionClassConstant( Plain_Excerpt::class, $constant ) )->getValue(),
+				$constant
+			);
+		}
+
+		foreach ( array( 'trim_words', 'plain_text' ) as $method ) {
+			$tokens = self::body_tokens( Plain_Excerpt::class, $method );
+
+			$this->assertNotEmpty( $tokens, $method );
+			$this->assertSame( self::body_tokens( \SAAI\Knowledge\Plain_Excerpt::class, $method ), $tokens, $method );
+		}
+	}
+
+	/**
+	 * The add-on's copy trims exactly as the free plugin's Plain_Excerpt
+	 * under either word count type, on this server's PCRE.
 	 */
 	public function test_trims_exactly_as_the_free_plugin_does() {
 		$this->assertTrue( class_exists( \SAAI\Knowledge\Plain_Excerpt::class ), 'The tests load the free plugin.' );
@@ -177,6 +234,11 @@ class Test_Woo_Plain_Excerpt extends WP_UnitTestCase {
 			'Fish &amp; &amp;lt;chips&amp;gt; &lt;br&gt;',
 			'<!-- wp:paragraph --><p>WordPress の<strong>プラグイン</strong>を有効化します。</p><!-- /wp:paragraph -->',
 			'สวัสดีครับ ภาษาไทย 한국어 문장 Ελληνικά',
+			'한국어 문장 그리고 English words',
+			'ສະບາຍດີ ພາສາລາວ',
+			'សួស្តី ភាសាខ្មែរ',
+			'မင်္ဂလာပါ မြန်မာစာ',
+			"It&apos;s a\fb\fc",
 			"<b>bad</b> \xff &amp; text",
 		);
 

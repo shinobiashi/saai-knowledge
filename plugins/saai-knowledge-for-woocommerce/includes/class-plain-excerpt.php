@@ -18,8 +18,10 @@ defined( 'ABSPATH' ) || exit;
  * which trims the auto-link tooltip, so a definition on a product page
  * says what hovering the term already shows. Copied rather than called
  * because the add-on depends only on the free plugin's public hooks, never
- * its internal classes. Change both together: the parity test in
- * tests/test-woo-plain-excerpt.php fails when they disagree.
+ * its internal classes. Change both together: tests/test-woo-plain-excerpt.php
+ * compares the two classes' constants and the code of trim_words() and
+ * plain_text() (whitespace and comments aside), and fails when they
+ * disagree.
  *
  * Deliberately not wp_trim_words(): core counts by the site language's word
  * count type, which a locale such as `ja` sets to characters. On such a
