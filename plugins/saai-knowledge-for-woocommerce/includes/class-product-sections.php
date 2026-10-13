@@ -243,15 +243,15 @@ final class Product_Sections {
 	 *
 	 * The definition follows the free plugin's tooltip rule — the term's
 	 * manual excerpt, or else the first DEFINITION_WORDS units of its body,
-	 * trimmed by Plain_Excerpt the way the tooltip is (whatever the site
-	 * language) — as plain text, so the list says what hovering the term in a
-	 * description already shows. Like the tooltip it reads the body without
-	 * running `the_content`: shortcodes are stripped rather than rendered
-	 * and tags removed, which keeps a definition from executing a nested
-	 * block or shortcode (another product list, say) inside a product page.
-	 * What remains can still contain square brackets (a manual excerpt, or
-	 * `[[x]]`, which strip_shortcodes() unescapes to `[x]`), so the blocks
-	 * print it through Blocks::text().
+	 * trimmed by Plain_Excerpt the way the free plugin's tooltip is from its
+	 * 1.0.3 (whatever the site language) — as plain text, so the list says
+	 * what hovering the term in a description already shows. Like the
+	 * tooltip it reads the body without running `the_content`: shortcodes
+	 * are stripped rather than rendered and tags removed, which keeps a
+	 * definition from executing a nested block or shortcode (another product
+	 * list, say) inside a product page. What remains can still contain
+	 * square brackets (a manual excerpt, or `[[x]]`, which strip_shortcodes()
+	 * unescapes to `[x]`), so the blocks print it through Blocks::text().
 	 *
 	 * @param int $product_id Product post ID.
 	 * @return array<int, array{url: string, title: string, definition: string}>

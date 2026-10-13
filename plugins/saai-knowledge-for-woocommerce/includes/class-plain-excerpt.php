@@ -15,13 +15,17 @@ defined( 'ABSPATH' ) || exit;
  * (Product_Sections::definition()).
  *
  * A copy of the free plugin's SAAI\Knowledge\Plain_Excerpt::trim_words(),
- * which trims the auto-link tooltip, so a definition on a product page
- * says what hovering the term already shows. Copied rather than called
- * because the add-on depends only on the free plugin's public hooks, never
- * its internal classes. Change both together: tests/test-woo-plain-excerpt.php
- * compares the two classes' constants and the code of trim_words() and
- * plain_text() (whitespace and comments aside), and fails when they
- * disagree.
+ * which trims the auto-link tooltip from its 1.0.3, so a definition on a
+ * product page says what hovering the term already shows. The free plugin
+ * up to 1.0.2, which the add-on still supports, trims the tooltip with
+ * wp_trim_words(), so there the two can differ; the add-on keeps the
+ * script-based count rather than matching that bug.
+ *
+ * Copied rather than called because the add-on depends only on the free
+ * plugin's public hooks, never its internal classes. Change both together:
+ * tests/test-woo-plain-excerpt.php compares the two classes' constants and
+ * the code of trim_words() and plain_text() (whitespace and comments
+ * aside), and fails when they disagree.
  *
  * Deliberately not wp_trim_words(): core counts by the site language's word
  * count type, which a locale such as `ja` sets to characters. On such a
