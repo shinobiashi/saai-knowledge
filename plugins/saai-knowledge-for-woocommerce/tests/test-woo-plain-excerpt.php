@@ -8,6 +8,7 @@
  */
 
 use SAAI\KnowledgeWoo\Plain_Excerpt;
+use SAAI\KnowledgeWoo\Product_Sections;
 
 /**
  * Class Test_Woo_Plain_Excerpt.
@@ -185,7 +186,8 @@ class Test_Woo_Plain_Excerpt extends WP_UnitTestCase {
 	/**
 	 * The add-on's copy is the free plugin's Plain_Excerpt, which the
 	 * tooltip uses: the same constants, and the same code in trim_words()
-	 * and plain_text(). The add-on may not call that class (it depends only
+	 * and plain_text(), and a product page's definition keeps as many units
+	 * as the tooltip does. The add-on may not call that class (it depends only
 	 * on the free plugin's public hooks), so this is what keeps the two from
 	 * drifting apart: change one, and this fails until the other matches.
 	 * Comparing the code catches what comparing results can't, such as a
@@ -194,6 +196,10 @@ class Test_Woo_Plain_Excerpt extends WP_UnitTestCase {
 	 */
 	public function test_copies_the_free_plugin_code() {
 		$this->assertTrue( class_exists( \SAAI\Knowledge\Plain_Excerpt::class ), 'The tests load the free plugin.' );
+
+		// The tooltip takes the free plugin's default length; the product
+		// page passes its own.
+		$this->assertSame( \SAAI\Knowledge\Plain_Excerpt::WORDS, Product_Sections::DEFINITION_WORDS, 'Length' );
 
 		foreach ( array( 'NO_SPACE_CHARACTERS', 'UNIT_PATTERN' ) as $constant ) {
 			$this->assertSame(

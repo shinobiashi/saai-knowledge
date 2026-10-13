@@ -23,9 +23,10 @@ defined( 'ABSPATH' ) || exit;
  *
  * Copied rather than called because the add-on depends only on the free
  * plugin's public hooks, never its internal classes. Change both together:
- * tests/test-woo-plain-excerpt.php compares the two classes' constants and
- * the code of trim_words() and plain_text() (whitespace and comments
- * aside), and fails when they disagree.
+ * tests/test-woo-plain-excerpt.php compares the two classes' constants, the
+ * code of trim_words() and plain_text() (whitespace and comments aside),
+ * and the free plugin's WORDS with Product_Sections::DEFINITION_WORDS, and
+ * fails when they disagree.
  *
  * Deliberately not wp_trim_words(): core counts by the site language's word
  * count type, which a locale such as `ja` sets to characters. On such a
