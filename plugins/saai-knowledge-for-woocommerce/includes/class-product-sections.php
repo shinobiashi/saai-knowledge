@@ -47,8 +47,10 @@ final class Product_Sections {
 	public const FAQ_BLOCK_MARKER_PREFIX = 'saai-woo-product-faq-';
 
 	/**
-	 * How many words of a glossary term's body stand in for its definition
-	 * when it has no manual excerpt — the free plugin's tooltip rule.
+	 * How many units of a glossary term's body stand in for its definition
+	 * when it has no manual excerpt — the free plugin's tooltip rule, counted
+	 * as Plain_Excerpt counts: one unit per Han/kana/Thai-style character,
+	 * one per space-separated word otherwise.
 	 *
 	 * @var int
 	 */
@@ -240,8 +242,9 @@ final class Product_Sections {
 	 * The glossary terms linked to a product, with their definitions.
 	 *
 	 * The definition follows the free plugin's tooltip rule — the term's
-	 * manual excerpt, or else the first DEFINITION_WORDS words of its body —
-	 * as plain text, so the list says exactly what hovering the term in a
+	 * manual excerpt, or else the first DEFINITION_WORDS units of its body,
+	 * trimmed by Plain_Excerpt the way the tooltip is (whatever the site
+	 * language) — as plain text, so the list says what hovering the term in a
 	 * description already shows. Like the tooltip it reads the body without
 	 * running `the_content`: shortcodes are stripped rather than rendered
 	 * and tags removed, which keeps a definition from executing a nested
@@ -350,10 +353,12 @@ final class Product_Sections {
 	 * @return string
 	 */
 	private function definition( \WP_Post $term ): string {
-		$text = has_excerpt( $term )
-			? get_the_excerpt( $term )
-			: wp_trim_words( strip_shortcodes( $term->post_content ), self::DEFINITION_WORDS );
+		if ( has_excerpt( $term ) ) {
+			return trim( html_entity_decode( wp_strip_all_tags( get_the_excerpt( $term ) ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' ) );
+		}
 
-		return trim( html_entity_decode( wp_strip_all_tags( $text ), ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8' ) );
+		// Already plain text: stripping or decoding it again would turn a
+		// body's `&amp;lt;` into `<` and drop text such as `&lt;br&gt;`.
+		return Plain_Excerpt::trim_words( strip_shortcodes( $term->post_content ), self::DEFINITION_WORDS );
 	}
 }

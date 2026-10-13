@@ -420,6 +420,69 @@ class Test_Woo_Product_Sections extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A definition taken from the body is trimmed by the script of the text,
+	 * as the free plugin trims its tooltip, whatever the site language counts
+	 * (Issue #89): where it counts characters (`ja`), an English body is no
+	 * longer cut mid-word after 55 characters; where it counts words, a
+	 * Japanese body, which has no spaces, is now cut at 55 characters. A
+	 * shortcode is stripped before counting, and the trimmed text is decoded
+	 * once: the body's `&lt;br&gt;` stays as text.
+	 */
+	public function test_glossary_definitions_are_trimmed_by_script_not_site_language() {
+		global $wp_locale;
+
+		$sentence = 'A second verification step, in addition to your password, that confirms it is really you signing in.';
+		$eleven   = 'あいうえお漢字カタカナ';
+		$words    = implode( ' ', array_fill( 0, Product_Sections::DEFINITION_WORDS, 'word' ) );
+		$product  = $this->create_product();
+		$bodies   = array(
+			'<p>' . $sentence . '</p>',
+			'<p>' . str_repeat( $eleven, 6 ) . '</p>',
+			'[gallery ids="1 2 3" columns="3"]' . $words,
+			'<p>Fish &amp;lt;chips&amp;gt; &lt;br&gt;</p>',
+		);
+
+		foreach ( $bodies as $i => $body ) {
+			$this->link(
+				$this->create_content(
+					'saai_glossary',
+					'Term ' . $i,
+					array(
+						'menu_order'   => $i,
+						'post_content' => $body,
+					)
+				),
+				$product
+			);
+		}
+
+		$definitions = array();
+		$previous    = $wp_locale->word_count_type;
+
+		try {
+			foreach ( array( 'characters_including_spaces', 'words' ) as $type ) {
+				$wp_locale->word_count_type = $type;
+				$definitions[ $type ]       = wp_list_pluck( $this->sections->glossary_entries( $product ), 'definition' );
+			}
+		} finally {
+			$wp_locale->word_count_type = $previous;
+		}
+
+		foreach ( $definitions as $type => $listed ) {
+			$this->assertSame(
+				array(
+					$sentence,
+					str_repeat( $eleven, 5 ) . '…',
+					$words,
+					'Fish &lt;chips&gt; <br>',
+				),
+				$listed,
+				$type
+			);
+		}
+	}
+
+	/**
 	 * The linked posts are primed in one go: listing three costs no more
 	 * queries than listing one.
 	 */
