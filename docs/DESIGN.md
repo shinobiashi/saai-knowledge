@@ -259,6 +259,7 @@ CPT 登録変更時のみ `flush_rewrite_rules()`（有効化時 + スラッグ�
 - HPOS 互換宣言、WooCommerce L-2 バージョンポリシー（最新と直近 2 メジャー。最新 11.2 に対して `WC requires at least: 11.0`。下限はヘッダーと実行時チェックの `SAAI_WOO_MIN_WC_VERSION` で揃える）、QIT（Quality Insights Toolkit）テストのパス。
 - PHP 要件は 8.2 のまま。提出要件の「Products must support PHP 7.4+ as a minimum (PHP 8.3+ strongly recommended)」は「最低要件を 7.4 以上にする」と読む（2026-10-10 判断。申請時に窓口で確認する）。
 - 配布物: `readme.txt`（無いと QIT Validation が失敗）・`changelog.txt`（[公式書式](https://developer.woocommerce.com/docs/extensions/core-concepts/changelog-txt/)の `YYYY-MM-DD - version x.y.z` 見出しと `* Added - …` 等の項目。書式違いも、最新エントリとヘッダーの `Version` の食い違いも、アップロード拒否の理由になる。WordPress.org の readme 風の `= x.y.z =` ではない）・`languages/`（§8.3）。中身とバージョンの一致（ヘッダー・`SAAI_KNOWLEDGE_WOO_VERSION`・readme の Stable tag・changelog）は `bin/verify-woo-zip.sh` が検証し、CI の build ジョブで流す。
+- 配布 ZIP の保管: `woo-v<x.y.z>` タグの push で `release-woo.yml` が ZIP を組み、`verify-woo-zip.sh --tag` で検証して、sha256 と一緒に **draft** の GitHub Release に保管する（リポジトリが public なので公開しない）。WooCommerce.com へアップロードするのはこの ZIP で、同じ版の ZIP は差し替えない（中身を変えたらパッチ版を上げる。Issue #100）。
 - 申請前のローカル確認（Plugin Check・QIT のローカル環境での互換マトリクス）の手順と結果は `docs/MARKETPLACE-PREFLIGHT.md`。
 - 無料版の `saai_` フック群のみに依存し、無料版更新で壊れない互換ポリシー（無料版はフックの後方互換を semver で保証）。
 
@@ -352,7 +353,7 @@ plugins/saai-knowledge/
 - **PHPStan**: level 6〜 + szepeviktor/phpstan-wordpress（有料版は WooCommerce stubs）
 - **PHPUnit**: WP_UnitTestCase（CPT登録・自動リンク・検索REST・紐づけ解決ロジック）
 - **Playwright E2E**: wp-env 上で KB レイアウト表示・アコーディオン・ライブ検索・（有料版）商品タブ
-- **GitHub Actions**: lint / test マトリクス（PHP 8.2–8.4 × WP 6.9–latest）、タグ push で ZIP 生成、無料版は WP.org SVN デプロイ
+- **GitHub Actions**: lint / test マトリクス（PHP 8.2–8.4 × WP 6.9–latest）、タグ push で ZIP 生成（無料版は `v*` → GitHub Release、有料版は `woo-v*` → draft Release）、無料版は WP.org SVN デプロイ
 
 ### 8.3 i18n
 

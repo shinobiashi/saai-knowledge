@@ -44,6 +44,25 @@ bash bin/qit-matrix.sh 7.1.3:11.3.0   # 組み合わせを指定する場合（W
 5. 有料版の無効化と再有効化を行う。さらに無料版を外し、有料版が fatal にならず通知を出すことを確認する
 6. `wp-content/debug.log`（QIT の環境は WP_DEBUG 有効）が空であることを確認する
 
+## 提出する ZIP
+
+上の確認は手元でビルドした ZIP で行うが、WooCommerce.com にアップロードするのは `release-woo.yml` が作った ZIP（Issue #100）。版数を揃えたコミットに `woo-v<x.y.z>` タグを push すると、ワークフローが ZIP を組み、`verify-woo-zip.sh --tag` で検証して、sha256 と一緒に draft Release に置く。
+
+```sh
+# main の版数を揃えたコミットにタグを付けて push（push は明示の指示があってから）
+git tag -a woo-v1.0.0 -m "SAAI Knowledge for WooCommerce 1.0.0"
+git push origin woo-v1.0.0
+
+# ワークフローが終わったら、draft Release から ZIP を取って照合する
+mkdir -p dist/woo-upload && cd dist/woo-upload
+gh release download woo-v1.0.0 --pattern 'saai-knowledge-for-woocommerce.zip*'
+shasum -a 256 -c saai-knowledge-for-woocommerce.zip.sha256
+```
+
+- アップロードしたら、Release の本文の「WooCommerce.com upload」欄にアップロード日と審査の結果を書き足す
+- Release は draft のままにする（このリポジトリは public。理由は `.claude/rules/build-packaging.md`）
+- 同じ版の ZIP は差し替えない。審査で直しを求められたら、パッチ版を上げて（版数 4 箇所と changelog.txt）新しいタグを付ける
+
 ## 結果（2026-10-10、有料版 1.0.0）
 
 環境は `qit env:up`（PHP 8.2）。無料版は 1.0.2（WordPress.org）。
@@ -104,3 +123,4 @@ E2E の 11 件は、`product-blocks` 5 件・`product-page-block-theme` 4 件・
   - `WC tested up to` をその時点の最新にする
   - `WC requires at least` / `SAAI_WOO_MIN_WC_VERSION` を L-2 で計算し直す
   - `bin/verify-woo-zip.sh` と `bin/qit-matrix.sh` を流し直す
+  - そのコミットに `woo-v1.0.0` を付けて push し、draft Release の ZIP を提出する（「提出する ZIP」節。手元でビルドした ZIP は使わない）
