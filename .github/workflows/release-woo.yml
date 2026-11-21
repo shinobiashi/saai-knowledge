@@ -1,0 +1,88 @@
+name: Release (WooCommerce add-on)
+
+# Builds the add-on's (saai-knowledge-for-woocommerce) release ZIP from a
+# woo-v<x.y.z> tag and keeps it, with its SHA-256, in a DRAFT GitHub Release:
+# the ZIP uploaded to WooCommerce.com is always downloaded from here, so every
+# upload traces back to a tag and commit.
+#
+# - Draft, never published: this repository is public, so a published
+#   release's assets can be downloaded by anyone (and an Actions artifact by
+#   anyone signed in to GitHub) — the paid add-on, built. Only users with
+#   write access see drafts. The last step checks that the ZIP's public
+#   download URL is a 404.
+# - release.yml's 'v*' filter does not match 'woo-v*', so the free plugin's
+#   release never runs for these tags (and this one never runs for v* tags).
+# - One tag per version, one ZIP per tag: a version's ZIP is never replaced.
+#   A rebuilt ZIP is not byte-identical (it records file times), so a changed
+#   ZIP gets a new patch version; bin/verify-woo-zip.sh rejects tags with
+#   anything after the version, and this workflow refuses a tag that already
+#   has a release.
+on:
+  push:
+    tags:
+      - 'woo-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & draft release
+    runs-on: ubuntu-latest
+    env:
+      SLUG: saai-knowledge-for-woocommerce
+      TAG: ${{ github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: npm run build -w plugins/saai-knowledge-for-woocommerce
+
+      - name: Build release ZIP
+        working-directory: plugins/saai-knowledge-for-woocommerce
+        run: npx wp-scripts plugin-zip
+
+      # Contents, version agreement, and the tag naming that version; writes
+      # the release body only when everything passes.
+      - name: Verify release ZIP against the tag
+        run: bash bin/verify-woo-zip.sh --tag "$TAG" --notes "$RUNNER_TEMP/notes.md"
+
+      # A tag deleted and pushed again must not get a second release next to
+      # the first one's ZIP. gh release view finds drafts too.
+      - name: Refuse to replace an existing release
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "::error::A release for $TAG already exists. A version's ZIP is never replaced: bump the patch version and tag that instead (or delete the release and the tag by hand if it was never uploaded)."
+            exit 1
+          fi
+
+      - name: Write SHA-256
+        working-directory: plugins/saai-knowledge-for-woocommerce
+        run: sha256sum "$SLUG.zip" > "$SLUG.zip.sha256"
+
+      - name: Create draft release
+        run: |
+          gh release create "$TAG" \
+            "plugins/$SLUG/$SLUG.zip" \
+            "plugins/$SLUG/$SLUG.zip.sha256" \
+            --draft \
+            --verify-tag \
+            --title "SAAI Knowledge for WooCommerce ${TAG#woo-v}" \
+            --notes-file "$RUNNER_TEMP/notes.md"
+
+      # Without -L: a public asset answers 302 (to the storage URL), a draft's
+      # 404, to a client that is not signed in.
+      - name: Check the ZIP is not publicly downloadable
+        run: |
+          code="$(curl -s -o /dev/null -w '%{http_code}' "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$SLUG.zip")"
+          if [ "$code" != 404 ]; then
+            echo "::error::The ZIP's public download URL answered $code, not 404: the release may have been published. Make it a draft again (or delete it) now."
+            exit 1
+          fi
