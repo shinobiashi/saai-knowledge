@@ -20,7 +20,9 @@ paths:
 - `10up/action-wordpress-plugin-deploy` の `BUILD_DIR` にプラグインのソースディレクトリを直接指定すると、`package.json` の `files`（npm-packlist）を一切参照せず、そのディレクトリ配下を丸ごとSVN trunkに同期する。`src/`・`tests/`・`.wordpress-org/`（本来は別の `ASSETS_DIR` でSVNの `assets/` に渡すマーケティング素材）まで公開リポジトリに紛れ込むため、事前に `wp-scripts plugin-zip` でビルド・検証済みのZIPを展開したディレクトリを `BUILD_DIR` に指定する（`deploy-wporg.yml` が確立パターン）。
 - 有料版の配布 ZIP は `woo-v<x.y.z>` タグの push で `release-woo.yml` が組み、**draft** Release に保管する（#100）。
   - このリポジトリは public なので、有料版の ZIP を public な Release や Actions の artifact（public リポジトリでは GitHub にログインした誰でもダウンロードできる）に置かない。`ci-js.yml` の build ジョブも ZIP を検証するだけで残さない。
-  - draft は書き込み権限のある人にしか見えない。Publish しない。`release-woo.yml` は最後に、ログインしていない curl（`-L` なし）で添付の URL が 404 であることを確かめる（公開されていれば 302）。手元で確かめるときも同じ: `curl -s -o /dev/null -w '%{http_code}' https://github.com/shinobiashi/saai-knowledge/releases/download/woo-v<x.y.z>/saai-knowledge-for-woocommerce.zip`。
+  - draft は書き込み権限のある人にしか見えない。Publish しない。`release-woo.yml` は最後に、Release が draft であることと、各添付の URL がログインしていない curl（`-L` なし）に 404 を返すことを確かめる（公開されていれば 302）。添付の URL は `gh release view woo-v<x.y.z> --json assets --jq '.assets[].url'` で Release から取る。タグ名で組み立てた `releases/download/woo-v<x.y.z>/…` は Release が無くても 404 なので、確かめたことにならない。
+  - `contents: write` のトークンは gh を使う手順の `env:` にだけ渡し、checkout は `persist-credentials: false` にする。`npm ci` のインストールスクリプトやビルドなど第三者のコードが走る手順からトークンが読めると、draft を Publish できてしまう。
+  - タグのコミットが main に無くても ZIP は組む（PR ブランチで試せるように）が、`::warning::` を出し、Release の本文の先頭に CAUTION を付ける。
   - ZIP には各ファイルの更新時刻が入る。同じファイルから組み直せば一致するが、CI は checkout とビルドのたびに時刻が変わるので、同じコミットでも run ごとに別の ZIP になる。アップロードした ZIP の控えを 1 つに保つため、同じ版の ZIP は差し替えず、中身を変えたらパッチ版を上げる。タグは `woo-v<x.y.z>` だけで、`verify-woo-zip.sh --tag` が版数の後ろに何か付いたタグを拒否し、ワークフローは Release が既にあるタグを拒否する。
   - `release.yml` の `v*` は `woo-v*` に一致しない（先頭から照合する）ので、無料版と有料版のリリースは混ざらない。
   - ファイル名は `saai-knowledge-for-woocommerce.zip` のまま、版数を付けない（Vendor Dashboard はスラッグとの一致を求める）。版数はタグと Release で表す。
