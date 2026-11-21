@@ -13,8 +13,10 @@ name: Release (WooCommerce add-on)
 # - release.yml's 'v*' filter does not match 'woo-v*', so the free plugin's
 #   release never runs for these tags (and this one never runs for v* tags).
 # - One tag per version, one ZIP per tag: a version's ZIP is never replaced.
-#   A rebuilt ZIP is not byte-identical (it records file times), so a changed
-#   ZIP gets a new patch version; bin/verify-woo-zip.sh rejects tags with
+#   The ZIP records each file's modification time, which a fresh checkout
+#   and build set to the time of the run, so another run on the same commit
+#   gives a different ZIP: a changed ZIP gets a new patch version instead of
+#   a second ZIP for the same version. bin/verify-woo-zip.sh rejects tags with
 #   anything after the version, and this workflow refuses a tag that already
 #   has a release.
 on:
