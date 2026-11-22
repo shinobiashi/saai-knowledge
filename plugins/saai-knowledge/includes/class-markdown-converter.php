@@ -74,8 +74,9 @@ final class Markdown_Converter {
 
 	/**
 	 * Inline elements convert_node() wraps in Markdown syntax on both sides
-	 * (`[…](…)`, `**…**`, `_…_`). Their content is joined into one line when
-	 * it holds a code block (see inline_text()), so starts_new_block() doesn't
+	 * (`[…](…)`, `**…**`, `_…_`; an <a> only when it has an href, see
+	 * writes_inline_syntax()). Their content is joined into one line when it
+	 * holds a code block (see inline_text()), so starts_new_block() doesn't
 	 * start a new block for them.
 	 *
 	 * @var string[]
@@ -310,10 +311,11 @@ final class Markdown_Converter {
 	 * and the block, where the inner convert_children() call has no output
 	 * of its own to end) still produced "prefix```" (Codex review G1-2).
 	 *
-	 * Except an element of INLINE_SYNTAX_ELEMENTS (<a>, <strong>, <em>, ...):
-	 * its content is joined into one line, where the code block becomes a
-	 * code span (inline_text()), so a blank line before it would only split
-	 * the sentence it's in (Issue #94).
+	 * Except an element that wraps its content in inline syntax (a link,
+	 * <strong>, <em>, ...; writes_inline_syntax()): its content is joined
+	 * into one line, where the code block becomes a code span between that
+	 * syntax (inline_text()), so a blank line before it would only split the
+	 * sentence it's in (Issue #94).
 	 *
 	 * Any other block element does when its parent is a block too, but not
 	 * inside an inline element (<a>, <strong>, <span>, ...), where a blank
@@ -335,11 +337,39 @@ final class Markdown_Converter {
 			return true;
 		}
 
-		if ( in_array( strtolower( $child->tagName ), self::INLINE_SYNTAX_ELEMENTS, true ) ) {
+		if ( self::writes_inline_syntax( $child ) ) {
 			return false;
 		}
 
 		return 'pre' === strtolower( $child->tagName ) || $child->getElementsByTagName( 'pre' )->length > 0;
+	}
+
+	/**
+	 * Whether convert_node() wraps an element's content in inline Markdown
+	 * syntax: it's one of INLINE_SYNTAX_ELEMENTS, and an <a> has an href (an
+	 * anchor without one passes its content through, see convert_node()).
+	 *
+	 * @param \DOMElement $node Element to check.
+	 * @return bool
+	 */
+	private static function writes_inline_syntax( \DOMElement $node ): bool {
+		$tag = strtolower( $node->tagName );
+
+		if ( 'a' === $tag ) {
+			return '' !== self::link_href( $node );
+		}
+
+		return in_array( $tag, self::INLINE_SYNTAX_ELEMENTS, true );
+	}
+
+	/**
+	 * An <a>'s href attribute, trimmed ('' when it has none).
+	 *
+	 * @param \DOMElement $node The <a> element.
+	 * @return string
+	 */
+	private static function link_href( \DOMElement $node ): string {
+		return trim( (string) $node->getAttribute( 'href' ) );
 	}
 
 	/**
@@ -404,7 +434,9 @@ final class Markdown_Converter {
 	 * line rendered its `<script>` as a raw element (Issue #94). Joined
 	 * into one line, the fence becomes a code span, which every renderer
 	 * reads there (its delimiter is longer than any backtick run in the
-	 * code, see render_code_fence()).
+	 * code, see render_code_fence()). The element's own syntax keeps the
+	 * span from starting a line or touching backticks outside it, which is
+	 * why an <a> without an href, which writes none, doesn't use this.
 	 *
 	 * @param \DOMElement $node   The element.
 	 * @param string      $indent Current nested-list indentation prefix (see convert_list()).
@@ -507,7 +539,8 @@ final class Markdown_Converter {
 				// everywhere; its line endings become spaces, as in a list
 				// item or a table cell.
 				if ( self::has_ancestor( $node, 'blockquote' ) ) {
-					return self::render_inline_code( $node->textContent ) . "\n\n";
+					$span = self::render_inline_code( $node->textContent );
+					return '' === $span ? '' : $span . "\n\n";
 				}
 				return self::render_code_fence( $node->textContent ) . "\n\n";
 
@@ -520,14 +553,22 @@ final class Markdown_Converter {
 				return '' === $text ? '' : '**' . $text . '**' . "\n\n";
 
 			case 'a':
-				$href = trim( (string) $node->getAttribute( 'href' ) );
-				$text = self::inline_text( $node, $indent );
+				$href = self::link_href( $node );
 
-				if ( '' === $text ) {
-					return '';
+				// An <a> without an href (an anchor) writes no Markdown syntax,
+				// so it passes its content through as a <span> does. Joined
+				// into one line by inline_text(), a code block in it became a
+				// bare code span whose backticks ran into those of inline code
+				// beside it, or a line that Python-Markdown's fenced_code read
+				// as an opening fence ("``` { ```}"), and a code sample's
+				// `<script>` rendered as a raw element (Issue #94 review).
+				if ( '' === $href ) {
+					return self::convert_children( $node, $indent );
 				}
 
-				return '' === $href ? $text : '[' . $text . '](' . self::markdown_link_destination( $href ) . ')';
+				$text = self::inline_text( $node, $indent );
+
+				return '' === $text ? '' : '[' . $text . '](' . self::markdown_link_destination( $href ) . ')';
 
 			case 'img':
 				$src = trim( (string) $node->getAttribute( 'src' ) );
@@ -763,11 +804,22 @@ final class Markdown_Converter {
 	 * Also used for a <pre> inside a quote, where Python-Markdown reads no
 	 * fence (Issue #94).
 	 *
+	 * Empty (or whitespace-only) code writes nothing: "``" isn't a code span
+	 * but a run of two backticks, which paired with a "``" in a later code
+	 * span on the same line — an empty <pre> in a quote inside a list item,
+	 * or an empty inline <code> — ending that span early and leaving the
+	 * rest of its code, `<script>` included, to render as raw HTML (Issue
+	 * #94 review).
+	 *
 	 * @param string $code Raw text content of an inline <code>, or of a <pre> in a quote.
 	 * @return string
 	 */
 	private static function render_inline_code( string $code ): string {
 		$code = (string) preg_replace( '/\r\n?|\n/', ' ', trim( $code ) );
+
+		if ( '' === $code ) {
+			return '';
+		}
 
 		$delimiter = str_repeat( '`', max( 1, self::longest_backtick_run( $code ) + 1 ) );
 		$padding   = ( '' !== $code && ( '`' === $code[0] || '`' === substr( $code, -1 ) ) ) ? ' ' : '';

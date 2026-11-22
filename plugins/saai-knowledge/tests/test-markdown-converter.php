@@ -329,6 +329,85 @@ class Test_Markdown_Converter extends WP_UnitTestCase {
 			"\\> `a  <script>y</script>`\n",
 			Markdown_Converter::convert( '<blockquote><p>outer</p><blockquote><p>inner</p>' . $code . '</blockquote></blockquote>' )
 		);
+		$this->assertSame( "> q\n", Markdown_Converter::convert( '<blockquote><p>q</p><pre></pre><pre> </pre></blockquote>' ) );
+	}
+
+	/**
+	 * A quote's code span stays one when the quote is joined into a line —
+	 * in a list item, a table cell or a link — or holds a list item or a
+	 * link itself. An empty <pre> in such a quote writes nothing: its "``"
+	 * paired with the "``" in the next code sample and ended that span
+	 * early, so the sample's `<script>` rendered as raw HTML in every
+	 * renderer (Issue #94 review).
+	 */
+	public function test_quoted_code_joined_into_a_line_stays_a_code_span() {
+		$code = "<pre><code>a\n\n&lt;script&gt;y&lt;/script&gt;</code></pre>";
+		$tick = "<pre>a`` \n\n&lt;script&gt;y&lt;/script&gt;</pre>";
+
+		$this->assertSame(
+			"- \\> ```a`` <script>y</script>```\n",
+			Markdown_Converter::convert( '<ul><li><blockquote><pre></pre>' . $tick . '</blockquote></li></ul>' )
+		);
+		$this->assertSame(
+			"| H |\n| --- |\n| > ```a``   <script>y</script>``` |\n",
+			Markdown_Converter::convert( '<table><tr><th>H</th></tr><tr><td><blockquote><pre> </pre>' . $tick . '</blockquote></td></tr></table>' )
+		);
+		$this->assertSame(
+			"- \\> `a <script>y</script>`\n",
+			Markdown_Converter::convert( '<ul><li><blockquote>' . $code . '</blockquote></li></ul>' )
+		);
+		$this->assertSame(
+			"> \\- i`a <script>y</script>`\n",
+			Markdown_Converter::convert( '<blockquote><ul><li>i' . $code . '</li></ul></blockquote>' )
+		);
+		$this->assertSame(
+			"> [t `a <script>y</script>`](<https://example.com/>)\n",
+			Markdown_Converter::convert( '<blockquote><p><a href="https://example.com/">t' . $code . '</a></p></blockquote>' )
+		);
+		$this->assertSame(
+			"[> `a <script>y</script>`](<https://example.com/>)\n",
+			Markdown_Converter::convert( '<p><a href="https://example.com/"><blockquote>' . $code . '</blockquote></a></p>' )
+		);
+	}
+
+	/**
+	 * An empty inline <code> writes nothing: "``" isn't a code span but a
+	 * run of two backticks, which paired with the "``" in a later code span
+	 * of the same paragraph, so the rest of that span's code rendered as raw
+	 * HTML (Issue #94 review).
+	 */
+	public function test_empty_inline_code_writes_nothing() {
+		$this->assertSame(
+			"and ```a`` <script>y</script>```\n",
+			Markdown_Converter::convert( '<p><code></code> and <code>a`` &lt;script&gt;y&lt;/script&gt;</code></p>' )
+		);
+	}
+
+	/**
+	 * An <a> without an href writes no Markdown syntax, so it passes its
+	 * content through as a <span> does: a code block in it is a fence on
+	 * lines of its own. Joined into one line, its bare code span ran into
+	 * the backticks of inline code beside it, or Python-Markdown read the
+	 * line ("``` { ```\}") as an opening fence, and the code's `<script>`
+	 * rendered as raw HTML (Issue #94 review). Its whitespace is kept, as a
+	 * <span>'s is.
+	 */
+	public function test_anchor_without_href_passes_its_content_through() {
+		$code = "<pre><code>a\n\n&lt;script&gt;y&lt;/script&gt;</code></pre>";
+
+		$this->assertSame(
+			"`x`\n\n```\na\n\n<script>y</script>\n```\n",
+			Markdown_Converter::convert( '<p><code>x</code><a name="n">' . $code . '</a></p>' )
+		);
+		$this->assertSame(
+			"```\na\n\n<script>y</script>\n```\n\n`z`\n",
+			Markdown_Converter::convert( '<p><a name="n">' . $code . '</a><code>z</code></p>' )
+		);
+		$this->assertSame(
+			"```\n{\n```\n\n\\}\n\n```\nb\n```\n",
+			Markdown_Converter::convert( '<div><a name="x"><pre>{</pre></a>}</div><pre>b</pre>' )
+		);
+		$this->assertSame( "a b c\n", Markdown_Converter::convert( '<p>a<a id="n"> b </a>c</p>' ) );
 	}
 
 	/**
@@ -358,6 +437,10 @@ class Test_Markdown_Converter extends WP_UnitTestCase {
 		$this->assertSame(
 			"_E ``` a <script>y</script> ```_\n",
 			Markdown_Converter::convert( '<p><em>E' . $code . '</em></p>' )
+		);
+		$this->assertSame(
+			"_I ``` a <script>y</script> ```_\n",
+			Markdown_Converter::convert( '<p><i>I' . $code . '</i></p>' )
 		);
 		$this->assertSame(
 			"**Q ``` a <script>y</script> ```**\n\nA\n",
