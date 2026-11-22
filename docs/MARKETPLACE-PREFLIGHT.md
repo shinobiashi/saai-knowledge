@@ -53,8 +53,8 @@ bash bin/qit-matrix.sh 7.1.3:11.3.0   # 組み合わせを指定する場合（W
 git tag -a woo-v1.0.0 -m "SAAI Knowledge for WooCommerce 1.0.0"
 git push origin woo-v1.0.0
 
-# ワークフローが終わったら、draft Release から ZIP を取って照合する
-mkdir -p dist/woo-upload && cd dist/woo-upload
+# ワークフローが終わったら、draft Release から ZIP を取って照合する（前の版のファイルは消してから入れ直す）
+rm -rf dist/woo-upload && mkdir -p dist/woo-upload && cd dist/woo-upload
 gh release download woo-v1.0.0 --pattern 'saai-knowledge-for-woocommerce.zip*'
 shasum -a 256 -c saai-knowledge-for-woocommerce.zip.sha256
 ```
