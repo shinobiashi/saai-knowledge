@@ -45,8 +45,16 @@ usage() {
 while [ "$#" -gt 0 ]; do
 	case "$1" in
 		--tag | --notes)
-			[ "$#" -ge 2 ] && [ -n "$2" ] || usage
-			if [ "$1" = --tag ]; then TAG="$2"; else NOTES="$2"; fi
+			# A missing value, one that looks like another option, or the same
+			# option twice is a mistake: never take `--notes --tag` as a file name.
+			[ "$#" -ge 2 ] && [ -n "$2" ] && [ "${2#-}" = "$2" ] || usage
+			if [ "$1" = --tag ]; then
+				[ -z "$TAG" ] || usage
+				TAG="$2"
+			else
+				[ -z "$NOTES" ] || usage
+				NOTES="$2"
+			fi
 			shift 2
 			;;
 		-*) usage ;;
