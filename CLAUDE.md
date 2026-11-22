@@ -87,6 +87,7 @@ wp-env のポートは `.wp-env.json` でスロット 03（dev 10030 / tests 100
 - `ci-php.yml`（PHPCS / PHPStan / PHPUnit、PHP 8.2–8.4 × WP 6.9–latest）、`ci-js.yml`（Lint JS/CSS・Build〔有料版の配布 ZIP を組み立てて `bin/verify-woo-zip.sh` で中身・版数を検証〕に加え、`wp-env start` → `npm run test:e2e` を実行する E2E ジョブ）、`release.yml`（`v*` タグ push で無料版 ZIP を GitHub Release に添付）、`release-woo.yml`（`woo-v*` タグ push で有料版 ZIP を組み、`verify-woo-zip.sh --tag` で検証して **draft** Release に sha256 と一緒に保管）。
 - `bin/install-wp-tests.sh` は wp-cli scaffold の移植。改変時は必ず canonical と突き合わせる（ABSPATH sed の末尾スラッシュ欠落で全マトリクスが落ちた実績）。ubuntu-latest ランナーに svn は無い（ワークフロー側で apt install 済み）。
 - Codex（`chatgpt-codex-connector`）の push 時の自動レビューは走らないことがある（PR #67 では CI green 後 35 分待っても未着で、`@codex review` の手動投稿には数分で応答）。dev-cycle のゲートでは `request-gate-review.sh` に `--request-codex` を付けて依頼する。
+- Copilot は PR 作成時に依頼なしで自動レビューすることがある（PR #101 では依頼の前にスレッド 1 件）。PR 作成後に記録用の push を挟んでから G1 を依頼すると、その前に届いたスレッドは G1 の `gate-threads.sh list <N> <T>` に出ない。G1 の前に、初回 push の `T` で `status` を取る。
 
 ## リリース
 
