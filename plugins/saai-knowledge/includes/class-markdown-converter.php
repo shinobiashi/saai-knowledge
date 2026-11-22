@@ -73,6 +73,22 @@ final class Markdown_Converter {
 	);
 
 	/**
+	 * Inline elements convert_node() wraps in Markdown syntax on both sides
+	 * (`[…](…)`, `**…**`, `_…_`). Their content is joined into one line when
+	 * it holds a code block (see inline_text()), so starts_new_block() doesn't
+	 * start a new block for them.
+	 *
+	 * @var string[]
+	 */
+	private const INLINE_SYNTAX_ELEMENTS = array(
+		'a',
+		'b',
+		'em',
+		'i',
+		'strong',
+	);
+
+	/**
 	 * Converts an HTML fragment (as produced by `the_content`) to Markdown.
 	 *
 	 * @param string $html Rendered HTML.
@@ -293,8 +309,11 @@ final class Markdown_Converter {
 	 * otherwise `prefix<ins><div><pre>…` (an inline wrapper between the text
 	 * and the block, where the inner convert_children() call has no output
 	 * of its own to end) still produced "prefix```" (Codex review G1-2).
-	 * The fence must start a line however that leaves a link or emphasis
-	 * around it.
+	 *
+	 * Except an element of INLINE_SYNTAX_ELEMENTS (<a>, <strong>, <em>, ...):
+	 * its content is joined into one line, where the code block becomes a
+	 * code span (inline_text()), so a blank line before it would only split
+	 * the sentence it's in (Issue #94).
 	 *
 	 * Any other block element does when its parent is a block too, but not
 	 * inside an inline element (<a>, <strong>, <span>, ...), where a blank
@@ -314,6 +333,10 @@ final class Markdown_Converter {
 
 		if ( self::is_block_element( $child ) && self::is_block_element( $container ) ) {
 			return true;
+		}
+
+		if ( in_array( strtolower( $child->tagName ), self::INLINE_SYNTAX_ELEMENTS, true ) ) {
+			return false;
 		}
 
 		return 'pre' === strtolower( $child->tagName ) || $child->getElementsByTagName( 'pre' )->length > 0;
@@ -369,6 +392,52 @@ final class Markdown_Converter {
 	}
 
 	/**
+	 * Converts the content of an element whose Markdown syntax must stay on
+	 * one line — a link, emphasis, a heading, a <summary> — joining it into
+	 * one line when it holds a code block, as convert_list() does for a list
+	 * item.
+	 *
+	 * A fence there didn't work: the syntax after it ("```](…)", "```**")
+	 * kept the closing fence from closing, so Python-Markdown parsed the
+	 * code as Markdown, and a fence at the very start ("[```", "## ```")
+	 * didn't open one, so CommonMark did too; a code sample with a blank
+	 * line rendered its `<script>` as a raw element (Issue #94). Joined
+	 * into one line, the fence becomes a code span, which every renderer
+	 * reads there (its delimiter is longer than any backtick run in the
+	 * code, see render_code_fence()).
+	 *
+	 * @param \DOMElement $node   The element.
+	 * @param string      $indent Current nested-list indentation prefix (see convert_list()).
+	 * @return string
+	 */
+	private static function inline_text( \DOMElement $node, string $indent ): string {
+		$text = trim( self::convert_children( $node, $indent ) );
+
+		if ( $node->getElementsByTagName( 'pre' )->length > 0 ) {
+			$text = (string) preg_replace( '/\s+/', ' ', $text );
+		}
+
+		return $text;
+	}
+
+	/**
+	 * Whether a node has an ancestor element with the given tag name.
+	 *
+	 * @param \DOMNode $node Node to check.
+	 * @param string   $tag  Lowercase tag name.
+	 * @return bool
+	 */
+	private static function has_ancestor( \DOMNode $node, string $tag ): bool {
+		for ( $ancestor = $node->parentNode; $ancestor instanceof \DOMElement; $ancestor = $ancestor->parentNode ) {
+			if ( strtolower( $ancestor->tagName ) === $tag ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
 	 * Converts one node to its Markdown representation.
 	 *
 	 * @param \DOMNode $node   Node to convert.
@@ -409,28 +478,37 @@ final class Markdown_Converter {
 			case 'h5':
 			case 'h6':
 				$level = (int) substr( $tag, 1 );
-				return str_repeat( '#', $level ) . ' ' . trim( self::convert_children( $node, $indent ) ) . "\n\n";
+				return str_repeat( '#', $level ) . ' ' . self::inline_text( $node, $indent ) . "\n\n";
 
 			case 'strong':
 			case 'b':
-				$text = trim( self::convert_children( $node, $indent ) );
+				$text = self::inline_text( $node, $indent );
 				return '' === $text ? '' : '**' . $text . '**';
 
 			case 'em':
 			case 'i':
-				$text = trim( self::convert_children( $node, $indent ) );
+				$text = self::inline_text( $node, $indent );
 				return '' === $text ? '' : '_' . $text . '_';
 
 			case 'code':
 				// A <code> inside <pre> is handled entirely by the 'pre' case
-				// below (as a fenced block); only a standalone inline <code>
-				// gets backticks here.
+				// below (as a fenced block, or a code span in a quote); only a
+				// standalone inline <code> gets backticks here.
 				if ( $node->parentNode instanceof \DOMElement && 'pre' === strtolower( $node->parentNode->tagName ) ) {
 					return self::convert_children( $node, $indent );
 				}
 				return self::render_inline_code( $node->textContent );
 
 			case 'pre':
+				// Python-Markdown reads no fence inside a quote, even with its
+				// fenced_code or extra extension: the code was parsed as
+				// Markdown there, and a sample with a blank line rendered its
+				// `<script>` as a raw element (Issue #94). A code span is read
+				// everywhere; its line endings become spaces, as in a list
+				// item or a table cell.
+				if ( self::has_ancestor( $node, 'blockquote' ) ) {
+					return self::render_inline_code( $node->textContent ) . "\n\n";
+				}
 				return self::render_code_fence( $node->textContent ) . "\n\n";
 
 			case 'summary':
@@ -438,12 +516,12 @@ final class Markdown_Converter {
 				// the InnerBlocks content that follows it; without one,
 				// "<summary>What?</summary><p>Answer.</p>" concatenates into
 				// "What?Answer." with the question/answer boundary lost.
-				$text = trim( self::convert_children( $node, $indent ) );
+				$text = self::inline_text( $node, $indent );
 				return '' === $text ? '' : '**' . $text . '**' . "\n\n";
 
 			case 'a':
 				$href = trim( (string) $node->getAttribute( 'href' ) );
-				$text = trim( self::convert_children( $node, $indent ) );
+				$text = self::inline_text( $node, $indent );
 
 				if ( '' === $text ) {
 					return '';
@@ -640,13 +718,18 @@ final class Markdown_Converter {
 	 * that code into ordinary Markdown and starting a stray new block at
 	 * the original closing fence.
 	 *
-	 * Line endings are normalized to "\n" first: the code is still split on
-	 * "\n" afterwards (a blockquote prefixes each line with "> ", a table
-	 * cell turns each into a space), but every renderer also ends a line at
-	 * a lone "\r", so code containing one (`&#13;` survives kses and
-	 * the_content) left the rest of that line outside the quote's fence or
-	 * split the table row, and its `<img onerror>` rendered as raw HTML
+	 * Line endings are normalized to "\n" first: the fence's lines are still
+	 * handled as "\n"-separated afterwards (a table cell turns each into a
+	 * space), but every renderer also ends a line at a lone "\r", so code
+	 * containing one (`&#13;` survives kses and the_content) split the table
+	 * row or, back when a quote held fences, left the rest of that line
+	 * outside the quote's fence, and its `<img onerror>` rendered as raw HTML
 	 * (Issue #84 review R1-1).
+	 *
+	 * Used for a code block outside a quote. Inside one, and inside a link,
+	 * emphasis, a heading, a list item or a table cell, the code ends up as a
+	 * code span on one line instead (convert_node()'s `pre` case,
+	 * inline_text(), convert_list(), escape_table_cell()) — Issue #94.
 	 *
 	 * @param string $code Raw <pre> text content.
 	 * @return string
@@ -677,7 +760,10 @@ final class Markdown_Converter {
 	 * #84). CommonMark itself shows a line ending in a code span as a space,
 	 * so this doesn't change what the code looks like.
 	 *
-	 * @param string $code Raw inline <code> text content.
+	 * Also used for a <pre> inside a quote, where Python-Markdown reads no
+	 * fence (Issue #94).
+	 *
+	 * @param string $code Raw text content of an inline <code>, or of a <pre> in a quote.
 	 * @return string
 	 */
 	private static function render_inline_code( string $code ): string {
