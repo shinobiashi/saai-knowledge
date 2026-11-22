@@ -31,6 +31,13 @@ on:
 permissions:
   contents: write
 
+# One run per tag at a time: a tag deleted and pushed again while its first
+# run is still going waits for it, and then stops at the existing-release
+# check instead of racing it to a second draft.
+concurrency:
+  group: release-woo-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     name: Build & draft release
