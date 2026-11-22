@@ -5,9 +5,9 @@
 - タスク: Issue #100（M5）— 有料版の配布 ZIP を `woo-v<x.y.z>` タグの push で CI がビルド・検証し、draft Release に sha256 と一緒に保管する（`release-woo.yml` 新設、`bin/verify-woo-zip.sh` に `--tag` / `--notes`、ドキュメント）
 - 開始: 2026-11-22
 - PR: #101 https://github.com/shinobiashi/saai-knowledge/pull/101
-- 現在のステップ: 6（ゲート G2 の依頼・待ち。Copilot のみ）
+- 現在のステップ: 6（ゲート G3 の依頼・待ち。Copilot のみ、最後の依頼）
 - モード: `auto-commit`（確認ゲートなし。ラウンド報告のみ）、Codex は `--request-codex`
-- Copilot: 依頼 1 回 / 未収束
+- Copilot: 依頼 2 回 / 未収束
 - Codex: 依頼 1 回 / 収束（G1 で新規指摘なし）
 
 ## ログ
@@ -21,3 +21,4 @@
 | 2026-11-22 | 4 | 初回 push（HEAD 7fe48b6、T=2026-11-21T22:46:50Z）、PR #101 作成 |
 | 2026-11-22 | 5 | CI green（4dd6eec、2 workflow run）。実地確認（ユーザーが一括承認）: 4dd6eec に `woo-v1.0.0` を push → `release-woo.yml` success（run 44963096304、`release.yml` は動かず）、draft に ZIP と `.sha256`、本文の先頭に CAUTION（compare: ahead）、ダウンロードした ZIP が sha256 一致・`verify-woo-zip.sh --tag` OK、draft の添付 URL（`untagged-…`）はログインなしで 404。`woo-v9.9.9` → verify で版数違いの失敗、Release なし（run 44963493423）。draft と両タグを削除。結果を PR 本文に記録 |
 | 2026-11-22 | 6-7 | G1: CI green の後に両 bot へ依頼（T=2026-11-22T02:32:29Z）。Codex は指摘なし（収束）。Copilot は 2 件: G1-1（PR 作成直後の自動レビューのスレッド。提出する ZIP の手順が再実行で失敗、R1-L7）、G1-2（レビュー本文。オプションの値の検証、R1-L4）。どちらも Medium に引き上げて修正（22b6fff・5b15d5f）、スレッドに返信して Resolve、まとめのコメントを投稿。backlog の R1-L4・R1-L7 を解消に |
+| 2026-11-22 | 6-7 | G2: Copilot のみに依頼（T=2026-11-22T02:47:52Z）。新規 1 件（G2-1、previously missed: タグ単位の `concurrency` が無い、R1-L6）を Medium に引き上げて修正（55c8c2a）、まとめのコメントを投稿。G1-1 は resolved since last review。backlog の R1-L6 を解消に |
