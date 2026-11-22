@@ -5,7 +5,7 @@
 - タスク: Issue #94（無料版）— Markdown 出力で、引用の中（R2-X1）とインライン構文の中（R2-X2: `a` / `strong` / `em` / `summary`）のコードブロックが Python-Markdown（`<a>` の先頭のコードは CommonMark も）で生の HTML になる不具合を直す。計画中に見つけた見出しの先頭のコード（5 描画系すべてで生の `<script>`）も同じ方法で直す。無料版を 1.0.4 に bump
 - 開始: 2026-11-22
 - PR: #102 https://github.com/shinobiashi/saai-knowledge/pull/102
-- 現在のステップ: 8（最終報告）
+- 現在のステップ: **完了**（マージ待ち）
 - モード: `auto-commit`（確認ゲートなし。ラウンド報告のみ）、Codex は `--request-codex`
 - Copilot: 依頼 1 回 / 収束（G1 で新規指摘なし。本文の「Needs a closer look」は実機確認の依頼のみで、実施済み）
 - Codex: 依頼 1 回 / 収束（G1 で新規指摘なし）
@@ -21,3 +21,4 @@
 | 2026-11-22 18:00 | 3 | review-loop R2: APPROVE（R1-1〜R1-4 すべて解消、新規 Critical / High なし。独立レビューが 53 ケースを再実測・ミューテーション 4 件）。R2-2（引用の `pre` の空の分岐がテストで固定されていない。テスト欠落なので Medium として修正、ミューテーションで CAUGHT を確認）、R2-1（アンカーで包んだ画像の後で見出しが割れる、Low）を backlog へ。隣り合うインライン `<code>` の既存不具合は R1-X3 に追記。ループ終了 |
 | 2026-11-22 17:03 | 4 | 初回 push（HEAD 36de14d、T=2026-11-22T08:02:30Z）、PR #102 作成 |
 | 2026-11-22 17:32 | 6-7 | G1: CI green（36de14d）の後に両 bot へ依頼（Copilot は gh pr edit で登録確認、Codex は @codex review）。Codex「Didn't find any major issues」で収束。Copilot はスレッド 0 件、レビュー本文 2 件とも「Needs a closer look」+「No open issues」（理由は「この環境ではレンダラーを再実行できないので人手で確認を」）。実機確認は review-loop で実施済みなので G1-1 を保留（対応済み）とし、収束と判定。修正なし |
+| 2026-11-22 17:52 | 8 | G1 の記録（10c80b7）を push し、ラウンドのサマリコメントを投稿（実機確認の結果つき）。最終報告を作成 |
