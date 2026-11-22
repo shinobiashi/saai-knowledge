@@ -3,7 +3,7 @@ Contributors:      shinobiashi
 Tags:               faq, knowledge-base, glossary, search, structured-data
 Requires at least:  6.9
 Tested up to:       7.1
-Stable tag:         1.0.3
+Stable tag:         1.0.4
 Requires PHP:       8.2
 License:            GPLv2 or later
 License URI:        https://www.gnu.org/licenses/gpl-2.0.html
@@ -109,6 +109,9 @@ No. SAAI Knowledge does not call any external API or service; all processing hap
 6. Term auto-linking tooltip shown on hover.
 
 == Changelog ==
+
+= 1.0.4 =
+* Fixed: in the Markdown versions of your content (`?format=markdown`, the llms.txt index, and the RAG export's `content_markdown`), a code block inside a quote, a link, bold or italic text, the summary of a Details block, or a heading is now written as inline code on one line. Python-Markdown doesn't read a fenced code block inside a quote even with its fenced_code or extra extension; inside a link or emphasized text, the rest of the link or emphasis kept the code block from closing; and at the very start of a link or a heading, no Markdown library read it as a code block. Either way, HTML in a code sample with a blank line, such as `<script>`, was rendered as HTML. Line breaks in such code now show as spaces, as they already did in a list item or a table cell. Run one full export to refresh records you have already imported; cached Markdown pages update on their own within a day.
 
 = 1.0.3 =
 * Fixed: Authors and Contributors can now choose a category in the FAQ List block's settings. The list of categories was requested in a way that requires permission to manage categories, so for these roles it silently showed only "All categories".
