@@ -330,6 +330,7 @@ class Test_Markdown_Converter extends WP_UnitTestCase {
 			Markdown_Converter::convert( '<blockquote><p>outer</p><blockquote><p>inner</p>' . $code . '</blockquote></blockquote>' )
 		);
 		$this->assertSame( "> q\n", Markdown_Converter::convert( '<blockquote><p>q</p><pre></pre><pre> </pre></blockquote>' ) );
+		$this->assertSame( "> a\n> \n> b\n", Markdown_Converter::convert( "<blockquote><p>a</p><pre>\n</pre><p>b</p></blockquote>" ) );
 	}
 
 	/**
