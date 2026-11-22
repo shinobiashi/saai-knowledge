@@ -5,7 +5,7 @@
 - タスク: Issue #100（M5）— 有料版の配布 ZIP を `woo-v<x.y.z>` タグの push で CI がビルド・検証し、draft Release に sha256 と一緒に保管する（`release-woo.yml` 新設、`bin/verify-woo-zip.sh` に `--tag` / `--notes`、ドキュメント）
 - 開始: 2026-11-22
 - PR: #101 https://github.com/shinobiashi/saai-knowledge/pull/101
-- 現在のステップ: 5（CI 待ち → 実地確認〔試しタグ、要承認〕→ ゲート G1）
+- 現在のステップ: 6（ゲート G1 の依頼・待ち）
 - モード: `auto-commit`（確認ゲートなし。ラウンド報告のみ）、Codex は `--request-codex`
 - Copilot: 依頼 0 回 / 未収束
 - Codex: 依頼 0 回 / 未収束
@@ -19,3 +19,4 @@
 | 2026-11-22 | 2 | 実装コミット 3 件（af43846 ワークフロー + スクリプト、32786cf ワークフローのコメント、f23fa50 ドキュメント）。Issue #100 の本文を新方針に更新。ローカル確認: `verify-woo-zip.sh` を引数なし・`--tag woo-v1.0.0`（OK）・`woo-v1.0.1`（版数違い）・`v1.0.0` / `woo-v1.0` / `woo-v1.0.0-rc.1`（形式違い）・値なしの `--tag` / `--notes`・不明なオプション・ZIP 2 つ（usage、exit 2）で確認。`--notes` の SHA-256 は `shasum -a 256` と一致。同じファイルから ZIP を組み直すとバイト単位で一致する（時刻はファイルの更新時刻）ことを確認し、コメントと build-packaging.md の説明を「CI は run ごとに時刻が変わる」に直した。shellcheck・actionlint クリーン。品質チェック green（`composer verify`: PHPCS / PHPStan / PHPUnit 649 件） |
 | 2026-11-22 | 3 | review-loop R1: APPROVE（Critical / High なし。自己レビュー + 独立レビュー〔Fable〕）。Medium 3 件を 7b0be02 で修正: R1-1 トークンを gh の手順だけに渡し checkout は `persist-credentials: false`、R1-2 最後の確認を「draft・添付 2 つ・Release から取った各添付の URL が匿名で 404」に（タグ名の URL は Release が無くても 404 だった）、R1-3 main に無いコミットのタグは警告 + 本文の先頭に CAUTION。Low 7 件・範囲外 1 件（R1-X1、無料版 `release.yml` の同じトークン露出、Medium）を backlog へ。R2: APPROVE（3 件解消・新規なし。独立検証〔Sonnet〕）。ループ終了 |
 | 2026-11-22 | 4 | 初回 push（HEAD 7fe48b6、T=2026-11-21T22:46:50Z）、PR #101 作成 |
+| 2026-11-22 | 5 | CI green（4dd6eec、2 workflow run）。実地確認（ユーザーが一括承認）: 4dd6eec に `woo-v1.0.0` を push → `release-woo.yml` success（run 44963096304、`release.yml` は動かず）、draft に ZIP と `.sha256`、本文の先頭に CAUTION（compare: ahead）、ダウンロードした ZIP が sha256 一致・`verify-woo-zip.sh --tag` OK、draft の添付 URL（`untagged-…`）はログインなしで 404。`woo-v9.9.9` → verify で版数違いの失敗、Release なし（run 44963493423）。draft と両タグを削除。結果を PR 本文に記録 |
