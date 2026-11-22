@@ -155,6 +155,7 @@ main が最後のタグより先に進んでいれば `prep`）。
 - **配布物は ZIP を展開したもの**: `deploy-wporg.yml` は展開した ZIP を SVN の trunk に同期する。Plugin Check も
   ソースではなく展開した ZIP にかける（`.claude/rules/build-packaging.md`）。
 - **有料版は対象外**: Marketplace へのアップロードは `bin/verify-woo-zip.sh` と `docs/MARKETPLACE-PREFLIGHT.md`。
+  有料版のタグは `woo-v<x.y.z>` で、`release-woo.yml` が draft Release に ZIP を置く（`release.yml` の `v*` には一致しない）。
 
 ## 最終報告の形
 

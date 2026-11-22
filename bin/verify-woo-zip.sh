@@ -3,7 +3,14 @@
 # Verify the add-on's (saai-knowledge-for-woocommerce) release ZIP, as built
 # by `npx wp-scripts plugin-zip` in plugins/saai-knowledge-for-woocommerce/.
 #
-#   bin/verify-woo-zip.sh [path/to/saai-knowledge-for-woocommerce.zip]
+#   bin/verify-woo-zip.sh [--tag woo-v<x.y.z>] [--notes <file>] [path/to/saai-knowledge-for-woocommerce.zip]
+#
+#   --tag    also require the tag (woo-v<x.y.z>, nothing after the version: a
+#            version's ZIP is never replaced, a changed ZIP gets a new patch
+#            version) to name the ZIP's version;
+#   --notes  once everything passes, write the GitHub Release body for the ZIP
+#            (versions, requirements, commit, SHA-256) to <file>.
+# .github/workflows/release-woo.yml runs it with both on a woo-v* tag push.
 #
 # Checks what WooCommerce.com and QIT look at when the ZIP is uploaded:
 #   - the runtime files are in it (wp-scripts plugin-zip silently drops any
@@ -21,12 +28,48 @@
 set -euo pipefail
 
 SLUG=saai-knowledge-for-woocommerce
-ZIP="${1:-plugins/$SLUG/$SLUG.zip}"
+ZIP=
+TAG=
+NOTES=
 
 fail() {
 	echo "::error::$1"
 	exit 1
 }
+
+usage() {
+	echo "usage: $0 [--tag woo-v<x.y.z>] [--notes <file>] [path/to/$SLUG.zip]" >&2
+	exit 2
+}
+
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		--tag | --notes)
+			# A missing value, one that looks like another option, or the same
+			# option twice is a mistake: never take `--notes --tag` as a file name.
+			[ "$#" -ge 2 ] && [ -n "$2" ] && [ "${2#-}" = "$2" ] || usage
+			if [ "$1" = --tag ]; then
+				[ -z "$TAG" ] || usage
+				TAG="$2"
+			else
+				[ -z "$NOTES" ] || usage
+				NOTES="$2"
+			fi
+			shift 2
+			;;
+		-*) usage ;;
+		*)
+			[ -z "$ZIP" ] || usage
+			ZIP="$1"
+			shift
+			;;
+	esac
+done
+ZIP="${ZIP:-plugins/$SLUG/$SLUG.zip}"
+
+if [ -n "$TAG" ]; then
+	[[ "$TAG" =~ ^woo-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "Tag $TAG is not woo-v<x.y.z>. Add-on tags carry the version and nothing else: a version's ZIP is never replaced, so a changed ZIP gets a new patch version instead of a suffix."
+fi
 
 [ -f "$ZIP" ] || fail "$ZIP not found — run \`npx wp-scripts plugin-zip\` in plugins/$SLUG first."
 
@@ -90,4 +133,45 @@ WC_MIN_CONSTANT="$(constant SAAI_WOO_MIN_WC_VERSION "$MAIN")"
 [ "$(header 'Requires PHP' "$README")" = "$(header 'Requires PHP' "$MAIN")" ] || fail "readme.txt \"Requires PHP\" does not match $SLUG.php."
 [ "$(header 'Requires at least' "$README")" = "$(header 'Requires at least' "$MAIN")" ] || fail "readme.txt \"Requires at least\" does not match $SLUG.php."
 
-echo "OK: $ZIP — version ${VERSION}, WooCommerce ${WC_MIN} to ${WC_TESTED}."
+if [ -n "$TAG" ]; then
+	[ "${TAG#woo-v}" = "$VERSION" ] || fail "Tag $TAG does not match the ZIP's version ($VERSION)."
+fi
+
+if [ -n "$NOTES" ]; then
+	WP_MIN="$(header 'Requires at least' "$MAIN")"
+	PHP_MIN="$(header 'Requires PHP' "$MAIN")"
+	BASE_MIN="$(constant SAAI_WOO_MIN_BASE_VERSION "$MAIN")"
+	[ -n "$WP_MIN" ] && [ -n "$PHP_MIN" ] && [ -n "$BASE_MIN" ] || fail "$SLUG.php needs \"Requires at least\", \"Requires PHP\", and SAAI_WOO_MIN_BASE_VERSION for the release notes."
+	if command -v sha256sum > /dev/null; then
+		SHA256="$(sha256sum "$ZIP" | cut -d ' ' -f 1)"
+	else
+		SHA256="$(shasum -a 256 "$ZIP" | cut -d ' ' -f 1)"
+	fi
+	COMMIT="$(git -C "$(dirname "$0")/.." rev-parse HEAD)"
+	{
+		echo "The release ZIP of SAAI Knowledge for WooCommerce $VERSION, built from commit $COMMIT and checked by \`bin/verify-woo-zip.sh\`. Upload this file, unchanged, to WooCommerce.com."
+		echo
+		echo "> [!WARNING]"
+		echo "> Keep this release a **draft**. The repository is public, so publishing it would let anyone download the paid add-on."
+		echo
+		echo "| Item | Value |"
+		echo "| --- | --- |"
+		echo "| Version | $VERSION |"
+		[ -z "$TAG" ] || echo "| Tag | $TAG |"
+		echo "| Commit | $COMMIT |"
+		echo "| SHA-256 of $SLUG.zip | \`$SHA256\` |"
+		echo "| WordPress | $WP_MIN or later |"
+		echo "| PHP | $PHP_MIN or later |"
+		echo "| WooCommerce | $WC_MIN or later (tested up to $WC_TESTED) |"
+		echo "| SAAI Knowledge | $BASE_MIN or later |"
+		echo
+		echo "WooCommerce.com adds a \`Woo:\` header to the plugin file on upload, so the ZIP customers download does not match this SHA-256."
+		echo
+		echo "## WooCommerce.com upload"
+		echo
+		echo "- Uploaded: (YYYY-MM-DD)"
+		echo "- Result: (pending)"
+	} > "$NOTES" || fail "Could not write the release notes to $NOTES."
+fi
+
+echo "OK: $ZIP — version ${VERSION}, WooCommerce ${WC_MIN} to ${WC_TESTED}${TAG:+, tag $TAG}."
