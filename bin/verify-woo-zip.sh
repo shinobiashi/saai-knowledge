@@ -171,7 +171,7 @@ if [ -n "$NOTES" ]; then
 		echo
 		echo "- Uploaded: (YYYY-MM-DD)"
 		echo "- Result: (pending)"
-	} > "$NOTES"
+	} > "$NOTES" || fail "Could not write the release notes to $NOTES."
 fi
 
 echo "OK: $ZIP — version ${VERSION}, WooCommerce ${WC_MIN} to ${WC_TESTED}${TAG:+, tag $TAG}."

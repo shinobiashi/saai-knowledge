@@ -95,10 +95,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view "$TAG" > /dev/null 2>&1; then
+          if out="$(gh release view "$TAG" --json tagName 2>&1)"; then
             echo "::error::A release for $TAG already exists. A version's ZIP is never replaced: bump the patch version and tag that instead (or delete the release and the tag by hand if it was never uploaded)."
             exit 1
           fi
+          # Only "not found" lets the run go on: an API or auth failure must
+          # not be read as "no release yet".
+          case "$out" in
+            *"release not found"*) ;;
+            *)
+              echo "::error::Could not tell whether a release for $TAG exists: $out"
+              exit 1
+              ;;
+          esac
 
       - name: Write SHA-256
         working-directory: plugins/saai-knowledge-for-woocommerce
@@ -108,13 +117,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$TAG" \
+          if ! gh release create "$TAG" \
             "plugins/$SLUG/$SLUG.zip" \
             "plugins/$SLUG/$SLUG.zip.sha256" \
             --draft \
             --verify-tag \
             --title "SAAI Knowledge for WooCommerce ${TAG#woo-v}" \
-            --notes-file "$RUNNER_TEMP/notes.md"
+            --notes-file "$RUNNER_TEMP/notes.md"; then
+            # gh leaves a draft whose upload failed half-made. The check above
+            # found no release for the tag before this run, so a draft for it
+            # now is this run's: delete it so that re-running the job works.
+            gh release delete "$TAG" --yes > /dev/null 2>&1 || true
+            echo "::error::Creating the draft release for $TAG failed (a half-made draft, if any, was deleted). Re-run the job."
+            exit 1
+          fi
 
       # The asset URLs come from the release itself (a draft's are not under
       # the tag's name). curl sends no credentials, and without -L a public
