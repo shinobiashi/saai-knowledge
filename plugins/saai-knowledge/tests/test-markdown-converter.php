@@ -188,17 +188,17 @@ class Test_Markdown_Converter extends WP_UnitTestCase {
 	}
 
 	/**
-	 * A lone "\r" in a code block becomes "\n" (and "\r\n" one "\n"), so
-	 * every line of it gets the quote's "> " prefix and a table row stays on
-	 * one line: renderers also end a line at "\r", so the rest of the line
-	 * left the quote's fence or split the row, and its `<img onerror>`
-	 * rendered as raw HTML (Issue #84 review R1-1).
+	 * A lone "\r" in a code block stays inside a quote and a table cell:
+	 * renderers also end a line at "\r", so the rest of the line left the
+	 * quote's fence or split the row, and its `<img onerror>` rendered as
+	 * raw HTML (Issue #84 review R1-1). Both now hold the code as a code
+	 * span on one line, with a space for each line ending (Issue #94).
 	 */
 	public function test_code_block_carriage_returns_stay_inside_a_quote_and_a_table_cell() {
 		$code = 'a&#13;&lt;img src=x onerror=alert(1)&gt;&#13;&#10;b';
 
 		$this->assertSame(
-			"> ```\n> a\n> <img src=x onerror=alert(1)>\n> b\n> ```\n",
+			"> `a <img src=x onerror=alert(1)> b`\n",
 			Markdown_Converter::convert( '<blockquote class="wp-block-quote"><pre><code>' . $code . '</code></pre></blockquote>' )
 		);
 
@@ -277,6 +277,7 @@ class Test_Markdown_Converter extends WP_UnitTestCase {
 	/**
 	 * A code block after a list, or inside a blockquote, starts at the
 	 * start of its line (after the "> " prefix in a blockquote) (Issue #81).
+	 * In a blockquote it's a code span (Issue #94).
 	 */
 	public function test_code_after_a_list_or_inside_a_quote_starts_at_the_line_start() {
 		$code = '<pre><code>&lt;b&gt;x&lt;/b&gt;</code></pre>';
@@ -286,8 +287,202 @@ class Test_Markdown_Converter extends WP_UnitTestCase {
 			Markdown_Converter::convert( "<ul><li>a</li><li>b</li></ul>\n\n" . $code )
 		);
 		$this->assertSame(
-			"> q\n> \n> ```\n> <b>x</b>\n> ```\n",
+			"> q\n> \n> `<b>x</b>`\n",
 			Markdown_Converter::convert( "<blockquote class=\"wp-block-quote\">\n<p>q</p>\n" . $code . "\n</blockquote>" )
+		);
+	}
+
+	/**
+	 * A code block anywhere inside a quote is a code span on a line of its
+	 * own, its line endings spaces: Python-Markdown reads no fence inside a
+	 * quote even with its fenced_code or extra extension, so a sample with
+	 * a blank line rendered its `<script>` as a raw element (Issue #94).
+	 * The delimiter is longer than any backtick run in the code, the code
+	 * stays apart from the text around it, and a list before it in the same
+	 * quote (after which an indented code block would continue the item)
+	 * changes nothing.
+	 */
+	public function test_code_block_inside_a_quote_is_a_code_span() {
+		$code = "<pre><code>a\n\n&lt;script&gt;y&lt;/script&gt;</code></pre>";
+
+		$this->assertSame(
+			"> q\n> \n> `a  <script>y</script>`\n> \n> after\n",
+			Markdown_Converter::convert( '<blockquote class="wp-block-quote"><p>q</p>' . $code . '<p>after</p></blockquote>' )
+		);
+		$this->assertSame(
+			"> ```a``b```\n",
+			Markdown_Converter::convert( '<blockquote><pre>a``b</pre></blockquote>' )
+		);
+		$this->assertSame(
+			"> `` `a` ``\n",
+			Markdown_Converter::convert( '<blockquote><pre>`a`</pre></blockquote>' )
+		);
+		$this->assertSame(
+			"> `a  <script>y</script>`\n",
+			Markdown_Converter::convert( '<blockquote><div class="wp-block-group">' . $code . '</div></blockquote>' )
+		);
+		$this->assertSame(
+			"> \\- i\n> \n> `a  <script>y</script>`\n",
+			Markdown_Converter::convert( '<blockquote><ul><li>i</li></ul>' . $code . '</blockquote>' )
+		);
+		$this->assertStringEndsWith(
+			"\\> `a  <script>y</script>`\n",
+			Markdown_Converter::convert( '<blockquote><p>outer</p><blockquote><p>inner</p>' . $code . '</blockquote></blockquote>' )
+		);
+		$this->assertSame( "> q\n", Markdown_Converter::convert( '<blockquote><p>q</p><pre></pre><pre> </pre></blockquote>' ) );
+		$this->assertSame( "> a\n> \n> b\n", Markdown_Converter::convert( "<blockquote><p>a</p><pre>\n</pre><p>b</p></blockquote>" ) );
+	}
+
+	/**
+	 * A quote's code span stays one when the quote is joined into a line —
+	 * in a list item, a table cell or a link — or holds a list item or a
+	 * link itself. An empty <pre> in such a quote writes nothing: its "``"
+	 * paired with the "``" in the next code sample and ended that span
+	 * early, so the sample's `<script>` rendered as raw HTML in every
+	 * renderer (Issue #94 review).
+	 */
+	public function test_quoted_code_joined_into_a_line_stays_a_code_span() {
+		$code = "<pre><code>a\n\n&lt;script&gt;y&lt;/script&gt;</code></pre>";
+		$tick = "<pre>a`` \n\n&lt;script&gt;y&lt;/script&gt;</pre>";
+
+		$this->assertSame(
+			"- \\> ```a`` <script>y</script>```\n",
+			Markdown_Converter::convert( '<ul><li><blockquote><pre></pre>' . $tick . '</blockquote></li></ul>' )
+		);
+		$this->assertSame(
+			"| H |\n| --- |\n| > ```a``   <script>y</script>``` |\n",
+			Markdown_Converter::convert( '<table><tr><th>H</th></tr><tr><td><blockquote><pre> </pre>' . $tick . '</blockquote></td></tr></table>' )
+		);
+		$this->assertSame(
+			"- \\> `a <script>y</script>`\n",
+			Markdown_Converter::convert( '<ul><li><blockquote>' . $code . '</blockquote></li></ul>' )
+		);
+		$this->assertSame(
+			"> \\- i`a <script>y</script>`\n",
+			Markdown_Converter::convert( '<blockquote><ul><li>i' . $code . '</li></ul></blockquote>' )
+		);
+		$this->assertSame(
+			"> [t `a <script>y</script>`](<https://example.com/>)\n",
+			Markdown_Converter::convert( '<blockquote><p><a href="https://example.com/">t' . $code . '</a></p></blockquote>' )
+		);
+		$this->assertSame(
+			"[> `a <script>y</script>`](<https://example.com/>)\n",
+			Markdown_Converter::convert( '<p><a href="https://example.com/"><blockquote>' . $code . '</blockquote></a></p>' )
+		);
+	}
+
+	/**
+	 * An empty inline <code> writes nothing: "``" isn't a code span but a
+	 * run of two backticks, which paired with the "``" in a later code span
+	 * of the same paragraph, so the rest of that span's code rendered as raw
+	 * HTML (Issue #94 review).
+	 */
+	public function test_empty_inline_code_writes_nothing() {
+		$this->assertSame(
+			"and ```a`` <script>y</script>```\n",
+			Markdown_Converter::convert( '<p><code></code> and <code>a`` &lt;script&gt;y&lt;/script&gt;</code></p>' )
+		);
+	}
+
+	/**
+	 * An <a> without an href writes no Markdown syntax, so it passes its
+	 * content through as a <span> does: a code block in it is a fence on
+	 * lines of its own. Joined into one line, its bare code span ran into
+	 * the backticks of inline code beside it, or Python-Markdown read the
+	 * line ("``` { ```\}") as an opening fence, and the code's `<script>`
+	 * rendered as raw HTML (Issue #94 review). Its whitespace is kept, as a
+	 * <span>'s is.
+	 */
+	public function test_anchor_without_href_passes_its_content_through() {
+		$code = "<pre><code>a\n\n&lt;script&gt;y&lt;/script&gt;</code></pre>";
+
+		$this->assertSame(
+			"`x`\n\n```\na\n\n<script>y</script>\n```\n",
+			Markdown_Converter::convert( '<p><code>x</code><a name="n">' . $code . '</a></p>' )
+		);
+		$this->assertSame(
+			"```\na\n\n<script>y</script>\n```\n\n`z`\n",
+			Markdown_Converter::convert( '<p><a name="n">' . $code . '</a><code>z</code></p>' )
+		);
+		$this->assertSame(
+			"```\n{\n```\n\n\\}\n\n```\nb\n```\n",
+			Markdown_Converter::convert( '<div><a name="x"><pre>{</pre></a>}</div><pre>b</pre>' )
+		);
+		$this->assertSame( "a b c\n", Markdown_Converter::convert( '<p>a<a id="n"> b </a>c</p>' ) );
+	}
+
+	/**
+	 * A code block inside a link, emphasis, a <summary> or a heading is
+	 * joined into one line with the rest of that element's content, as in a
+	 * list item, so its fence becomes a code span: the syntax after a fence
+	 * ("```](…)", "```**") kept it from closing, so Python-Markdown parsed
+	 * the code as Markdown, and a fence at the very start ("[```",
+	 * "## ```") didn't open one, so CommonMark did too; a sample with a
+	 * blank line rendered its `<script>` as a raw element (Issue #94).
+	 */
+	public function test_code_block_inside_inline_syntax_or_a_heading_is_one_line() {
+		$code = "<pre><code>a\n\n&lt;script&gt;y&lt;/script&gt;</code></pre>";
+
+		$this->assertSame(
+			"[text ``` a <script>y</script> ```](<https://example.com/>)\n",
+			Markdown_Converter::convert( '<p><a href="https://example.com/">text' . $code . '</a></p>' )
+		);
+		$this->assertSame(
+			"[``` a <script>y</script> ```](<https://example.com/>)\n",
+			Markdown_Converter::convert( '<p><a href="https://example.com/">' . $code . '</a></p>' )
+		);
+		$this->assertSame(
+			"**B ``` a <script>y</script> ``` tail**\n",
+			Markdown_Converter::convert( '<p><strong>B' . $code . 'tail</strong></p>' )
+		);
+		$this->assertSame(
+			"_E ``` a <script>y</script> ```_\n",
+			Markdown_Converter::convert( '<p><em>E' . $code . '</em></p>' )
+		);
+		$this->assertSame(
+			"_I ``` a <script>y</script> ```_\n",
+			Markdown_Converter::convert( '<p><i>I' . $code . '</i></p>' )
+		);
+		$this->assertSame(
+			"**Q ``` a <script>y</script> ```**\n\nA\n",
+			Markdown_Converter::convert( '<details><summary>Q' . $code . '</summary><p>A</p></details>' )
+		);
+		$this->assertSame(
+			"## ``` a <script>y</script> ```\n\nafter\n",
+			Markdown_Converter::convert( '<h2>' . $code . '</h2><p>after</p>' )
+		);
+		$this->assertSame(
+			"## T ``` a <script>y</script> ```\n",
+			Markdown_Converter::convert( '<h2>T' . $code . '</h2>' )
+		);
+		$this->assertSame(
+			"**[x ``` a <script>y</script> ```](<https://example.com/>)**\n",
+			Markdown_Converter::convert( '<p><strong><a href="https://example.com/">x<span>' . $code . '</span></a></strong></p>' )
+		);
+	}
+
+	/**
+	 * A link or emphasis holding a code block no longer starts a new block:
+	 * the code is a code span on the link's line, so the sentence around it
+	 * stays one paragraph (Issue #94). Any other inline element holding one
+	 * still does, and the content of a link without code isn't joined.
+	 */
+	public function test_inline_syntax_holding_code_stays_in_its_sentence() {
+		$this->assertSame(
+			"See [this ``` x y ```](<https://example.com/>) here\n",
+			Markdown_Converter::convert( "<p>See <a href=\"https://example.com/\">this<pre>x\ny</pre></a> here</p>" )
+		);
+		$this->assertSame(
+			"See **bold ``` x ```** here\n",
+			Markdown_Converter::convert( '<div>See <b>bold<pre>x</pre></b> here</div>' )
+		);
+		$this->assertSame(
+			"prefix\n\n```\nx\n```\n",
+			Markdown_Converter::convert( '<div>prefix<ins><pre>x</pre></ins></div>' )
+		);
+		$this->assertSame(
+			"[a  \nb](<https://example.com/>)\n",
+			Markdown_Converter::convert( '<p><a href="https://example.com/">a<br>b</a></p>' )
 		);
 	}
 
